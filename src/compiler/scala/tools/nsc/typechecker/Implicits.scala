@@ -13,11 +13,11 @@ package tools.nsc
 package typechecker
 
 import scala.annotation.tailrec
-import scala.collection.{ mutable, immutable }
-import mutable.{ LinkedHashMap, ListBuffer }
+import scala.collection.{immutable, mutable}
+import mutable.{LinkedHashMap, ListBuffer}
 import scala.util.matching.Regex
 import symtab.Flags._
-import scala.reflect.internal.util.{TriState, Statistics}
+import scala.reflect.internal.util.{Statistics, TriState}
 import scala.language.implicitConversions
 
 /** This trait provides methods to find various kinds of implicits.
@@ -400,12 +400,23 @@ trait Implicits {
         val syms = for (t <- tp; if t.typeSymbol.isTypeParameter) yield t.typeSymbol
         deriveTypeWithWildcards(syms.distinct)(tp)
       }
+
+      @tailrec
+      def cpMapCount(sum: Int, l: List[Implicits.this.global.Type]): Int = {
+        l match {
+          case h :: rest =>
+            cpMapCount(sum + complexity(h), rest)
+          case Nil =>
+            sum
+        }
+      }
+
       def complexity(tp: Type): Int = tp.dealias match {
         case NoPrefix                => 0
         case SingleType(pre, sym)    => if (sym.hasPackageFlag) 0 else complexity(tp.dealiasWiden)
         case ThisType(sym)           => if (sym.hasPackageFlag) 0 else 1
-        case TypeRef(pre, sym, args) => complexity(pre) + (args map complexity).sum + 1
-        case RefinedType(parents, _) => (parents map complexity).sum + 1
+        case TypeRef(pre, sym, args) => complexity(pre) + cpMapCount(0,args) + 1
+        case RefinedType(parents, _) => cpMapCount(0,parents) + 1
         case _                       => 1
       }
       def overlaps(tp1: Type, tp2: Type): Boolean = (tp1, tp2) match {

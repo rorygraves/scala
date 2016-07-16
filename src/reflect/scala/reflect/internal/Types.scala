@@ -1842,7 +1842,7 @@ trait Types
   private val pendingVolatiles = new mutable.HashSet[Symbol]
 
   class ArgsTypeRef(pre0: Type, sym0: Symbol, args0: List[Type]) extends TypeRef(pre0, sym0, args0) {
-    require(args0 ne Nil, this)
+    requireCM(args0 ne Nil, this)
 
     /** No unapplied type params size it has (should have) equally as many args. */
     override def isHigherKinded = false
@@ -1895,7 +1895,7 @@ trait Types
   }
 
   class ModuleTypeRef(pre0: Type, sym0: Symbol) extends NoArgsTypeRef(pre0, sym0) with ClassTypeRef {
-    require(sym.isModuleClass, sym)
+    requireCM(sym.isModuleClass, sym)
     private[this] var narrowedCache: Type = _
     override def narrow = {
       if (narrowedCache eq null)
@@ -1910,11 +1910,11 @@ trait Types
     override def prefixString = if (sym.isOmittablePrefix) "" else prefix.prefixString + sym.nameString + "."
   }
   class PackageTypeRef(pre0: Type, sym0: Symbol) extends ModuleTypeRef(pre0, sym0) {
-    require(sym.isPackageClass, sym)
+    requireCM(sym.isPackageClass, sym)
     override protected def finishPrefix(rest: String) = packagePrefix + rest
   }
   class RefinementTypeRef(pre0: Type, sym0: Symbol) extends NoArgsTypeRef(pre0, sym0) with ClassTypeRef {
-    require(sym.isRefinementClass, sym)
+    requireCM(sym.isRefinementClass, sym)
 
     // I think this is okay, but see #1241 (r12414), #2208, and typedTypeConstructor in Typers
     override protected def normalizeImpl: Type = sym.info.normalize
@@ -1974,7 +1974,7 @@ trait Types
   }
 
   trait NonClassTypeRef extends TypeRef {
-    require(sym.isNonClassType, sym)
+    requireCM(sym.isNonClassType, sym)
 
     /* Syncnote: These are pure caches for performance; no problem to evaluate these
      * several times. Hence, no need to protected with synchronized in a multi-threaded

@@ -170,6 +170,12 @@ object Predef extends LowPriorityImplicits with DeprecatedPredef {
       throw new java.lang.AssertionError("assertion failed: "+ message)
   }
 
+  @elidable(ASSERTION) @inline
+  final def assertCM(assertion: Boolean, message: Any) {
+    if (!assertion)
+      throw new java.lang.AssertionError("assertion failed: "+ message)
+  }
+
   /** Tests an expression, throwing an `AssertionError` if false.
    *  This method differs from assert only in the intent expressed:
    *  assert contains a predicate which needs to be proven, while
@@ -220,6 +226,11 @@ object Predef extends LowPriorityImplicits with DeprecatedPredef {
    *  @param message       a String to include in the failure message
    */
   @inline final def require(requirement: Boolean, message: => Any) {
+    if (!requirement)
+      throw new IllegalArgumentException("requirement failed: "+ message)
+  }
+
+  @inline final def requireCM(requirement: Boolean, message: Any) {
     if (!requirement)
       throw new IllegalArgumentException("requirement failed: "+ message)
   }

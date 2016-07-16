@@ -3704,8 +3704,8 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
 
   /** A class for type histories */
   private case class TypeHistory(var validFrom: Period, info: Type, prev: TypeHistory) {
-    assert((prev eq null) || phaseId(validFrom) > phaseId(prev.validFrom), this)
-    assert(validFrom != NoPeriod, this)
+    assertCM((prev eq null) || phaseId(validFrom) > phaseId(prev.validFrom), this)
+    assertCM(validFrom != NoPeriod, this)
 
     private def phaseString = "%s: %s".format(phaseOf(validFrom), info)
     override def toString = toList reverseMap (_.phaseString) mkString ", "
