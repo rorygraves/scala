@@ -261,7 +261,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
       body
   }
 
-  override protected def isDeveloper = settings.developer || super.isDeveloper
+  override protected def isDeveloper = settings.developer.boolValue || super.isDeveloper
 
   /** This is for WARNINGS which should reach the ears of scala developers
    *  whenever they occur, but are not useful for normal users. They should
@@ -290,7 +290,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
   }
 
   @inline final override def debuglog(msg: => String) {
-    if (settings.debug)
+    if (settings.debug.boolValue)
       log(msg)
   }
 
