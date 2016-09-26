@@ -244,7 +244,17 @@ class Regex private[matching](val pattern: Pattern, groupNames: String*) extends
     case null => None
     case _    =>
       val m = pattern matcher s
-      if (runMatcher(m)) Some((1 to m.groupCount).toList map m.group)
+      if (runMatcher(m)) {
+        // Some((1 to m.groupCount).toList map m.group)
+        // optimised version of above - iterate backwards to avoid creating list buffer
+        var index = m.groupCount()
+        var list: List[String] = Nil
+        while(index >= 1) {
+          list = m.group(index) :: list
+          index -= 1
+        }
+        Some(list)
+      }
       else None
   }
 
