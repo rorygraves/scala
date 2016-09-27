@@ -58,7 +58,7 @@ final class WeakHashSet[A <: AnyRef](val initialCapacity: Int, val loadFactor: D
    */
   private[this] var threshold = computeThreshold
 
-  private[this] def computeThreshold: Int = (table.size * loadFactor).ceil.toInt
+  private[this] def computeThreshold: Int = (table.length * loadFactor).ceil.toInt
 
   /**
    * find the bucket associated with an element's hash code
@@ -120,11 +120,11 @@ final class WeakHashSet[A <: AnyRef](val initialCapacity: Int, val loadFactor: D
    */
   private[this] def resize() {
     val oldTable = table
-    table = new Array[Entry[A]](oldTable.size * 2)
+    table = new Array[Entry[A]](oldTable.length * 2)
     threshold = computeThreshold
 
     @tailrec
-    def tableLoop(oldBucket: Int): Unit = if (oldBucket < oldTable.size) {
+    def tableLoop(oldBucket: Int): Unit = if (oldBucket < oldTable.length) {
       @tailrec
       def linkedListLoop(entry: Entry[A]): Unit = entry match {
         case null => ()
@@ -251,7 +251,7 @@ final class WeakHashSet[A <: AnyRef](val initialCapacity: Int, val loadFactor: D
 
   // empty this set
   override def clear(): Unit = {
-    table = new Array[Entry[A]](table.size)
+    table = new Array[Entry[A]](table.length)
     threshold = computeThreshold
     count = 0
 
@@ -285,7 +285,7 @@ final class WeakHashSet[A <: AnyRef](val initialCapacity: Int, val loadFactor: D
       /**
        * the bucket currently being examined. Initially it's set past the last bucket and will be decremented
        */
-      private[this] var currentBucket: Int = table.size
+      private[this] var currentBucket: Int = table.length
 
       /**
        * the entry that was last examined
@@ -342,7 +342,7 @@ final class WeakHashSet[A <: AnyRef](val initialCapacity: Int, val loadFactor: D
     def fullyValidate: Unit = {
       var computedCount = 0
       var bucket = 0
-      while (bucket < table.size) {
+      while (bucket < table.length) {
         var entry = table(bucket)
         while (entry != null) {
           assert(entry.get != null, s"$entry had a null value indicated that gc activity was happening during diagnostic validation or that a null value was inserted")
@@ -382,7 +382,7 @@ final class WeakHashSet[A <: AnyRef](val initialCapacity: Int, val loadFactor: D
     /**
      *  Number of buckets in the table
      */
-    def bucketsCount: Int = table.size
+    def bucketsCount: Int = table.length
   }
 
   private[util] def diagnostics = new Diagnostics
