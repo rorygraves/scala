@@ -47,6 +47,11 @@ trait Mirrors extends api.Mirrors {
       val name = path subName (point + 1, len)
       val sym = owner.info member name
       val result = if (path.isTermName) sym.suchThat(_ hasFlag MODULE) else sym
+//      println (s"point $point")
+//      println (s"owner $owner")
+//      println (s"name $name")
+//      println (s"sym $sym")
+//      println (s"result $result")
       if (result != NoSymbol) result
       else {
         if (settings.debug) { log(sym.info); log(sym.info.members) }//debug

@@ -35,7 +35,7 @@ abstract class UnPickler {
    */
   def unpickle(bytes: Array[Byte], offset: Int, classRoot: Symbol, moduleRoot: Symbol, filename: String) {
     try {
-      new Scan(bytes, offset, classRoot, moduleRoot, filename).run()
+      newScan(bytes, offset, classRoot, moduleRoot, filename).run()
     } catch {
       case ex: IOException =>
         throw ex
@@ -46,6 +46,8 @@ abstract class UnPickler {
         throw new RuntimeException("error reading Scala signature of "+filename+": "+ex.getMessage())
     }
   }
+  protected def newScan (_bytes: Array[Byte], offset: Int, classRoot: Symbol, moduleRoot: Symbol, filename: String) :Scan =
+    new Scan(_bytes, offset, classRoot, moduleRoot, filename)
 
   class Scan(_bytes: Array[Byte], offset: Int, classRoot: Symbol, moduleRoot: Symbol, filename: String) extends PickleBuffer(_bytes, offset, -1) {
     //println("unpickle " + classRoot + " and " + moduleRoot)//debug

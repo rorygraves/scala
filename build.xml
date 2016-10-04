@@ -706,12 +706,15 @@ TODO:
     <property name="scalap.description"            value="Scala Bytecode Parser"/>
     <property name="scalap.targetjar"              value="scalap.jar"/>
 
+    <property name="linkertool.description"            value="Scala LinkerTool"/>
+    <property name="linkertool.targetjar"              value="linkertool.jar"/>
+
     <property name="partest.description"           value="Scala Compiler Testing Tool"/>
     <property name="partest-extras.description"    value="Scala Compiler Testing Tool (compiler-specific extras)"/>
     <property name="partest-javaagent.description" value="Scala Compiler Testing Tool (compiler-specific java agent)"/>
 
     <!-- projects without project-specific options: forkjoin, manual, bin, repl -->
-    <for list="actors,compiler,interactive,scaladoc,library,parser-combinators,partest,partest-extras,partest-javaagent,reflect,scalap,swing,xml,continuations-plugin,continuations-library,repl-jline" param="project">
+    <for list="actors,compiler,interactive,scaladoc,library,parser-combinators,partest,partest-extras,partest-javaagent,reflect,scalap,linkertool,swing,xml,continuations-plugin,continuations-library,repl-jline" param="project">
       <sequential>
         <!-- description is mandatory -->
         <init-project-prop project="@{project}" name="package"     default=""/> <!-- used by mvn-package, copy-bundle, make-bundle -->
@@ -828,6 +831,11 @@ TODO:
       <pathelement location="${build-quick.dir}/classes/scalap"/>
     </path>
 
+    <path id="quick.linkertool.build.path">
+      <path refid="quick.compiler.build.path"/>
+      <pathelement location="${build-quick.dir}/classes/linkertool"/>
+    </path>
+
     <path id="quick.partest-extras.build.path">
       <path refid="asm.classpath"/>
       <path refid="partest.classpath"/>
@@ -857,6 +865,7 @@ TODO:
       <path refid="quick.repl-jline.build.path"/>
       <path refid="quick.actors.build.path"/>
       <pathelement location="${build-quick.dir}/classes/scalap"/>
+      <pathelement location="${build-quick.dir}/classes/linkertool"/>
       <pathelement location="${build-quick.dir}/classes/scaladoc"/>
       <path refid="external-modules-nocore"/>
     </path>
@@ -885,6 +894,7 @@ TODO:
       <pathelement location="${compiler.jar}"/>
       <!-- TODO modularize compiler: <pathelement location="${scaladoc.jar}"/> -->
       <pathelement location="${scalap.jar}"/>
+      <pathelement location="${linkertool.jar}"/>
       <path refid="repl.deps.classpath"/>
       <path refid="aux.libs"/>
     </path>
@@ -919,6 +929,7 @@ TODO:
 
     <path id="pack.reflect.files">    <fileset dir="${build-quick.dir}/classes/reflect"/> </path>
     <path id="pack.scalap.files">     <fileset dir="${build-quick.dir}/classes/scalap"/>  </path>
+    <path id="pack.linkertool.files">     <fileset dir="${build-quick.dir}/classes/linkertool"/>  </path>
 
     <path id="pack.partest-extras.files"> <fileset dir="${build-quick.dir}/classes/partest-extras"/> </path>
     <path id="pack.partest-javaagent.files"> <fileset dir="${build-quick.dir}/classes/partest-javaagent"/> </path>
@@ -948,6 +959,7 @@ TODO:
     <path id="docs.scaladoc.build.path">              <path refid="quick.scaladoc.build.path"/> </path>
     <path id="docs.interactive.build.path">           <path refid="quick.interactive.build.path"/> </path>
     <path id="docs.scalap.build.path">                <path refid="quick.scalap.build.path"/>   </path>
+    <path id="docs.linkertool.build.path">                <path refid="quick.linkertool.build.path"/>   </path>
     <path id="docs.actors.build.path">                <path refid="quick.actors.build.path"/>   </path>
 
     <!-- run-time classpath for scaladoc TODO: resolve through maven -->
@@ -1006,6 +1018,7 @@ TODO:
 
       <!-- TODO: move scalap & actors out of repo -->
       <pathelement location="${scalap.jar}"/>
+      <pathelement location="${linkertool.jar}"/>
       <pathelement location="${actors.jar}"/>
 
       <!-- partest's dependencies, which marks most of its dependencies as provided,
@@ -1285,7 +1298,7 @@ TODO:
   <target name="pack.core" depends="pack.reflect, pack.comp, pack.lib"/>
 
   <!-- TODO modularize compiler: pack.scaladoc, pack.interactive, -->
-  <target name="pack.modules" depends="pack.actors, pack.scalap">
+  <target name="pack.modules" depends="pack.actors, pack.scalap, pack.linkertool">
     <copy todir="${build-pack.dir}/lib">
       <path refid="external-modules-nocore" />
       <mapper type="flatten" />

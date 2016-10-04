@@ -1,0 +1,1 @@
+-classpath /Users/rorygraves/.ivy2/cache/org.scala-lang/scala-library/jars/scala-library-2.11.8.jar:/Users/rorygraves/.ivy2/cache/args4j/args4j/bundles/args4j-2.33.jar:/Users/rorygraves/.ivy2/cache/org.ow2.asm/asm/jars/asm-5.1.jar /workspace/scala/jarshrink/src/main/scala/scala.tools.jarshrink/JarShrink.scala

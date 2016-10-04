@@ -11,7 +11,7 @@ package jvm
 
 import scala.collection.mutable
 import scala.reflect.internal.util.Statistics
-
+import scala.reflect.io.AbstractFile
 import scala.tools.asm
 import scala.tools.asm.tree.ClassNode
 
@@ -343,6 +343,20 @@ abstract class GenBCode extends BCodeSyncAndTry {
        */
     }
 
+    def addAdditionalFiles(): Unit = {
+      //TODO should be ia a registration
+      //TODO check all registration doesn't overlap
+      //TODO should cope with modification of files - e.g. incremental
+      val files = global.linker.getFiles
+      files foreach {
+        case (name, data) =>
+          val split = name.lastIndexOf('/')
+          val (dir, localName ) = if (split == -1) ("", name) else (name.substring(0,split), name.substring(split+1))
+          q3.add(Item3(arrivalPos, null, SubItem3(localName,data), null, AbstractFile.getFile(dir)))
+          arrivalPos += 1
+      }
+    }
+
     /*
      *  Sequentially:
      *    (a) place all ClassDefs in queue-1
@@ -351,6 +365,7 @@ abstract class GenBCode extends BCodeSyncAndTry {
      *    (d) serialize to disk by draining queue-3.
      */
     private def buildAndSendToDisk(needsOutFolder: Boolean) {
+      addAdditionalFiles()
 
       feedPipeline1()
       val genStart = Statistics.startTimer(BackendStats.bcodeGenStat)

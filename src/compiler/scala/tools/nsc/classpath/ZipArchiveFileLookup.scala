@@ -39,6 +39,21 @@ trait ZipArchiveFileLookup[FileEntryType <: ClassRepClassPathEntry] extends Flat
       entry <- dirEntry.iterator if isRequiredFileType(entry)
     } yield createFileEntry(entry)
 
+//  def loadLinkerData(is: InputStream): Boolean = {
+//
+//    println("Loading linker data for " + file)
+//    LinkerSymbol.readFrom(is)
+//    false
+//  }
+//
+//
+//  // if it exists in the achive load the linker data
+//  val linkerRawOpt = Option(zipFile.getEntry("META-INF/language/scala/linker.eager.ser"))
+//  val linkerOpt = linkerRawOpt.map(e => loadLinkerData(zipFile.getInputStream(e)))
+//
+
+
+
   override private[nsc] def list(inPackage: String): FlatClassPathEntries = {
     val foundDirEntry = findDirEntry(inPackage)
 
