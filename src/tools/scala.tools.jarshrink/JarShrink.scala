@@ -1,4 +1,5 @@
 package scala.tools.jarshrink
+
 import java.io.{BufferedOutputStream, File, FileOutputStream}
 import java.util.jar.{JarEntry, JarFile, JarOutputStream}
 import java.util.zip.{CRC32, ZipEntry}
