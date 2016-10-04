@@ -1,5 +1,3 @@
-package scala.tools.jarshrink
-
 import java.io.{BufferedOutputStream, File, FileOutputStream}
 import java.util.jar.{JarEntry, JarFile, JarOutputStream}
 import java.util.zip.{CRC32, ZipEntry}
@@ -13,7 +11,7 @@ import scala.annotation.tailrec
 import scala.collection.JavaConversions._
 import scala.collection.mutable
 import scala.util.matching.Regex
-//e.g. run with -in "C:/Program Files/Java/jdk1.7.0_79/jre/lib/rt.jar" -sd -si -v -over
+
 trait JarShrinkCommandLine{ self: App =>
   import org.kohsuke.args4j.Option
   import scala.collection.breakOut
@@ -44,6 +42,11 @@ trait JarShrinkCommandLine{ self: App =>
     usage=" strip inner classes that are not referenced in the outer class"  )
   private var stripInnerV:Boolean = _
   def stripInner = stripInnerV
+
+  @Option(name="-ss", aliases=Array("--stripScala"),
+    usage="reduce to the minimum, classes compiled withthe scalac compiler, making use of the scala special attributes"  )
+  private var stripScalaV:Boolean = _
+  def stripScala = stripScalaV
 
   @Option(name="-sp", aliases=Array("--stripPackageRegex"), handler = classOf[StringArrayOptionHandler],
     usage=""" strip class/field/method which are java package protected, where th class matches these regex. This can take a list of regex values, e.g. -sp "sun\\..*  """)
@@ -159,7 +162,10 @@ object JarShrink extends App with JarShrinkCommandLine{
     val allClassesToExclude = (allScanners.keySet -- allClasses.toSet).toSet
     for (classToWrite <- allClasses) {
       val scanner = allScanners(classToWrite)
-      val reader = new LocalClassCopier(allClassesToExclude, scanner.internalClassName, scanner.javaClassName, scanner.fieldsToKeep.toSet, scanner.methodsToKeep.toSet)
+      val reader: BaseClassCopier =
+        if (stripScala && (scanner.scalaSignature.isDefined || scanner.scalaTopLevel.isDefined))
+          new LocalClassCopier(allClassesToExclude, scanner.internalClassName, scanner.javaClassName, scanner.fieldsToKeep.toSet, scanner.methodsToKeep.toSet)
+        else new ScalaClassCopier(scanner.internalClassName, scanner.javaClassName)
       val cr = new ClassReader(readAll(in, in.getEntry(scanner.entryName)))
       cr.accept(reader, ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES)
       val result = reader.data
@@ -171,7 +177,6 @@ object JarShrink extends App with JarShrinkCommandLine{
       out.putNextEntry(zip)
       out.write(result)
       out.closeEntry()
-
     }
     out.flush()
     out.close()
@@ -206,6 +211,8 @@ object JarShrink extends App with JarShrinkCommandLine{
     var stripPackage = false
     def isInnerClass = outerClass ne null
     var outerClass: String = _
+    var scalaSignature = Option.empty[(String,Any)]
+    var scalaTopLevel = Option.empty[(String,Any)]
     def dontWrite(reason:String) ={
       if (shouldWrite) trace(s"class $internalClassName is not written - $reason")
       shouldWrite = false
@@ -213,6 +220,45 @@ object JarShrink extends App with JarShrinkCommandLine{
     def dontWritePart(part:String, name:String, reason:String) ={
       if (shouldWrite) trace(s"class $internalClassName $part $name, is not written - $reason")
       null
+    }
+    class CommonAnnotationVisitor(val source:String) extends AnnotationVisitor(ASM5) {
+      def seen (value:Any): Unit = {
+        value match {
+          case array: Array[t] => array foreach seen
+          case t:Type => keepTypes(source, t)
+          case _ => //ignore primatives
+        }
+      }
+      override def visit(name: String, value: Any) = seen(value)
+      override def visitEnum(name: String, desc: String, value: String) {}
+      override def visitAnnotation(name: String, desc: String): AnnotationVisitor = this
+      override def visitArray(name: String): AnnotationVisitor = this
+      override def visitEnd() =()
+    }
+    class TopAnnotationVisitor(source:String) extends CommonAnnotationVisitor(source) {
+      override def visit(name: String, value: Any) = name match {
+        case "ScalaSignature" | "ScalaLongSignature" =>
+          scalaSignature = Some(name,value)
+        case "ScalaSig" =>
+          scalaTopLevel = Some(name,value)
+        case _ => super.visit(name,value)
+      }
+    }
+    class ClassFieldVisiter(val name:String) extends FieldVisitor(ASM5) {
+      override def visitAnnotation(desc: String, visible: Boolean): AnnotationVisitor =
+        new CommonAnnotationVisitor(s"field $name")
+      override def visitTypeAnnotation(typeRef: Int, typePath: TypePath, desc: String, visible: Boolean): AnnotationVisitor =
+        new CommonAnnotationVisitor(s"field $name")
+      override def visitAttribute(attr: Attribute) = ()
+      override def visitEnd() =()
+    }
+    class ClassMethodVisiter(val name:String, val desc:String) extends MethodVisitor(ASM5) {
+      def av =new CommonAnnotationVisitor(s"field $name")
+      override def visitAnnotationDefault: AnnotationVisitor = av
+      override def visitAnnotation(desc: String, visible: Boolean): AnnotationVisitor = av
+      override def visitTypeAnnotation(typeRef: Int, typePath: TypePath, desc: String, visible: Boolean): AnnotationVisitor = av
+      override def visitParameterAnnotation(parameter: Int, desc: String, visible: Boolean): AnnotationVisitor = av
+      override def visitAttribute(attr: Attribute) = ()
     }
 
     val fieldsToKeep =  mutable.Set.empty[String]
@@ -248,46 +294,22 @@ object JarShrink extends App with JarShrinkCommandLine{
       if(sign!=null) {
         new SignatureReader(sign).accept(new SignatureVisitor(Opcodes.ASM5) {
 
-          var stack = List.empty[String]
-          def push: this.type = {
-            stack ::= ""
-            this
-          }
-          def pop: Unit = {
-            stack = stack.tail
-          }
-
           override def visitFormalTypeParameter(s: String): Unit = ()
-
           override def visitClassType(name: String): Unit = referencedClasses(name) = source
-
-          override def visitExceptionType(): SignatureVisitor = push
-
-          override def visitInnerClassType(s: String): Unit = println (s"inner $stack $s")
-
+          override def visitExceptionType(): SignatureVisitor = this
+          override def visitInnerClassType(name: String): Unit = referencedClasses(name) = source
           override def visitBaseType(descriptor: Char): Unit = ()
-
-          override def visitArrayType(): SignatureVisitor = push
-
-          override def visitInterface(): SignatureVisitor = push
-
-          override def visitParameterType(): SignatureVisitor = push
-
-          override def visitInterfaceBound(): SignatureVisitor = push
-
-          override def visitEnd(): Unit = pop
-
-          override def visitReturnType(): SignatureVisitor = push
-
-          override def visitClassBound(): SignatureVisitor = push
-
-          override def visitSuperclass(): SignatureVisitor = push
-
+          override def visitArrayType(): SignatureVisitor = this
+          override def visitInterface(): SignatureVisitor = this
+          override def visitParameterType(): SignatureVisitor = this
+          override def visitInterfaceBound(): SignatureVisitor = this
+          override def visitEnd(): Unit = ()
+          override def visitReturnType(): SignatureVisitor = this
+          override def visitClassBound(): SignatureVisitor = this
+          override def visitSuperclass(): SignatureVisitor = this
           override def visitTypeVariable(name: String): Unit = ()
-
           override def visitTypeArgument(): Unit = ()
-
-          override def visitTypeArgument(c: Char): SignatureVisitor = push
+          override def visitTypeArgument(c: Char): SignatureVisitor = this
         })
       }
     }
@@ -315,8 +337,9 @@ object JarShrink extends App with JarShrinkCommandLine{
           stripPackage = true
         }
       }
-      //FIXME - track the annotations class refs
     }
+    override def visitAnnotation(desc: String, visible: Boolean): AnnotationVisitor = new TopAnnotationVisitor("class annotations")
+
     override def visitField(access: Int, name: String, desc: String, signature: String, value: scala.Any): FieldVisitor = {
       if (stripDeprecated && (access & ACC_DEPRECATED) != 0)
         dontWritePart("field", name, "deprecated")
@@ -329,9 +352,7 @@ object JarShrink extends App with JarShrinkCommandLine{
         keepTypes(s"field $name", Type.getObjectType(desc))
         keepGenericTypes(s"field $name", signature)
       }
-      //FIXME - track the annotations class refs - they may reference a class but it seems unlikely it will
-      //make a difference
-      null
+      new ClassFieldVisiter(name)
     }
     override def visitMethod(access: Int, name: String, desc: String, signature: String, exceptions: Array[String]): MethodVisitor = {
       //we cant filter deprecated methods as hat may cause the wrong binding
@@ -349,8 +370,7 @@ object JarShrink extends App with JarShrinkCommandLine{
         methodsToKeep += ((name,desc))
         keepTypes(s"method $name $desc", Type.getReturnType(desc))
       }
-      //FIXME - track the annotations class refs
-      null
+      new ClassMethodVisiter(name,desc)
     }
     override def visitInnerClass(name: String, outerName: String, innerName: String, access: Int): Unit = {
       if (name != internalClassName) {
@@ -368,16 +388,10 @@ object JarShrink extends App with JarShrinkCommandLine{
     override def visitOuterClass(owner: String, name: String, desc: String): Unit = {
       outerClass = owner
     }
-
-
-
-
-
-
   }
-  private class LocalClassCopier(val classesToExclude:Set[String], val internalClassName:String, val javaClassName:String, val fieldsToKeep:Set[String],  val methodsToKeep:Set[(String, String)]) extends BaseClassScanner {
-    private var writer: ClassWriter = new ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS)
-    //class name -> needed
+  private abstract class BaseClassCopier extends BaseClassScanner  {
+    protected val writer: ClassWriter = new ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS)
+
     def data = writer.toByteArray
 
     // we can ignore the class if it is private, and maybe deprecated
@@ -385,10 +399,16 @@ object JarShrink extends App with JarShrinkCommandLine{
       require (internalClassName == name)
       writer.visit(version,access,name,signature,superName, interfaces)
     }
-
     override def visitSource(source: String, debug: String): Unit = {
       //dont care about source so strip it
     }
+    override def visitEnd(): Unit = writer.visitEnd()
+
+  }
+  private class ScalaClassCopier(val internalClassName:String, val javaClassName:String) extends BaseClassCopier {
+    override def visitAttribute(attribute: Attribute): Unit = writer.visitAttribute(attribute)
+  }
+  private class LocalClassCopier(val classesToExclude:Set[String], val internalClassName:String, val javaClassName:String, val fieldsToKeep:Set[String],  val methodsToKeep:Set[(String, String)]) extends BaseClassCopier{
 
     override def visitOuterClass(owner: String, name: String, desc: String): Unit = writer.visitOuterClass(owner,name,desc)
 
@@ -404,15 +424,11 @@ object JarShrink extends App with JarShrinkCommandLine{
       if (methodsToKeep((name,desc)))
         writer.visitMethod(access,name,desc,signature, exceptions)
       else null
-
     }
     override def visitInnerClass(name: String, outerName: String, innerName: String, access: Int): Unit = {
       if (!classesToExclude(name))
         writer.visitInnerClass(name,outerName,innerName,access)
     }
-
-    override def visitEnd(): Unit = writer.visitEnd()
-
   }
 
   def trace(s: String): Unit = {
