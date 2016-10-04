@@ -146,6 +146,7 @@ final class FileZipArchive(file: JFile) extends ZipArchive(file) {
         dir.entries(f.name) = f
       }
     }
+
     (root, dirs)
   }
 

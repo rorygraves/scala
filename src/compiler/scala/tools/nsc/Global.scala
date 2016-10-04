@@ -7,17 +7,18 @@ package scala
 package tools
 package nsc
 
-import java.io.{ File, FileOutputStream, PrintWriter, IOException, FileNotFoundException }
+import java.io.{File, FileNotFoundException, FileOutputStream, IOException, PrintWriter}
 import java.net.URL
-import java.nio.charset.{ Charset, CharsetDecoder, IllegalCharsetNameException, UnsupportedCharsetException }
-import scala.collection.{ mutable, immutable }
-import io.{ SourceReader, AbstractFile, Path }
-import reporters.{ Reporter, ConsoleReporter }
-import util.{ ClassFileLookup, ClassPath, MergedClassPath, StatisticsInfo, returning }
+import java.nio.charset.{Charset, CharsetDecoder, IllegalCharsetNameException, UnsupportedCharsetException}
+
+import scala.collection.{immutable, mutable}
+import io.{AbstractFile, Path, SourceReader}
+import reporters.{ConsoleReporter, Reporter}
+import util.{ClassFileLookup, ClassPath, MergedClassPath, StatisticsInfo, returning}
 import scala.reflect.ClassTag
-import scala.reflect.internal.util.{ SourceFile, NoSourceFile, BatchSourceFile, ScriptSourceFile }
+import scala.reflect.internal.util.{BatchSourceFile, NoSourceFile, ScriptSourceFile, SourceFile}
 import scala.reflect.internal.pickling.PickleBuffer
-import symtab.{ Flags, SymbolTable, SymbolTrackers }
+import symtab.{Flags, SymbolTable, SymbolTrackers}
 import symtab.classfile.Pickler
 import plugins.Plugins
 import ast._
@@ -25,16 +26,17 @@ import ast.parser._
 import typechecker._
 import transform.patmat.PatternMatching
 import transform._
-import backend.icode.{ ICodes, GenICode, ICodeCheckers }
-import backend.{ ScalaPrimitives, JavaPlatform }
+import backend.icode.{GenICode, ICodeCheckers, ICodes}
+import backend.{JavaPlatform, ScalaPrimitives}
 import backend.jvm.GenBCode
 import backend.jvm.GenASM
-import backend.opt.{ Inliners, InlineExceptionHandlers, ConstantOptimization, ClosureElimination, DeadCodeElimination }
+import backend.opt.{ClosureElimination, ConstantOptimization, DeadCodeElimination, InlineExceptionHandlers, Inliners}
 import backend.icode.analysis._
 import scala.language.postfixOps
 import scala.tools.nsc.ast.{TreeGen => AstTreeGen}
 import scala.tools.nsc.classpath.FlatClassPath
 import scala.tools.nsc.settings.ClassPathRepresentationType
+import scala.tools.linker.{RootLinkerSymbolWriter, RootLinkerSymbolWriter$}
 
 class Global(var currentSettings: Settings, var reporter: Reporter)
     extends SymbolTable
@@ -520,10 +522,17 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
     val runsRightAfter = None
   } with Pickler
 
+  // phaseName = "linker"
+  object linker extends {
+    val global: Global.this.type = Global.this
+    val runsAfter = List("pickler")
+    val runsRightAfter = None
+  } with Linker
+
   // phaseName = "refchecks"
   override object refChecks extends {
     val global: Global.this.type = Global.this
-    val runsAfter = List("pickler")
+    val runsAfter = List("linker")
     val runsRightAfter = None
   } with RefChecks
 
@@ -727,6 +736,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
       superAccessors          -> "add super accessors in traits and nested classes",
       extensionMethods        -> "add extension methods for inline classes",
       pickler                 -> "serialize symbol tables",
+      linker                  -> "export data to support dependent project compilation",
       refChecks               -> "reference/override checking, translate nested objects",
       uncurry                 -> "uncurry, translate function values to anonymous classes",
       tailCalls               -> "replace tail calls by jumps",
@@ -1232,6 +1242,8 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
     /** Should we skip the given phase? */
     protected def skipPhase(name: String) = settings.skip contains name
 
+    var linkerData = Option.empty[RootLinkerSymbolWriter]
+
     private val firstPhase = {
       // Initialization.  definitions.init requires phase != NoPhase
       import scala.reflect.internal.SomePhase
@@ -1359,6 +1371,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
     // val inlineclassesPhase           = phaseNamed("inlineclasses")
     // val superaccessorsPhase          = phaseNamed("superaccessors")
     val picklerPhase                 = phaseNamed("pickler")
+    val linkerPhase                  = phaseNamed("linker")
     val refchecksPhase               = phaseNamed("refchecks")
     // val selectiveanfPhase            = phaseNamed("selectiveanf")
     // val selectivecpsPhase            = phaseNamed("selectivecps")
