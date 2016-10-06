@@ -1,110 +1,80 @@
-import java.io.{BufferedOutputStream, File, FileOutputStream}
+package scala.tools.jarshrink
+
+import java.io.{BufferedOutputStream, File, FileOutputStream, FileWriter}
 import java.util.jar.{JarEntry, JarFile, JarOutputStream}
 import java.util.zip.{CRC32, ZipEntry}
 
-import org.kohsuke.args4j.{CmdLineException, CmdLineParser}
-import org.kohsuke.args4j.spi.StringArrayOptionHandler
 import org.objectweb.asm._
 import org.objectweb.asm.signature._
 
 import scala.annotation.tailrec
 import scala.collection.JavaConversions._
-import scala.collection.mutable
-import scala.util.matching.Regex
-
-trait JarShrinkCommandLine{ self: App =>
-  import org.kohsuke.args4j.Option
-  import scala.collection.breakOut
-
-  //basic options
-  @Option(name="-in", aliases=Array("--input"), required=true,
-    usage="input jar file to process"  )
-  private var inputFileV:File = _
-  def inputFile = inputFileV
-
-  @Option(name="-out", aliases=Array("--output"),
-    usage="output jar file to process - default is to use the same name as the input filename, but in the local directory"  )
-  private var outputFileV:File = _
-  lazy val outputFile = scala.Option(outputFileV).getOrElse(new File(inputFile.getName))
-
-  @Option(name="-over",aliases=Array("--overwriteOutput"),
-    usage="overwrite the output file if it exists"  )
-  private var overwriteV:Boolean = _
-  def overwrite = overwriteV
-
-  //what to strip
-  @Option(name="-sd", aliases=Array("--stripDeprecated"),
-    usage=" strip deprecated classes, methods and fields"  )
-  private var stripDeprecatedV:Boolean = _
-  def stripDeprecated = stripDeprecatedV
-
-  @Option(name="-si", aliases=Array("--stripInner"),
-    usage=" strip inner classes that are not referenced in the outer class"  )
-  private var stripInnerV:Boolean = _
-  def stripInner = stripInnerV
-
-  @Option(name="-ss", aliases=Array("--stripScala"),
-    usage="reduce to the minimum, classes compiled withthe scalac compiler, making use of the scala special attributes"  )
-  private var stripScalaV:Boolean = _
-  def stripScala = stripScalaV
-
-  @Option(name="-sp", aliases=Array("--stripPackageRegex"), handler = classOf[StringArrayOptionHandler],
-    usage=""" strip class/field/method which are java package protected, where th class matches these regex. This can take a list of regex values, e.g. -sp "sun\\..*  """)
-  private var stripPackageRegexV:Array[String] = Array()
-  lazy val stripPackageRegex:List[Regex] = stripPackageRegexV.map (_.r)(breakOut)
-
-  @Option(name="-sr", aliases=Array("--stripRegex"), handler = classOf[StringArrayOptionHandler],
-    usage=" strip classes which match regex. This can take a list of regex values"  )
-  private var stripRegexV:Array[String] = Array()
-  lazy val stripRegex:List[Regex] = stripRegexV.map (_.r)(breakOut)
-
-  //admin
-  @Option(name="-h", aliases=Array("-?", "--help", "-help"),
-    usage="print help"  )
-  private var helpV:Boolean = _
-  def help = helpV
-
-  @Option(name="-v", aliases=Array("--verbose"),
-    usage="be verbose"  )
-  private var verboseV:Boolean = _
-  def verbose = verboseV
+import scala.collection.{breakOut, mutable}
 
 
-  def init(args:Array[String]): Unit = {
-    val parser = new CmdLineParser(this)
-    parser.getProperties.withShowDefaults(true).withUsageWidth(120)
-
-    def displayHelp(exitCode: Int = 0) = {
-      parser.printUsage(System.out)
-      System.exit(exitCode)
-    }
-
-    try parser.parseArgument(self.args: _*) catch {
-      case e: CmdLineException =>
-        if (help) {
-          displayHelp()
-        } else {
-          println(e.getMessage)
-          displayHelp(1)
-        }
-    }
-  }
-}
 
 /**
   * Created by Mike Skells on 03/10/2016.
   */
-object JarShrink extends App with JarShrinkCommandLine{
+object JarShrink extends App {
+  import JarShrinkCommandLine._
+
+  def error(s:String): Unit = {
+    sys.error(s)
+    sys.exit(1)
+  }
 
   init(args)
 
-  shrink
+  val echoPath = Option(JarShrinkCommandLine.echoPath)
+  require(echoPath.map(_.exists).getOrElse(false) && !overwrite, s"${echoPath.get} exists and overWrite is not specified")
+
+  val inputs:List[File] = if (inputFile ne null) List(inputFile) else inputPath.split(File.pathSeparatorChar).map(new File(_))(breakOut)
+
+  val outputs = inputs match {
+    case in :: Nil if (inputFile ne null) =>
+      if (outputFile eq null) List(new File(in.getName))
+      else if (outputFile.isDirectory) List(new File(outputFile, in.getName))
+      else List(outputFile)
+    case _ =>
+      val base = if (outputFile eq null) new File(".")
+      else if (outputFile.isDirectory) outputFile
+      else parametersInError(s"outputFile is not a directory $outputFile")
+      val unique = mutable.Set.empty[String]
+      def makeUnique(in: File, count: Int): File = {
+        val name = if (count == 0) in.getName() else s"${count}_${in.getName}"
+        if (unique.add(name)) new File(name) else makeUnique(in, count + 1)
+      }
+      inputs map (makeUnique(_, 0))
+  }
+  inputs foreach {f => require(f.exists, s"$f doesnt exists")}
+  inputs foreach {f => require(f.isFile, s"$f isnt a file")}
+  if (!overwrite) {
+    outputs find (_.exists) foreach { f => error (s"$f exists")}
+    echoPath map (_.exists) foreach { f => error (s"$f exists")}
+  }
+  inputs zip outputs foreach { case (in,out) => new JarShrink().shrink(in,out) }
+
+  echoPath foreach { f=>
+    val echo = new FileWriter(f)
+    echo.write(outputs.map(_.getCanonicalPath).mkString("",File.pathSeparator,""))
+    echo.flush
+    echo.close
+  }
+
+
+}
+class JarShrink {
+  import JarShrinkCommandLine.{stripPackageRegex,stripRegex, stripDeprecated, stripInner, stripScala, verbose}
+
+  def trace(s: String): Unit = {
+    if (verbose) println(s)
+  }
+
   /** shrinks a file so that it contains only the inplementation that scalac needs
     */
-  def shrink {
+  def shrink(inputFile:File, outputFile:File) {
 
-    require(inputFile exists)
-    require(overwrite || !outputFile.exists)
     val in = new JarFile(inputFile)
     val mf = in.getManifest()
     val out = new JarOutputStream(new BufferedOutputStream(new FileOutputStream(outputFile), 65536), mf)
@@ -429,10 +399,6 @@ object JarShrink extends App with JarShrinkCommandLine{
       if (!classesToExclude(name))
         writer.visitInnerClass(name,outerName,innerName,access)
     }
-  }
-
-  def trace(s: String): Unit = {
-    if (verbose) println(s)
   }
 }
 
