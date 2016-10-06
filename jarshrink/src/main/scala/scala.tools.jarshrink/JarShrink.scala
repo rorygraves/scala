@@ -27,7 +27,10 @@ object JarShrink extends App {
   init(args)
 
   val echoPath = Option(JarShrinkCommandLine.echoPath)
-  require(echoPath.map(_.exists).getOrElse(false) && !overwrite, s"${echoPath.get} exists and overWrite is not specified")
+  echoPath match {
+    case Some(ep) if ep.exists() && !overwrite => error(s"${ep} exists and --overwrite is not specified")
+    case _ =>
+  }
 
   val inputs:List[File] = if (inputFile ne null) List(inputFile) else inputPath.split(File.pathSeparatorChar).map(new File(_))(breakOut)
 
