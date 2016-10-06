@@ -402,6 +402,9 @@ class JarShrink {
       if (!classesToExclude(name))
         writer.visitInnerClass(name,outerName,innerName,access)
     }
+
+    override def visitTypeAnnotation(typeRef: Int, typePath: TypePath, desc: String, visible: Boolean): AnnotationVisitor =
+      writer.visitTypeAnnotation(typeRef,typePath,desc,visible)
   }
 }
 
