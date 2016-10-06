@@ -137,8 +137,8 @@ class JarShrink {
       val scanner = allScanners(classToWrite)
       val reader: BaseClassCopier =
         if (stripScala && (scanner.scalaSignature.isDefined || scanner.scalaTopLevel.isDefined))
-          new LocalClassCopier(allClassesToExclude, scanner.internalClassName, scanner.javaClassName, scanner.fieldsToKeep.toSet, scanner.methodsToKeep.toSet)
-        else new ScalaClassCopier(scanner.internalClassName, scanner.javaClassName)
+          new ScalaClassCopier(scanner.internalClassName, scanner.javaClassName)
+        else new LocalClassCopier(allClassesToExclude, scanner.internalClassName, scanner.javaClassName, scanner.fieldsToKeep.toSet, scanner.methodsToKeep.toSet)
       val cr = new ClassReader(readAll(in, in.getEntry(scanner.entryName)))
       cr.accept(reader, ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES)
       val result = reader.data
@@ -372,6 +372,9 @@ class JarShrink {
       require (internalClassName == name)
       writer.visit(version,access,name,signature,superName, interfaces)
     }
+    override def visitAttribute(attribute: Attribute): Unit = writer.visitAttribute(attribute)
+    override def visitAnnotation(desc: String, visible: Boolean): AnnotationVisitor = writer.visitAnnotation(desc,visible)
+    
     override def visitSource(source: String, debug: String): Unit = {
       //dont care about source so strip it
     }
@@ -379,14 +382,10 @@ class JarShrink {
 
   }
   private class ScalaClassCopier(val internalClassName:String, val javaClassName:String) extends BaseClassCopier {
-    override def visitAttribute(attribute: Attribute): Unit = writer.visitAttribute(attribute)
   }
   private class LocalClassCopier(val classesToExclude:Set[String], val internalClassName:String, val javaClassName:String, val fieldsToKeep:Set[String],  val methodsToKeep:Set[(String, String)]) extends BaseClassCopier{
 
     override def visitOuterClass(owner: String, name: String, desc: String): Unit = writer.visitOuterClass(owner,name,desc)
-
-    override def visitAttribute(attribute: Attribute): Unit = writer.visitAttribute(attribute)
-    override def visitAnnotation(desc: String, visible: Boolean): AnnotationVisitor = writer.visitAnnotation(desc,visible)
 
     override def visitField(access: Int, name: String, desc: String, signature: String, value: scala.Any): FieldVisitor = {
       if (fieldsToKeep.contains(name))
