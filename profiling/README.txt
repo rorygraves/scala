@@ -10,9 +10,19 @@ e.g.
 In akka project
     sbt akka-actor/argsFilePrint > /tmp/akka.config
 
-(in scala-jmh-suite project' 
+(in scala-jmh-suite project use rory's fork until changes are merged) 
 
 sbt 'compilation/jmh:run ColdScalacBenchmark -p source=@/workspace/scala/profiling/akka-core.config -p _scalaVersion="2.11.8"' 
 vs
 sbt ++2.11.8=/workspace/scala/build/pack 'compilation/jmh:run ColdScalacBenchmark -p source=@/workspace/scala/profiling/akka-core.config -p _scalaVersion="2.11.8"'
+
+To run JMH profiling
+sbt  'compilation/jmh:run ColdScalacBenchmark -prof jmh.extras.JFR -i 1 -wi 0 -p source=@/workspace/scala/profiling/akka-core-compressed.config -p _scalaVersion="2.11.8"'
+
+N.b. at the moment the -i and -wi flags appear to be ignored meaning it runs 16 copies and generates 10 jfr files.
+Open them up in jmc (java mission control) to explore.
+
+Todos:
+1) Fix the config flags for JFR profiling to make it quicker
+2) Work out how to set JFR config file so we can switch on various options
 
