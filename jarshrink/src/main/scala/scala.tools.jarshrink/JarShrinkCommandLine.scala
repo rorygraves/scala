@@ -80,6 +80,15 @@ object JarShrinkCommandLine{
   private var verboseV:Boolean = _
   def verbose = verboseV
 
+  //debugging
+
+  @Option(name="-jp", aliases=Array("--javap"),
+    usage="run javap on some of the result"  )
+  private var javapV:String = _
+  def javaP = javapV
+
+
+
 
   val parser = new CmdLineParser(this)
   parser.getProperties.withShowDefaults(true).withUsageWidth(120)

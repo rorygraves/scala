@@ -11,6 +11,13 @@ import scala.annotation.tailrec
 import scala.collection.JavaConversions._
 import scala.collection.{breakOut, mutable}
 
+class CapturedAnnotation (val desc:String, val visible:Boolean) {
+  private val data = mutable.Map[String,Any]()
+  def update(name:String, value:Any): Unit = {
+    require (!data.contains(name))
+    data(name) = value
+  }
+}
 
 
 /**
@@ -56,7 +63,13 @@ object JarShrink extends App {
     outputs find (_.exists) foreach { f => error (s"$f exists")}
     echoPath map (_.exists) foreach { f => error (s"$f exists")}
   }
-  inputs zip outputs foreach { case (in,out) => new JarShrink().shrink(in,out) }
+  var firstJavaP = Option.empty[SampleChanges]
+  inputs zip outputs foreach {
+    case (in, out) =>
+      val shrink = new JarShrink()
+      val jp = shrink.shrink(in, out, javaP)
+      if (firstJavaP.isEmpty && jp.isDefined) firstJavaP = jp
+  }
 
   echoPath foreach { f=>
     val echo = new FileWriter(f)
@@ -64,11 +77,39 @@ object JarShrink extends App {
     echo.flush
     echo.close
   }
+  if (javaP != null) {
+    def write(o:String, d:Array[Byte]): Unit = {
+      val f = new File(o)
+      val fos = new FileOutputStream(f)
+      fos.write(d)
+      fos.flush
+      fos.close
+    }
+    def jp(i:String, o:String): Unit = {
+      val proc = new ProcessBuilder("C:\\Program Files\\Java\\jdk1.7.0_79\\bin\\javap", "-p", "-s","-v","-constants", i)
+      proc.redirectOutput(new File(o))
+      proc.start
+    }
+    new File("orig.class").delete
+    new File("proc.class").delete
+    new File("orig.txt").delete
+    new File("proc.txt").delete
+    firstJavaP match {
+      case None => println(s"sample $javaP is not found")
+      case Some(SampleChanges(name,orig,None)) => println(s"sample $javaP is not found in the output")
+      case Some(SampleChanges(name,orig,Some(result))) =>
+        write("orig.class", orig)
+        write("proc.class", result)
+        jp("orig.class", "orig.txt")
+        jp("proc.class", "proc.txt")
+    }
+  }
 
-
+  case class SampleChanges(name:String, orig:Array[Byte], proc:Option[Array[Byte]])
 }
 class JarShrink {
   import JarShrinkCommandLine.{stripPackageRegex,stripRegex, stripDeprecated, stripInner, stripScala, verbose}
+  import JarShrink.SampleChanges
 
   def trace(s: String): Unit = {
     if (verbose) println(s)
@@ -76,7 +117,7 @@ class JarShrink {
 
   /** shrinks a file so that it contains only the inplementation that scalac needs
     */
-  def shrink(inputFile:File, outputFile:File) {
+  def shrink(inputFile:File, outputFile:File, sample:String) : Option[SampleChanges] = {
 
     val in = new JarFile(inputFile)
     val mf = in.getManifest()
@@ -106,8 +147,6 @@ class JarShrink {
     def markInnerClasses(outerIsNeeded:Boolean,scanner:LocalClassScanner): Unit = {
       for ((inner, needed) <- scanner.innerClasses if scanner.trueInnerClasses(inner); innerScanner = allScanners(inner)) {
         if ((!needed  || !outerIsNeeded) && innerScanner.shouldWrite) {
-          if (inner == "java/util/regex/Pattern$Node")
-            trace("XXXX")
           trace(s"marked $inner as not needed")
           innerScanner.shouldWrite = false
         }
@@ -132,16 +171,22 @@ class JarShrink {
 
       pending ++= toAdd
     }
+    val orig = allScanners.collectFirst{
+      case (n,v) if v.javaClassName == sample => readAll(in, in.getEntry(v.entryName))
+    }
+    var proc = Option.empty[Array[Byte]]
+
     val allClassesToExclude = (allScanners.keySet -- allClasses.toSet).toSet
     for (classToWrite <- allClasses) {
       val scanner = allScanners(classToWrite)
       val reader: BaseClassCopier =
-        if (stripScala && (scanner.scalaSignature.isDefined || scanner.scalaTopLevel.isDefined))
+        if (stripScala && scanner.isScala)
           new ScalaClassCopier(scanner.internalClassName, scanner.javaClassName)
         else new LocalClassCopier(allClassesToExclude, scanner.internalClassName, scanner.javaClassName, scanner.fieldsToKeep.toSet, scanner.methodsToKeep.toSet)
       val cr = new ClassReader(readAll(in, in.getEntry(scanner.entryName)))
       cr.accept(reader, ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES)
       val result = reader.data
+      if (reader.javaClassName == sample) proc = Some(result)
       val zip = new ZipEntry(scanner.entryName)
       zip.setSize(result.length)
       crc.reset()
@@ -153,6 +198,8 @@ class JarShrink {
     }
     out.flush()
     out.close()
+
+    orig map (SampleChanges(sample,_,proc))
   }
 
   private def readAll(in: JarFile, entry: ZipEntry): Array[Byte] = {
@@ -184,11 +231,15 @@ class JarShrink {
     var stripPackage = false
     def isInnerClass = outerClass ne null
     var outerClass: String = _
-    var scalaSignature = Option.empty[(String,Any)]
-    var scalaTopLevel = Option.empty[(String,Any)]
+    var scalaSignature = Option.empty[CapturedAnnotation]
+    var scalaSig = Option.empty[CapturedAnnotation]
+    var scalaInlineInfo = Option.empty[CapturedAnnotation]
     def dontWrite(reason:String) ={
       if (shouldWrite) trace(s"class $internalClassName is not written - $reason")
       shouldWrite = false
+    }
+    def isScala = {
+      scalaSignature.isDefined || scalaSig.isDefined
     }
     def dontWritePart(part:String, name:String, reason:String) ={
       if (shouldWrite) trace(s"class $internalClassName $part $name, is not written - $reason")
@@ -208,13 +259,10 @@ class JarShrink {
       override def visitArray(name: String): AnnotationVisitor = this
       override def visitEnd() =()
     }
-    class TopAnnotationVisitor(source:String) extends CommonAnnotationVisitor(source) {
-      override def visit(name: String, value: Any) = name match {
-        case "ScalaSignature" | "ScalaLongSignature" =>
-          scalaSignature = Some(name,value)
-        case "ScalaSig" =>
-          scalaTopLevel = Some(name,value)
-        case _ => super.visit(name,value)
+    class CaptureAnnotationVisitor(val captured: CapturedAnnotation, source:String) extends CommonAnnotationVisitor(source) {
+      override def visit(name: String, value: Any) = {
+        captured(name) = value
+        super.visit(name,value)
       }
     }
     class ClassFieldVisiter(val name:String) extends FieldVisitor(ASM5) {
@@ -311,7 +359,27 @@ class JarShrink {
         }
       }
     }
-    override def visitAnnotation(desc: String, visible: Boolean): AnnotationVisitor = new TopAnnotationVisitor("class annotations")
+    override def visitAnnotation(desc: String, visible: Boolean): AnnotationVisitor =
+      desc match {
+        case "Lscala/reflect/ScalaSignature;" | "Lscala/reflect/ScalaLongSignature;" =>
+          assert (scalaSignature.isEmpty)
+          val newScalaSignature = new CapturedAnnotation(desc,visible)
+          scalaSignature = Some(newScalaSignature)
+          new CaptureAnnotationVisitor(newScalaSignature, s"top level ${internalClassName}")
+        case "ScalaSig" =>
+          assert (scalaSig.isEmpty)
+          val newScalaSig = new CapturedAnnotation(desc,visible)
+          scalaSig = Some(newScalaSig)
+          new CaptureAnnotationVisitor(newScalaSig, s"top level ${internalClassName}")
+        case "ScalaInlineInfo" =>
+          assert (scalaInlineInfo.isEmpty)
+          val newScalaInlineInfo = new CapturedAnnotation(desc,visible)
+          scalaInlineInfo = Some(newScalaInlineInfo)
+          new CaptureAnnotationVisitor(newScalaInlineInfo, s"top level ${internalClassName}")
+        case _ =>
+          new CommonAnnotationVisitor(s"top level ${internalClassName}")
+
+    }
 
     override def visitField(access: Int, name: String, desc: String, signature: String, value: scala.Any): FieldVisitor = {
       if (stripDeprecated && (access & ACC_DEPRECATED) != 0)
@@ -362,7 +430,7 @@ class JarShrink {
       outerClass = owner
     }
   }
-  private abstract class BaseClassCopier extends BaseClassScanner  {
+  private abstract class BaseClassCopier extends BaseClassScanner {
     protected val writer: ClassWriter = new ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS)
 
     def data = writer.toByteArray
