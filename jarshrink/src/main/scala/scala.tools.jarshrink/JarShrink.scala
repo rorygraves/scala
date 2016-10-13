@@ -1,6 +1,6 @@
 package scala.tools.jarshrink
 
-import java.io.{BufferedOutputStream, File, FileOutputStream, FileWriter}
+import java.io._
 import java.util.jar.{JarEntry, JarFile, JarOutputStream}
 import java.util.zip.{CRC32, ZipEntry}
 
@@ -17,6 +17,7 @@ class CapturedAnnotation (val desc:String, val visible:Boolean) {
     require (!data.contains(name))
     data(name) = value
   }
+  def toMap = data.toMap
 }
 
 
@@ -160,7 +161,8 @@ class JarShrink {
     for (scanner <- allScanners.values) {
       if (scanner.shouldWrite) pending += scanner.internalClassName
     }
-    val allClasses = new mutable.HashSet[String]()
+    //we order to add the classes before the subclasses
+    val allClasses = new mutable.TreeSet[String]()(Ordering[String])
     for (reached <- pending) {
       allClasses += reached
       val scanner = allScanners(reached)
@@ -175,10 +177,20 @@ class JarShrink {
       case (n,v) if v.javaClassName == sample => readAll(in, in.getEntry(v.entryName))
     }
     var proc = Option.empty[Array[Byte]]
+    val top = new RootSymbolWriter()
+    var javaClass = 0
+    var scalaClass = 0
 
     val allClassesToExclude = (allScanners.keySet -- allClasses.toSet).toSet
     for (classToWrite <- allClasses) {
       val scanner = allScanners(classToWrite)
+      if (scanner.isScala) {
+        javaClass += 1
+        trace(s"adding java class $classToWrite")
+      } else {
+        scalaClass += 1
+        trace(s"adding scala class $classToWrite")
+      }
       val reader: BaseClassCopier =
         if (stripScala && scanner.isScala)
           new ScalaClassCopier(scanner.internalClassName, scanner.javaClassName)
@@ -187,6 +199,7 @@ class JarShrink {
       cr.accept(reader, ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES)
       val result = reader.data
       if (reader.javaClassName == sample) proc = Some(result)
+      top.addClassRef(scanner)
       val zip = new ZipEntry(scanner.entryName)
       zip.setSize(result.length)
       crc.reset()
@@ -196,6 +209,23 @@ class JarShrink {
       out.write(result)
       out.closeEntry()
     }
+    val zip = new ZipEntry("META-INF/language/scala")
+    val allLookup = new ByteArrayOutputStream(4096)
+    val allLookupStream = new DataOutputStream(allLookup)
+    top.writeTo(allLookupStream)
+    allLookupStream.flush()
+    allLookupStream.close()
+    val result = allLookup.toByteArray
+    zip.setSize(result.length)
+    crc.reset()
+    crc.update(result)
+    zip.setCrc(crc.getValue)
+    out.putNextEntry(zip)
+    out.write(result)
+    out.closeEntry()
+    trace(s"scala meta data size ${result.length}")
+    trace(s"class count - java $javaClass scala $scalaClass")
+
     out.flush()
     out.close()
 
@@ -224,23 +254,27 @@ class JarShrink {
     def javaClassName:String
     def isPackage(access: Int): Boolean = (access & (ACC_PRIVATE | ACC_PROTECTED | ACC_PUBLIC)) == 0
   }
-  private class LocalClassScanner(val entryName:String) extends BaseClassScanner {
+  private class LocalClassScanner(val entryName:String) extends BaseClassScanner with ClassInfo {
     var shouldWrite = true
     var internalClassName:String = "<<>>"
     var javaClassName:String = "<<>>"
     var stripPackage = false
     def isInnerClass = outerClass ne null
     var outerClass: String = _
-    var scalaSignature = Option.empty[CapturedAnnotation]
-    var scalaSig = Option.empty[CapturedAnnotation]
-    var scalaInlineInfo = Option.empty[CapturedAnnotation]
+    var scalaSignatureAnn = Option.empty[CapturedAnnotation]
+    var scalaSigAtt = Option.empty[Array[Byte]]
+    var scalaInlineInfoAtt = Option.empty[Array[Byte]]
+    var scalaAtt = Option.empty[Array[Byte]]
+    def outerJavaClassName: Option[String] = Option(outerClass) map (Type.getObjectType(_).getClassName)
     def dontWrite(reason:String) ={
       if (shouldWrite) trace(s"class $internalClassName is not written - $reason")
       shouldWrite = false
     }
     def isScala = {
-      scalaSignature.isDefined || scalaSig.isDefined
+      scalaSignatureAnn.isDefined || scalaSigAtt.isDefined
     }
+    def scalaSignature = scalaSignatureAnn map (ScalaClassSignature(_, scalaSigAtt.get, scalaInlineInfoAtt))
+
     def dontWritePart(part:String, name:String, reason:String) ={
       if (shouldWrite) trace(s"class $internalClassName $part $name, is not written - $reason")
       null
@@ -359,26 +393,35 @@ class JarShrink {
         }
       }
     }
-    override def visitAnnotation(desc: String, visible: Boolean): AnnotationVisitor =
+    override def visitAnnotation(desc: String, visible: Boolean): AnnotationVisitor = {
+      trace (s"$javaClassName : annotation $desc, $visible")
       desc match {
-        case "Lscala/reflect/ScalaSignature;" | "Lscala/reflect/ScalaLongSignature;" =>
-          assert (scalaSignature.isEmpty)
-          val newScalaSignature = new CapturedAnnotation(desc,visible)
-          scalaSignature = Some(newScalaSignature)
+        case ScalaClassSignature.ValScalaSignature | ScalaClassSignature.ValScalaLongSignature =>
+          assert(scalaSignature.isEmpty)
+          val newScalaSignature = new CapturedAnnotation(desc, visible)
+          scalaSignatureAnn = Some(newScalaSignature)
           new CaptureAnnotationVisitor(newScalaSignature, s"top level ${internalClassName}")
-        case "ScalaSig" =>
-          assert (scalaSig.isEmpty)
-          val newScalaSig = new CapturedAnnotation(desc,visible)
-          scalaSig = Some(newScalaSig)
-          new CaptureAnnotationVisitor(newScalaSig, s"top level ${internalClassName}")
-        case "ScalaInlineInfo" =>
-          assert (scalaInlineInfo.isEmpty)
-          val newScalaInlineInfo = new CapturedAnnotation(desc,visible)
-          scalaInlineInfo = Some(newScalaInlineInfo)
-          new CaptureAnnotationVisitor(newScalaInlineInfo, s"top level ${internalClassName}")
         case _ =>
           new CommonAnnotationVisitor(s"top level ${internalClassName}")
 
+      }
+    }
+
+
+    override def visitAttribute(attr: Attribute): Unit = {
+      trace (s"$javaClassName : attribute ${attr.`type`}" )
+      attr.`type` match {
+        case ScalaClassSignature.ValScalaSig =>
+          assert(scalaSigAtt.isEmpty)
+          scalaSigAtt = Some(readAttributeData(attr))
+        case ScalaClassSignature.ValScalaInlineInfo=>
+          assert(scalaInlineInfoAtt.isEmpty)
+          scalaInlineInfoAtt = Some(readAttributeData(attr))
+        case ScalaClassSignature.ValScala=>
+          assert(scalaAtt.isEmpty)
+          scalaAtt = Some(readAttributeData(attr))
+        case _ =>
+      }
     }
 
     override def visitField(access: Int, name: String, desc: String, signature: String, value: scala.Any): FieldVisitor = {
@@ -396,12 +439,12 @@ class JarShrink {
       new ClassFieldVisiter(name)
     }
     override def visitMethod(access: Int, name: String, desc: String, signature: String, exceptions: Array[String]): MethodVisitor = {
-      //we cant filter deprecated methods as hat may cause the wrong binding
+      //we cant filter deprecated methods as that may cause the wrong binding
       //e.g.
       // def foo(n:Number)
       // @deprecated ("not safe with Int")
       // def foo(i:Int)
-      //if we remove the deprecated method then it woul bind to th wring methods
+      //if we remove the deprecated method then it would bind to the wrong methods
 
       if ((access & ACC_PRIVATE) != 0)
         dontWritePart("method", name, "private")
@@ -429,13 +472,13 @@ class JarShrink {
     override def visitOuterClass(owner: String, name: String, desc: String): Unit = {
       outerClass = owner
     }
+
   }
   private abstract class BaseClassCopier extends BaseClassScanner {
     protected val writer: ClassWriter = new ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS)
 
     def data = writer.toByteArray
 
-    // we can ignore the class if it is private, and maybe deprecated
     override def visit(version: Int, access: Int, name: String, signature: String, superName: String, interfaces: Array[String]): Unit = {
       require (internalClassName == name)
       writer.visit(version,access,name,signature,superName, interfaces)
@@ -473,5 +516,15 @@ class JarShrink {
     override def visitTypeAnnotation(typeRef: Int, typePath: TypePath, desc: String, visible: Boolean): AnnotationVisitor =
       writer.visitTypeAnnotation(typeRef,typePath,desc,visible)
   }
+  println(s"${classOf[Attribute].getDeclaredFields.mkString("\n -- ")}")
+
+  //thisis very hacky but the "value" field is package access and obfuscated ( renamed) in the standard dist
+  private val attributeDataField = {
+    val matching = classOf[Attribute].getDeclaredFields.filter( f => f.getType == classOf[Array[Byte]])
+    require (matching.size == 1)
+    matching.head.setAccessible(true)
+    matching.head
+  }
+  def readAttributeData(att:Attribute)= attributeDataField.get(att).asInstanceOf[Array[Byte]]
 }
 
