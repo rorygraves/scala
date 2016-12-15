@@ -2,7 +2,7 @@ package scala.tools.jarshrink
 
 import java.io._
 import java.util.jar.{JarEntry, JarFile, JarOutputStream}
-import java.util.zip.{CRC32, ZipEntry}
+import java.util.zip.{CRC32, Deflater, ZipEntry}
 
 import org.objectweb.asm._
 import org.objectweb.asm.signature._
@@ -159,6 +159,9 @@ class JarShrink {
 
     val pending = new mutable.Queue[String]
     for (scanner <- allScanners.values) {
+      if (scanner.isIgnorableScala) scanner.dontWrite("ignorable scala")
+    }
+    for (scanner <- allScanners.values) {
       if (scanner.shouldWrite) pending += scanner.internalClassName
     }
     //we order to add the classes before the subclasses
@@ -166,7 +169,7 @@ class JarShrink {
     for (reached <- pending) {
       allClasses += reached
       val scanner = allScanners(reached)
-      val toAdd = scanner.referencedClasses.keySet.filter(allScanners.keySet).filterNot(allClasses)
+      val toAdd = scanner.referencedClasses.keySet.filter(allScanners.keySet).filterNot(allClasses).filterNot(allScanners(_).isIgnorableScala)
       if (verbose) for (added <- toAdd; addedScanner = allScanners(added) if !addedScanner.shouldWrite) {
         trace(s"class ${addedScanner.internalClassName} is needed - referenced by $reached as ${scanner.referencedClasses(added)}")
       }
@@ -185,11 +188,11 @@ class JarShrink {
     for (classToWrite <- allClasses) {
       val scanner = allScanners(classToWrite)
       if (scanner.isScala) {
-        javaClass += 1
-        trace(s"adding java class $classToWrite")
-      } else {
         scalaClass += 1
         trace(s"adding scala class $classToWrite")
+      } else {
+        javaClass += 1
+        trace(s"adding java class $classToWrite")
       }
       val reader: BaseClassCopier =
         if (stripScala && scanner.isScala)
@@ -223,13 +226,27 @@ class JarShrink {
     out.putNextEntry(zip)
     out.write(result)
     out.closeEntry()
-    trace(s"scala meta data size ${result.length}")
+    trace(s"scala meta data size ${result.length}, would compress to ${compress(result).length}")
     trace(s"class count - java $javaClass scala $scalaClass")
 
     out.flush()
     out.close()
 
     orig map (SampleChanges(sample,_,proc))
+  }
+  def compress(data:Array[Byte]) = {
+    val deflater = new Deflater(Deflater.BEST_COMPRESSION)
+    deflater.setInput(data)
+    val outputStream = new ByteArrayOutputStream(data.length)
+
+    deflater.finish()
+    val buffer = new Array[Byte](1024)
+    while (!deflater.finished()) {
+      val count = deflater.deflate(buffer)
+      outputStream.write(buffer, 0, count)
+    }
+    outputStream.close()
+    outputStream.toByteArray()
   }
 
   private def readAll(in: JarFile, entry: ZipEntry): Array[Byte] = {
@@ -272,6 +289,9 @@ class JarShrink {
     }
     def isScala = {
       scalaSignatureAnn.isDefined || scalaSigAtt.isDefined
+    }
+    def isIgnorableScala = {
+      scalaAtt.isDefined
     }
     def scalaSignature = scalaSignatureAnn map (ScalaClassSignature(_, scalaSigAtt.get, scalaInlineInfoAtt))
 
@@ -472,6 +492,12 @@ class JarShrink {
     override def visitOuterClass(owner: String, name: String, desc: String): Unit = {
       outerClass = owner
     }
+
+    override def visitEnd(): Unit = {
+      if (scalaAtt.isDefined && scalaSignatureAnn.isEmpty) {}
+//        dontWrite("scala file has no scala signature, so is defined elsewhere")
+    }
+
 
   }
   private abstract class BaseClassCopier extends BaseClassScanner {

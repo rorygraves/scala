@@ -1,6 +1,6 @@
 package scala.tools.jarshrink
 
-import java.io.{DataInputStream, DataOutputStream, OutputStream}
+import java.io.{DataInputStream, DataOutputStream, InputStream, OutputStream}
 import java.nio.ByteBuffer
 import java.util
 
@@ -89,15 +89,6 @@ object ScalaClassSignature {
 }
 class ScalaClassSignature private (private val scalaSignatureBytes:Array[Byte], private val inline:Option[Array[Byte]])
 
-
-sealed abstract class LazySymbolsFactory extends Serializable {
-
-  def children :Map[String,LazySymbolsFactory]
-  def expand:Unit = ???
-
-}
-final class LazyPackageFactory(val children:Map[String,LazySymbolsFactory]) extends LazySymbolsFactory
-
 object LazyWriterConstants {
   val TypeCollection:Byte = 0x80.toByte
   val TypeScalaEmpty:Byte = 0x81.toByte
@@ -105,6 +96,61 @@ object LazyWriterConstants {
   val TypeJavaEmpty:Byte = 0x83.toByte
   val TypeJavaChildren:Byte = 0x84.toByte
 }
+
+object LinkerSymbol {
+  import LazyWriterConstants._
+  import scala.collection.mutable
+  def readFrom(is:DataInputStream) = {
+    val tpe = is.readByte()
+    require (tpe == TypeCollection)
+    readCollection(is)
+  }
+  private def readSymbol(is:DataInputStream):LinkerSymbol = {
+    val tpe = is.readByte()
+    tpe match {
+      case TypeCollection => readCollection(is)
+      case TypeScalaEmpty => readScala(is, false)
+      case TypeScalaChildren => readScala(is, true)
+      case TypeJavaEmpty => readJava(is, false)
+      case TypeJavaChildren => readJava(is, true)
+      case _ => throw new IllegalStateException(s"unexpected type $tpe")
+    }
+  }
+  private def readScala(is:DataInputStream, hasChildren:Boolean):LinkerSymbol = {
+    val name = is.readUTF()
+    val content = readContent(hasChildren, is)
+    val signature = ScalaClassSignature.read(is)
+    new ScalaSymbol(name, signature, content)
+  }
+  private def readJava(is:DataInputStream, hasChildren:Boolean):LinkerSymbol = {
+    val name = is.readUTF()
+    val content = readContent(hasChildren, is)
+    new JavaSymbol(name, content)
+  }
+
+  private def readCollection(is:DataInputStream):LinkerSymbol = {
+    val content = readContent(true, is)
+    new LinkerSymbolCollection(content)
+  }
+  private def readContent(nonEmpty:Boolean, is:DataInputStream) = {
+    if (nonEmpty) {
+      val remaining = is.readInt()
+      val builder = new mutable.HashMap[String, LinkerSymbol]
+      while (remaining > 0) {
+        val name = is.readUTF()
+        val value = readSymbol(is)
+        builder.put(name, value)
+      }
+      builder.toMap
+    } else Map.empty[String, LinkerSymbol]
+  }
+}
+sealed trait LinkerSymbol
+case class LinkerSymbolCollection(content : Map[String,LinkerSymbol]) extends LinkerSymbol
+case class JavaSymbol(name:String, content : Map[String,LinkerSymbol]) extends LinkerSymbol
+case class ScalaSymbol(name:String, scalaClassSignature:ScalaClassSignature, content : Map[String,LinkerSymbol]) extends LinkerSymbol
+
+
 class LazySymbolsWriter{
 
   import scala.collection.mutable
@@ -132,7 +178,7 @@ class LazySymbolsWriter{
     os.writeInt(directChildren.size)
     directChildren foreach {
       case (name, value) =>
-        os.writeChars(name)
+        os.writeUTF(name)
         value.writeTo(os)
     }
   }
@@ -142,7 +188,7 @@ class LazySymbolsWriter{
 final class JavaClassReference(val entryName:String) extends LazySymbolsWriter {
   override def writeTo(os:DataOutputStream):Unit = {
     os.writeByte(if (hasChildren) LazyWriterConstants.TypeJavaChildren else LazyWriterConstants.TypeJavaEmpty)
-    os.writeChars(entryName)
+    os.writeUTF(entryName)
     if (hasChildren) writeContent(os)
   }
 
@@ -150,7 +196,7 @@ final class JavaClassReference(val entryName:String) extends LazySymbolsWriter {
 final class ScalaClassReference(val entryName:String, val scalaClassSignature: ScalaClassSignature) extends LazySymbolsWriter {
   override def writeTo(os:DataOutputStream):Unit = {
     os.writeByte(if (hasChildren) LazyWriterConstants.TypeScalaChildren else LazyWriterConstants.TypeScalaEmpty)
-    os.writeChars(entryName)
+    os.writeUTF(entryName)
     ScalaClassSignature.write(os, scalaClassSignature)
     if (hasChildren) writeContent(os)
   }
