@@ -5,6 +5,7 @@ import java.nio.ByteBuffer
 import java.util
 
 import scala.annotation.tailrec
+import scala.collection.mutable
 import scala.reflect.internal.pickling.ByteCodecs
 import scala.reflect.{ScalaLongSignature, ScalaSignature}
 
@@ -169,24 +170,30 @@ class LazySymbolsWriter{
     directChildren(name) = newChild
     newChild
   }
-  def writeTo(os:DataOutputStream):Unit = {
+
+  def writeLazyStructureTo(os:DataOutputStream):Unit = {
     os.writeByte(LazyWriterConstants.TypeCollection)
     writeContent(os)
   }
 
-  protected def writeContent(os: DataOutputStream): Unit = {
-    os.writeInt(directChildren.size)
-    directChildren foreach {
+  protected def writeContentImpl(os: DataOutputStream, content: mutable.HashMap[String, LazySymbolsWriter]): Unit = {
+    os.writeInt(content.size)
+    content foreach {
       case (name, value) =>
         os.writeUTF(name)
-        value.writeTo(os)
+        value.writeLazyStructureTo(os)
     }
   }
+
+  protected def writeContent(os: DataOutputStream): Unit = {
+    writeContentImpl(os, directChildren)
+  }
+
   protected def hasChildren = directChildren.isEmpty
 
 }
 final class JavaClassReference(val entryName:String) extends LazySymbolsWriter {
-  override def writeTo(os:DataOutputStream):Unit = {
+  override def writeLazyStructureTo(os:DataOutputStream):Unit = {
     os.writeByte(if (hasChildren) LazyWriterConstants.TypeJavaChildren else LazyWriterConstants.TypeJavaEmpty)
     os.writeUTF(entryName)
     if (hasChildren) writeContent(os)
@@ -194,7 +201,7 @@ final class JavaClassReference(val entryName:String) extends LazySymbolsWriter {
 
 }
 final class ScalaClassReference(val entryName:String, val scalaClassSignature: ScalaClassSignature) extends LazySymbolsWriter {
-  override def writeTo(os:DataOutputStream):Unit = {
+  override def writeLazyStructureTo(os:DataOutputStream):Unit = {
     os.writeByte(if (hasChildren) LazyWriterConstants.TypeScalaChildren else LazyWriterConstants.TypeScalaEmpty)
     os.writeUTF(entryName)
     ScalaClassSignature.write(os, scalaClassSignature)
@@ -207,9 +214,19 @@ class RootSymbolWriter extends LazySymbolsWriter {
 
   import scala.collection.mutable
 
+
   val allClasses = mutable.HashMap[String, LazySymbolsWriter]()
+  val globalAllClasses = mutable.HashMap[String, LazySymbolsWriter]()
+
+  def writeEagerStructureTo(os:DataOutputStream):Unit = {
+    os.writeByte(LazyWriterConstants.TypeCollection)
+    writeContentImpl(os, globalAllClasses)
+  }
+
+
 
   def addClassRef(copier: ClassInfo) {
+
     copier.outerJavaClassName match {
       case None =>
         val path = copier.packageName.split("/")
@@ -218,8 +235,13 @@ class RootSymbolWriter extends LazySymbolsWriter {
         for (p <- path) {
           current = current.findOrCreate(p)
         }
+
+        // {"/foo/bar/Baz.class" => data}
+        globalAllClasses(copier.javaClassName) = addLocal(copier, copier.javaClassName)
+
         allClasses(copier.javaClassName) = current.addLocal(copier, copier.javaClassName)
       case Some(outer) =>
+        globalAllClasses(copier.javaClassName) = addLocal(copier, copier.javaClassName)
         allClasses(copier.javaClassName) = allClasses(outer).addLocal(copier, copier.javaClassName)
     }
   }
