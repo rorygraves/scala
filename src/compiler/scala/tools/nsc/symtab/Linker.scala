@@ -24,26 +24,30 @@ abstract class Linker  extends SubComponent {
     def name = phaseName
 
     override def run(): Unit = {
-      echoPhaseSummary(this)
-      val visited = new mutable.HashSet[Symbol]()
-      val linkerData  = new RootSymbolWriter
-      currentRun.symData foreach {
-        //only process elements and companion pairs once
-        case (sym, pickleBuffer) if visited.add(sym) =>
-          if (currentRun.symData.contains(sym.companion)) {
-            assert (currentRun.symData(sym.companion) eq pickleBuffer)
-            visited.add(sym.companion)
-          }
-          //not sure if this is right
-          val name = sym match {
-            case m : ModuleSymbol => m.name.toString
-            case c : ClassSymbol => c.name.toString
-          }
+      val enabled :Boolean = global.settings.linker
+      if (global.settings.debug) inform("[phase " + name + " - enabled: "+enabled + "]")
+      if (enabled) {
+        val visited = new mutable.HashSet[Symbol]()
+        val linkerData = new RootSymbolWriter
+        currentRun.symData foreach {
+          //only process elements and companion pairs once
+          case (sym, pickleBuffer) if visited.add(sym) =>
+            if (currentRun.symData.contains(sym.companion)) {
+              assert(currentRun.symData(sym.companion) eq pickleBuffer)
+              visited.add(sym.companion)
+            }
+            //not sure if this is right
+            val name = sym match {
+              case m: ModuleSymbol => m.name.toString
+              case c: ClassSymbol => c.name.toString
+            }
 
-          linkerData.addClassRef(ScalaLinkerClassInfo(name, pickleBuffer))
+            linkerData.addClassRef(ScalaLinkerClassInfo(name, pickleBuffer))
+        }
       }
     }
 
+    //apply should not be called
     def apply(unit: CompilationUnit): Unit = ???
 
   }
@@ -54,13 +58,13 @@ abstract class Linker  extends SubComponent {
     }
   }
   case class ScalaLinkerClassInfo(name:String, sig:ScalaClassSignature) extends ClassInfo {
-    override def javaClassName: String = ???
+    override def javaClassName: String = name
 
-    override def internalClassName: String = ???
+    override def internalClassName: String = name.replace('.','/')
 
-    override def outerJavaClassName: Option[String] = ???
+    override def outerJavaClassName: Option[String] = None
 
-    override def scalaSignature: Option[ScalaClassSignature] = ???
+    override def scalaSignature: Option[ScalaClassSignature] = Some(sig)
 
     override def entryName: String = ???
   }

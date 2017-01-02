@@ -720,6 +720,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
       superAccessors          -> "add super accessors in traits and nested classes",
       extensionMethods        -> "add extension methods for inline classes",
       pickler                 -> "serialize symbol tables",
+      linker                  -> "export data to support dependent project compilation",
       refChecks               -> "reference/override checking, translate nested objects",
       uncurry                 -> "uncurry, translate function values to anonymous classes",
       tailCalls               -> "replace tail calls by jumps",
