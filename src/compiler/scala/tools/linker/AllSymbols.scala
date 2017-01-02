@@ -4,7 +4,7 @@ import java.io.{DataInputStream, DataOutputStream}
 import java.util
 
 import scala.collection.mutable
-import scala.reflect.internal.pickling.ByteCodecs
+import scala.reflect.internal.pickling.{ByteCodecs, PickleBuffer}
 import scala.reflect.{ScalaLongSignature, ScalaSignature}
 
 /**
@@ -33,12 +33,14 @@ class CapturedAnnotation (val desc:String, val visible:Boolean) {
   def toMap = data.toMap
 }
 
-
-
 object ScalaClassSignature {
   private val expectedSig = new Array[Byte](3)//5 0 0
   expectedSig(0) = 5
 
+  def apply(pickleBuffer:PickleBuffer): ScalaClassSignature = {
+    val scalaSignatureBytes = pickleBuffer.bytes
+    new ScalaClassSignature(scalaSignatureBytes, None)
+  }
   def apply(scalaSignature: CapturedAnnotation, scalaSig: Array[Byte], inlineBytes: Option[Array[Byte]]): ScalaClassSignature = {
     val scalaSignatureBytes = {
       val value = scalaSignature.toMap
@@ -222,7 +224,6 @@ final class ScalaClassReference(val entryName:String, val scalaClassSignature: S
 }
 
 class RootSymbolWriter extends LazySymbolsWriter {
-
   import scala.collection.mutable
 
 
@@ -233,8 +234,6 @@ class RootSymbolWriter extends LazySymbolsWriter {
     os.writeByte(LazyWriterConstants.TypeCollection)
     writeContentImpl(os, globalAllClasses)
   }
-
-
 
   def addClassRef(copier: ClassInfo) {
 

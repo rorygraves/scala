@@ -34,12 +34,13 @@ abstract class Pickler extends SubComponent {
   class PicklePhase(prev: Phase) extends StdPhase(prev) {
     def apply(unit: CompilationUnit) {
       def pickle(tree: Tree) {
-        def add(sym: Symbol, pickle: Pickle) = {
+        def add(sym: Symbol, pickle: Pickle) :Boolean = {
           if (currentRun.compiles(sym) && !currentRun.symData.contains(sym)) {
             debuglog("pickling " + sym)
             pickle putSymbol sym
             currentRun.symData(sym) = pickle
-          }
+            true
+          } else false
         }
 
         tree match {
@@ -48,10 +49,10 @@ abstract class Pickler extends SubComponent {
           case ClassDef(_, _, _, _) | ModuleDef(_, _, _) =>
             val sym = tree.symbol
             val pickle = new Pickle(sym)
-            add(sym, pickle)
-            add(sym.companionSymbol, pickle)
-            pickle.writeArray()
-            currentRun registerPickle sym
+            if (add(sym, pickle) || add(sym.companionSymbol, pickle)) {
+              pickle.writeArray()
+              currentRun registerPickle sym
+            }
           case _ =>
         }
       }

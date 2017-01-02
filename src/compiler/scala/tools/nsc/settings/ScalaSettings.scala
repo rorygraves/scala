@@ -380,6 +380,10 @@ trait ScalaSettings extends AbsScalaSettings
   val pluginOptions = MultiStringSetting("-P", "plugin:opt", "Pass an option to a plugin") .
                         withHelpSyntax("-P:<plugin>:<opt>")
 
+  val linker = BooleanSetting("-linker", "Enable linker output.")
+  linker.value = true
+
+
   /** Test whether this is scaladoc we're looking at */
   def isScaladoc = false
 
