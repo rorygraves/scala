@@ -2,7 +2,6 @@ package scala.tools.linker
 
 import java.io.{ByteArrayOutputStream, DataInputStream, DataOutputStream}
 import java.util
-import java.util.zip.ZipEntry
 
 import scala.collection.mutable
 import scala.reflect.internal.pickling.{ByteCodecs, PickleBuffer}

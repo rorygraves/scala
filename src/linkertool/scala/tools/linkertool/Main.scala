@@ -12,6 +12,7 @@ import scala.collection.JavaConversions._
 import scala.collection.{breakOut, mutable}
 import scala.tools.linker._
 
+
 /**
   * Created by Mike Skells on 03/10/2016.
   */
@@ -203,6 +204,21 @@ class JarShrink {
       out.write(result)
       out.closeEntry()
     }
+
+    def writeLinkerEntry(eager:Boolean): Unit = {
+      val zip = new ZipEntry(RootSymbolWriter.fileName(eager))
+      val result = top.toBytes(eager)
+      val crc = new CRC32
+      zip.setSize(result.length)
+      crc.reset()
+      crc.update(result)
+      zip.setCrc(crc.getValue)
+      out.putNextEntry(zip)
+      out.write(result)
+      out.closeEntry()
+      trace(s"scala meta data size ${result.length}, eager:$eager would compress to ${compress(result).length}")
+    }
+
     // write lazy version
     writeLinkerEntry(false)
     // write eager version
@@ -215,18 +231,7 @@ class JarShrink {
 
     orig map (SampleChanges(sample,_,proc))
   }
-  def writeLinkerEntry(eager:Boolean): Unit = {
-    val zip = new ZipEntry(RootSymbolWriter.name(eager))
-    val result = top.toBytes(eager)
-    zip.setSize(result.length)
-    crc.reset()
-    crc.update(result)
-    zip.setCrc(crc.getValue)
-    out.putNextEntry(zip)
-    out.write(result)
-    out.closeEntry()
-    trace(s"scala meta data size ${result.length}, eager:$eager would compress to ${compress(result).length}")
-  }
+
   def compress(data:Array[Byte]) = {
     val deflater = new Deflater(Deflater.BEST_COMPRESSION)
     deflater.setInput(data)
