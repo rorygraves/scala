@@ -11,8 +11,17 @@
 #cp /Users/rorygraves/.ivy2/cache/com.typesafe/config/bundles/config-1.3.0.jar base-classpath/
 #cp /Users/rorygraves/.ivy2/cache/org.scala-lang.modules/scala-java8-compat_2.11/bundles/scala-java8-compat_2.11-0.7.0.jar base-classpath/
 
+basecp=""
+optcp=""
+
 for f in base-classpath/*.jar; do 
   fname=`basename $f`
   echo "Processing $fname file..";
   ../build/pack/bin/linkertool -in base-classpath/$fname -over -ss -out opt-classpath/$fname
- done
+  basecp="$basecp:base-classpath/$fname"
+  optcp="$basecp:opt-classpath/$fname"
+done
+
+echo "$basecp" > base.classpath
+echo "$optcp" > opt.classpath
+

@@ -16,7 +16,7 @@ import scala.tools.linker.{ClassInfo, RootSymbolWriter, ScalaClassSignature}
 abstract class Linker  extends SubComponent {
   import global._
 
-  val phaseName = "pickler"
+  val phaseName = "linker"
 
   def newPhase(prev: Phase): Phase = new LinkerPhase(prev)
 
@@ -69,7 +69,7 @@ abstract class Linker  extends SubComponent {
 
     override def scalaSignature: Option[ScalaClassSignature] = Some(sig)
 
-    override def entryName: String = ???
+    override def entryName: String = name
   }
 
   def getFiles : Map[String,Array[Byte]] = {
