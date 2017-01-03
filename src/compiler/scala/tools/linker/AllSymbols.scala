@@ -1,7 +1,8 @@
 package scala.tools.linker
 
-import java.io.{DataInputStream, DataOutputStream}
+import java.io.{ByteArrayOutputStream, DataInputStream, DataOutputStream}
 import java.util
+import java.util.zip.ZipEntry
 
 import scala.collection.mutable
 import scala.reflect.internal.pickling.{ByteCodecs, PickleBuffer}
@@ -222,10 +223,24 @@ final class ScalaClassReference(val entryName:String, val scalaClassSignature: S
   }
 
 }
+object RootSymbolWriter {
+  def fileName(eager:Boolean) =
+    if (eager) "META-INF/language/scala/linker.eager.ser"
+    else "META-INF/language/scala/linker.lazy.ser"
 
+}
 class RootSymbolWriter extends LazySymbolsWriter {
   import scala.collection.mutable
 
+  def toBytes(eager:Boolean) = {
+    val allLookup = new ByteArrayOutputStream(4096)
+    val allLookupStream = new DataOutputStream(allLookup)
+    if (eager) writeEagerStructureTo(allLookupStream)
+    else writeLazyStructureTo(allLookupStream)
+    allLookupStream.flush()
+    allLookupStream.close()
+    allLookup.toByteArray
+  }
 
   val allClasses = mutable.HashMap[String, LazySymbolsWriter]()
   val globalAllClasses = mutable.HashMap[String, LazySymbolsWriter]()

@@ -28,6 +28,7 @@ abstract class Linker  extends SubComponent {
       if (global.settings.debug) inform("[phase " + name + " - enabled: "+enabled + "]")
       if (enabled) {
         val visited = new mutable.HashSet[Symbol]()
+        //TODO linkerData should b synced with current classes for incremental compilation
         val linkerData = new RootSymbolWriter
         currentRun.symData foreach {
           //only process elements and companion pairs once
@@ -44,6 +45,8 @@ abstract class Linker  extends SubComponent {
 
             linkerData.addClassRef(ScalaLinkerClassInfo(name, pickleBuffer))
         }
+        //TODO : consider use a Future?
+        currentRun.linkerData = Some(linkerData)
       }
     }
 
@@ -67,5 +70,18 @@ abstract class Linker  extends SubComponent {
     override def scalaSignature: Option[ScalaClassSignature] = Some(sig)
 
     override def entryName: String = ???
+  }
+
+  def getFiles : Map[String,Array[Byte]] = {
+    currentRun.linkerData match {
+      case None =>
+        assert(!global.settings.linker)
+        Map.empty
+      case Some(linkerData) =>
+        Map(
+          RootSymbolWriter.fileName(true) -> linkerData.toBytes(true),
+          RootSymbolWriter.fileName(false)-> linkerData.toBytes(false)
+        )
+    }
   }
 }

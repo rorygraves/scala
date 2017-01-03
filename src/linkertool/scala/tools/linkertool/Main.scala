@@ -203,48 +203,29 @@ class JarShrink {
       out.write(result)
       out.closeEntry()
     }
-    {  // write lazy version
-      val zip = new ZipEntry("META-INF/language/scala")
-      val allLookup = new ByteArrayOutputStream(4096)
-      val allLookupStream = new DataOutputStream(allLookup)
-      top.writeLazyStructureTo(allLookupStream)
-      allLookupStream.flush()
-      allLookupStream.close()
-      val result = allLookup.toByteArray
-      zip.setSize(result.length)
-      crc.reset()
-      crc.update(result)
-      zip.setCrc(crc.getValue)
-      out.putNextEntry(zip)
-      out.write(result)
-      out.closeEntry()
-      trace(s"scala meta data size ${result.length}, would compress to ${compress(result).length}")
-      trace(s"class count - java $javaClass scala $scalaClass")
-    }
-    {  // write eager version
-      val zip = new ZipEntry("META-INF/language/scalaEager")
-      val allLookup = new ByteArrayOutputStream(4096)
-      val allLookupStream = new DataOutputStream(allLookup)
-      top.writeEagerStructureTo(allLookupStream)
-      allLookupStream.flush()
-      allLookupStream.close()
-      val result = allLookup.toByteArray
-      zip.setSize(result.length)
-      crc.reset()
-      crc.update(result)
-      zip.setCrc(crc.getValue)
-      out.putNextEntry(zip)
-      out.write(result)
-      out.closeEntry()
-      trace(s"scala global meta data size ${result.length}, would compress to ${compress(result).length}")
-      trace(s"class global count - java $javaClass scala $scalaClass")
-    }
+    // write lazy version
+    writeLinkerEntry(false)
+    // write eager version
+    writeLinkerEntry(true)
 
+    trace(s"class global count - java $javaClass scala $scalaClass")
 
     out.flush()
     out.close()
 
     orig map (SampleChanges(sample,_,proc))
+  }
+  def writeLinkerEntry(eager:Boolean): Unit = {
+    val zip = new ZipEntry(RootSymbolWriter.name(eager))
+    val result = top.toBytes(eager)
+    zip.setSize(result.length)
+    crc.reset()
+    crc.update(result)
+    zip.setCrc(crc.getValue)
+    out.putNextEntry(zip)
+    out.write(result)
+    out.closeEntry()
+    trace(s"scala meta data size ${result.length}, eager:$eager would compress to ${compress(result).length}")
   }
   def compress(data:Array[Byte]) = {
     val deflater = new Deflater(Deflater.BEST_COMPRESSION)
@@ -276,7 +257,7 @@ class JarShrink {
     data
   }
 
-  //scns the class to determine what classes are reachable from this class
+  //scans the class to determine what classes are reachable from this class
   import Opcodes._
   private abstract class BaseClassScanner extends ClassVisitor(ASM5) {
     def internalClassName:String

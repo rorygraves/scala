@@ -35,6 +35,7 @@ import scala.language.postfixOps
 import scala.tools.nsc.ast.{TreeGen => AstTreeGen}
 import scala.tools.nsc.classpath.FlatClassPath
 import scala.tools.nsc.settings.ClassPathRepresentationType
+import scala.tools.linker.RootSymbolWriter
 
 class Global(var currentSettings: Settings, var reporter: Reporter)
     extends SymbolTable
@@ -1225,6 +1226,8 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
     protected def stopPhase(name: String) = stopPhaseSetting exists (_.phaseName == name)
     /** Should we skip the given phase? */
     protected def skipPhase(name: String) = settings.skip contains name
+
+    var linkerData = Option.empty[RootSymbolWriter]
 
     private val firstPhase = {
       // Initialization.  definitions.init requires phase != NoPhase
