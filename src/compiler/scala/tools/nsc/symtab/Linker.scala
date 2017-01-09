@@ -25,6 +25,7 @@ abstract class Linker  extends SubComponent {
 
     override def run(): Unit = {
       val enabled :Boolean = global.settings.linker
+      println(s"linker enabled:$enabled for ${currentRun.symData.size}")
       if (global.settings.debug) inform("[phase " + name + " - enabled: "+enabled + "]")
       if (enabled) {
         val visited = new mutable.HashSet[Symbol]()
@@ -32,18 +33,26 @@ abstract class Linker  extends SubComponent {
         val linkerData = new RootSymbolWriter
         currentRun.symData foreach {
           //only process elements and companion pairs once
-          case (sym, pickleBuffer) if visited.add(sym) =>
+          case (sym, pickleBuffer) => if (visited.add(sym)) {
             if (currentRun.symData.contains(sym.companion)) {
+              println(s"sym $sym, companion ${sym.companion} companion^2 ${sym.companion.companion} .. ${sym.name.toString}")
+              println(s"sym $sym, companionSymbol ${sym.companionSymbol} companionSymbol^2 ${sym.companionSymbol.companionSymbol} .. ${sym.name.toString}")
+              assert(sym.companion.companion eq sym)
+              assert(sym.companion eq sym.companionSymbol)
+              assert(sym.companionSymbol.companionSymbol eq sym)
               assert(currentRun.symData(sym.companion) eq pickleBuffer)
               visited.add(sym.companion)
             }
-            //not sure if this is right
+            //not sure if this is right - do we want the BinaryName or the Class name etc
             val name = sym match {
-              case m: ModuleSymbol => m.name.toString
-              case c: ClassSymbol => c.name.toString
+              case c:ClassSymbol => sym.javaBinaryNameString
+              case m:ModuleSymbol if currentRun.symData.contains(sym.companion) => sym.companion.javaBinaryNameString
+              case m:ModuleSymbol => sym.javaBinaryNameString
             }
 
+            println(s"linker - add $name")
             linkerData.addClassRef(ScalaLinkerClassInfo(name, pickleBuffer))
+          }
         }
         //TODO : consider use a Future?
         currentRun.linkerData = Some(linkerData)
