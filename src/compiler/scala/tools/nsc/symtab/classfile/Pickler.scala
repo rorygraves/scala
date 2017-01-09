@@ -49,7 +49,7 @@ abstract class Pickler extends SubComponent {
           case ClassDef(_, _, _, _) | ModuleDef(_, _, _) =>
             val sym = tree.symbol
             val pickle = new Pickle(sym)
-            if (add(sym, pickle) || add(sym.companionSymbol, pickle)) {
+            if (add(sym, pickle) | add(sym.companionSymbol, pickle)) {
               pickle.writeArray()
               currentRun registerPickle sym
             }
