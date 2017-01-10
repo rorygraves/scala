@@ -44,14 +44,14 @@ abstract class Linker  extends SubComponent {
               visited.add(sym.companion)
             }
             //not sure if this is right - do we want the BinaryName or the Class name etc
-            val name = sym match {
+            val binaryClassName = sym match {
               case c:ClassSymbol => sym.javaBinaryNameString
               case m:ModuleSymbol if currentRun.symData.contains(sym.companion) => sym.companion.javaBinaryNameString
               case m:ModuleSymbol => sym.javaBinaryNameString
             }
 
-            println(s"linker - add $name")
-            linkerData.addClassRef(ScalaLinkerClassInfo(name, pickleBuffer))
+            println(s"linker - add $binaryClassName")
+            linkerData.addClassRef(ScalaLinkerClassInfo(binaryClassName, pickleBuffer))
           }
         }
         //TODO : consider use a Future?
@@ -64,21 +64,21 @@ abstract class Linker  extends SubComponent {
 
   }
   object ScalaLinkerClassInfo {
-    def apply(name:String, pickleBuffer:PickleBuffer): ScalaLinkerClassInfo = {
+    def apply(binaryClassName:String, pickleBuffer:PickleBuffer): ScalaLinkerClassInfo = {
       val signature = ScalaClassSignature(pickleBuffer)
-      new ScalaLinkerClassInfo(name, signature)
+      new ScalaLinkerClassInfo(binaryClassName, signature)
     }
   }
-  case class ScalaLinkerClassInfo(name:String, sig:ScalaClassSignature) extends ClassInfo {
-    override def javaClassName: String = name
+  case class ScalaLinkerClassInfo(binaryName:String, sig:ScalaClassSignature) extends ClassInfo {
+    override def javaClassName: String = binaryName.replace('/','.')
 
-    override def internalClassName: String = name.replace('.','/')
+    override def internalClassName: String = binaryName
 
     override def outerJavaClassName: Option[String] = None
 
     override def scalaSignature: Option[ScalaClassSignature] = Some(sig)
 
-    override def entryName: String = name
+    override def entryName: String = binaryName + ".class"
   }
 
   def getFiles : Map[String,Array[Byte]] = {
