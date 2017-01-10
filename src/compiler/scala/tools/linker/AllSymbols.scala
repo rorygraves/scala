@@ -38,7 +38,7 @@ object ScalaClassSignature {
   expectedSig(0) = 5
 
   def apply(pickleBuffer:PickleBuffer): ScalaClassSignature = {
-    val scalaSignatureBytes = pickleBuffer.bytes
+    val scalaSignatureBytes = util.Arrays.copyOf(pickleBuffer.bytes, pickleBuffer.writeIndex)
     new ScalaClassSignature(scalaSignatureBytes, None)
   }
   def apply(scalaSignature: CapturedAnnotation, scalaSig: Array[Byte], inlineBytes: Option[Array[Byte]]): ScalaClassSignature = {
