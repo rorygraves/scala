@@ -101,7 +101,9 @@ object ScalaClassSignature {
 
 }
 
-class ScalaClassSignature private (private val scalaSignatureBytes:Array[Byte], private val inline:Option[Array[Byte]])
+class ScalaClassSignature private (private val scalaSignatureBytes:Array[Byte], private val inline:Option[Array[Byte]]) {
+  override def toString = s"ScalaClassSignature[signature {${scalaSignatureBytes.length}} ${scalaSignatureBytes.mkString("[",",","]")}]"
+}
 
 object LazyWriterConstants {
   val TypeCollection:Byte = 0x80.toByte

@@ -31,6 +31,14 @@ abstract class Pickler extends SubComponent {
 
   def newPhase(prev: Phase): StdPhase = new PicklePhase(prev)
 
+  def pickle(root:Symbol, otherSymbols: Symbol *) : PickleBuffer= {
+    val res = new Pickle(root)
+    res putSymbol root
+    otherSymbols foreach res.putSymbol
+    res.writeArray()
+    res
+  }
+
   class PicklePhase(prev: Phase) extends StdPhase(prev) {
     def apply(unit: CompilationUnit) {
       val isJava = unit.isJava

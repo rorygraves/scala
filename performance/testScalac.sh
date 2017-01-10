@@ -8,4 +8,4 @@ echo "Compiling compiler"
 cd .. ; sbt dist/mkPack
 
 cd $wd
-sbt ++2.11.8=../build/pack  compile
+sbt ++2.11.8=../build/pack  clean compile

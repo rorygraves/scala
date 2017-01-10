@@ -54,6 +54,11 @@ abstract class Linker  extends SubComponent {
             linkerData.addClassRef(ScalaLinkerClassInfo(binaryClassName, pickleBuffer))
           }
         }
+        val sym = global.symbolOf[java.util.Collections]
+        val raw = ScalaClassSignature(global.pickler.pickle(sym))
+
+        println(s"linker - pickled collections ${raw}   ")
+
         //TODO : consider use a Future?
         currentRun.linkerData = Some(linkerData)
       }
