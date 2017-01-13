@@ -2,7 +2,7 @@ package scala.tools.nsc
 
 import scala.collection.mutable
 import scala.reflect.internal.pickling.PickleBuffer
-import scala.tools.linker.{ClassInfo, RootSymbolWriter, ScalaClassSignature}
+import scala.tools.linker._
 
 
 /**
@@ -29,7 +29,7 @@ abstract class Linker  extends SubComponent {
       if (enabled) {
         val visited = new mutable.HashSet[Symbol]()
         //TODO linkerData should b synced with current classes for incremental compilation
-        val linkerData = new RootSymbolWriter
+        val linkerData = new RootLinkerSymbolWriter
         currentRun.symData foreach {
           //only process elements and companion pairs once
           case (sym, pickleBuffer) => if (visited.add(sym)) {
@@ -84,8 +84,8 @@ abstract class Linker  extends SubComponent {
         Map.empty
       case Some(linkerData) =>
         Map(
-          RootSymbolWriter.fileName(true) -> linkerData.toBytes(true),
-          RootSymbolWriter.fileName(false)-> linkerData.toBytes(false)
+          LinkerSymbols.fileName(true) -> linkerData.toBytes(true),
+          LinkerSymbols.fileName(false)-> linkerData.toBytes(false)
         )
     }
   }

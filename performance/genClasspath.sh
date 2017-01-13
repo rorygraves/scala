@@ -19,7 +19,7 @@ for f in base-classpath/*.jar; do
   echo "Processing $fname file..";
   ../build/pack/bin/linkertool -in base-classpath/$fname -over -ss -out opt-classpath/$fname
   basecp="$basecp:base-classpath/$fname"
-  optcp="$basecp:opt-classpath/$fname"
+  optcp="$optcp:opt-classpath/$fname"
 done
 
 echo "$basecp" > base.classpath

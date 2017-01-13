@@ -225,13 +225,13 @@ final class ScalaClassReference(val entryName:String, val scalaClassSignature: S
   }
 
 }
-object RootSymbolWriter {
+object LinkerSymbols {
   def fileName(eager:Boolean) =
     if (eager) "META-INF/language/scala/linker.eager.ser"
     else "META-INF/language/scala/linker.lazy.ser"
 
 }
-class RootSymbolWriter extends LazySymbolsWriter {
+class RootLinkerSymbolWriter extends LazySymbolsWriter {
   import scala.collection.mutable
 
   def toBytes(eager:Boolean) = {

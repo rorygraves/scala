@@ -7,18 +7,19 @@
 package scala.tools.nsc
 package util
 
-import io.{ AbstractFile, Directory, File, Jar }
+import io.{AbstractFile, Directory, File, Jar}
 import java.net.MalformedURLException
 import java.net.URL
 import java.util.regex.PatternSyntaxException
-import scala.collection.{ mutable, immutable }
+
+import scala.collection.{immutable, mutable}
 import scala.reflect.internal.util.StringOps.splitWhere
 import scala.tools.nsc.classpath.FileUtils
-
 import File.pathSeparator
 import FileUtils.endsClass
 import FileUtils.endsScalaOrJava
 import Jar.isJarOrZip
+import scala.reflect.io.FileZipArchive
 
 /** <p>
  *    This module provides star expansion of '-classpath' option arguments, behaves the same as
@@ -264,6 +265,7 @@ class SourcePath[T](dir: AbstractFile, val context: ClassPathContext[T]) extends
 class DirectoryClassPath(val dir: AbstractFile, val context: ClassPathContext[AbstractFile]) extends ClassPath[AbstractFile] {
   import FileUtils.AbstractFileOps
 
+  println("Directory CP - " + dir)
   def name = dir.name
   override def origin = dir.underlyingSource map (_.path)
   def asURLs = dir.toURLs(default = Seq(new URL(name)))
@@ -274,8 +276,58 @@ class DirectoryClassPath(val dir: AbstractFile, val context: ClassPathContext[Ab
   private def traverse() = {
     val classBuf   = immutable.Vector.newBuilder[ClassRep]
     val packageBuf = immutable.Vector.newBuilder[DirectoryClassPath]
+
+    println("XXXXX Test " + dir.isJarOrZip + "  " + dir.getClass + "  " + dir)
+
+    dir match {
+      case fza: FileZipArchive =>
+        //META-INF/language/scala/linker.eager.ser
+        val x = fza.allDirs.get("META-INF/language/scala/")
+        x match {
+          case Some(linkerDir) =>
+            linkerDir.entries.keySet.foreach(f => println(" ENTRY " + f))
+//            linkerDir.find(_.name.)
+          case None =>
+        }
+//        println("XXXXXY allDirs.keys = " + x.keySet)
+//        println("XXXXXY Test " + x.keySet.find(_.contains("META-INF/l")))
+//        val r = dir.find { f =>
+//          println("  found  " + f.name)
+//          f.name.endsWith("linker.eager.ser")
+//
+//        }
+//        if(r.isDefined)
+//          println("YAYYAY")
+      case _ =>
+    }
+//    println("XXXXX Test " + dir.isJarOrZip + "  " + dir)
+//    dir.foreach { f =>
+//      println("  found  " + f.name)
+//      //          f.name.endsWith("linker.eager.ser")
+//    }
+//    val data: Option[String] = dir match {
+//      case fza: FileZipArchive =>
+//        dir.foreach { f =>
+//          println("  found  " + f.name)
+////          f.name.endsWith("linker.eager.ser")
+//        }
+//        None
+////        val handle = fza.fileNamed("/META-INF/language/scala/linker.eager.ser")
+////        println("XXXXX " + handle + "  " + handle.exists)
+//  //      Some("YYYYYY FOUND " + x)
+//      case _ =>
+//        println("XXXXX NO META " + dir)
+//        None
+//
+//    }
+//    if(dir.isJarOrZip) {
+//
+//      println("Directory CP File is jar: " + dir.getClass)
+//    }
+
     dir foreach {
       f =>
+//        println("f = " + f)
         // Optimization: We assume the file was not changed since `dir` called
         // `Path.apply` and categorized existent files as `Directory`
         // or `File`.
@@ -393,4 +445,15 @@ extends ClassPath[T] {
 class JavaClassPath(
   containers: IndexedSeq[ClassPath[AbstractFile]],
   context: JavaContext)
-extends MergedClassPath[AbstractFile](containers, context) { }
+extends MergedClassPath[AbstractFile](containers, context) {
+
+  println("HERE JAVACP " + containers.map( "" + _.getClass))
+
+//  println("ARCHIVE  " + archive.allDirs.keySet)
+  //  archive.root.entries(lookupName()
+  //  val linkerData = archive.underlyingSource.map { z =>
+  //    z.
+  //
+  //  }
+
+}
