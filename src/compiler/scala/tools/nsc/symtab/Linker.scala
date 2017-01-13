@@ -25,7 +25,6 @@ abstract class Linker  extends SubComponent {
 
     override def run(): Unit = {
       val enabled :Boolean = global.settings.linker
-      println(s"linker enabled:$enabled for ${currentRun.symData.size}")
       if (global.settings.debug) inform("[phase " + name + " - enabled: "+enabled + "]")
       if (enabled) {
         val visited = new mutable.HashSet[Symbol]()
@@ -35,11 +34,6 @@ abstract class Linker  extends SubComponent {
           //only process elements and companion pairs once
           case (sym, pickleBuffer) => if (visited.add(sym)) {
             if (currentRun.symData.contains(sym.companion)) {
-              println(s"sym $sym, companion ${sym.companion} companion^2 ${sym.companion.companion} .. ${sym.name.toString}")
-              println(s"sym $sym, companionSymbol ${sym.companionSymbol} companionSymbol^2 ${sym.companionSymbol.companionSymbol} .. ${sym.name.toString}")
-              assert(sym.companion.companion eq sym)
-              assert(sym.companion eq sym.companionSymbol)
-              assert(sym.companionSymbol.companionSymbol eq sym)
               assert(currentRun.symData(sym.companion) eq pickleBuffer)
               visited.add(sym.companion)
             }
@@ -50,14 +44,11 @@ abstract class Linker  extends SubComponent {
               case m:ModuleSymbol => sym.javaBinaryNameString
             }
 
-            println(s"linker - add $binaryClassName")
             linkerData.addClassRef(ScalaLinkerClassInfo(binaryClassName, pickleBuffer))
           }
         }
         val sym = global.symbolOf[java.util.Collections]
         val raw = ScalaClassSignature(global.pickler.pickle(sym))
-
-        println(s"linker - pickled collections ${raw}   ")
 
         //TODO : consider use a Future?
         currentRun.linkerData = Some(linkerData)

@@ -1,7 +1,7 @@
 package scala.tools.linkertool
 
 import java.io._
-import java.nio.file.{CopyOption, FileSystems, Files, StandardCopyOption}
+import java.nio.file._
 import java.util.jar._
 import java.util.zip._
 
@@ -35,11 +35,11 @@ object LinkerTool extends App {
   val entries: List[JarClassInfo] = inJar.entries.toList.map {
     jarEntry =>
       val name = jarEntry.getName
-      val dirIndex = name.indexOf('/')
-      val packageName = if (dirIndex == -1) "" else name.substring(0, dirIndex - 1).replace('/', '.')
+      val dirIndex = name.lastIndexOf('/')
+      val packageName = if (dirIndex == -1) "" else name.substring(0, dirIndex).replace('/', '.')
       val localName = name.substring(dirIndex + 1)
       val dollarIndex = localName.indexOf('$')
-      val symbolName = if (dollarIndex == -1) localName else localName.substring(0, dollarIndex - 1)
+      val symbolName = if (dollarIndex == -1) localName else localName.substring(0, dollarIndex)
       JarClassInfo(name, packageName, symbolName)
   }
 
@@ -74,6 +74,8 @@ object LinkerTool extends App {
     (RootSymbolWriter.fileName(false), data.toBytes(false)) :: Nil
 
   for ((name, data) <- extra) {
+    val path = fs.getPath(name)
+    Files.createDirectories(path.getParent)
     Files.copy(new ByteArrayInputStream(data), fs.getPath(name))
   }
   fs.close()
@@ -89,6 +91,7 @@ object LinkerTool extends App {
     byName foreach {
       case (name, entries) =>
         val first = entries.head
+        println(s"$name -> $entries")
         val pack = rootMirror.getPackageIfDefined(TermName(first.packageName)).moduleClass
         val (moduleSym, classSym) = pack.newModuleAndClassSymbol(TermName(first.symbolName), NoPosition, 0L)
         // TODO enter symbols in info of package class.

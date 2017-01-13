@@ -43,7 +43,6 @@ abstract class Pickler extends SubComponent {
     def apply(unit: CompilationUnit) {
       val isJava = unit.isJava
 
-      println(s"unit $unit - isjava:$isJava")
       def pickle(tree: Tree) {
         def add(sym: Symbol, pickle: Pickle) :Boolean = {
           if (currentRun.compiles(sym) && !currentRun.symData.contains(sym)) {
@@ -53,7 +52,6 @@ abstract class Pickler extends SubComponent {
             true
           } else false
         }
-        println (s"tree ${tree.getClass}")
 
         tree match {
           case PackageDef(_, stats) =>

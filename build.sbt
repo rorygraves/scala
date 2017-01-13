@@ -958,7 +958,7 @@ lazy val mkBinImpl: Def.Initialize[Task[Seq[File]]] = Def.task {
   mkBin("fsc"      , "scala.tools.nsc.CompileClient",     (fullClasspath in Compile in compiler).value) ++
   mkBin("scaladoc" , "scala.tools.nsc.ScalaDoc",          (fullClasspath in Compile in scaladoc).value) ++
   mkBin("scalap"   , "scala.tools.scalap.Main",           (fullClasspath in Compile in scalap).value) ++
-  mkBin("linkertool" , "scala.tools.linkertool.Main",           (fullClasspath in Compile in linkertool).value)
+  mkBin("linkertool" , "scala.tools.linkertool.LinkerTool",           (fullClasspath in Compile in linkertool).value)
 
 }
 
