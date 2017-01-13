@@ -5,12 +5,11 @@ import java.nio.file._
 import java.util.jar._
 import java.util.zip._
 
-import scala.tools.linker._
 import scala.tools.nsc.{Global, Settings}
 import scala.tools.nsc.reporters._
 import scala.collection.JavaConversions._
 import scala.collection.breakOut
-
+import scala.tools.linker._
 
 /**
   * @author Mike Skells
@@ -70,8 +69,8 @@ object LinkerTool extends App {
 
   val fs = FileSystems.newFileSystem(outputFile.toPath, getClass.getClassLoader)
 
-  val extra = (RootSymbolWriter.fileName(true), data.toBytes(true)) :: //
-    (RootSymbolWriter.fileName(false), data.toBytes(false)) :: Nil
+  val extra = (LinkerSymbols.fileName(true), data.toBytes(true)) :: //
+    (LinkerSymbols.fileName(false), data.toBytes(false)) :: Nil
 
   for ((name, data) <- extra) {
     val path = fs.getPath(name)
