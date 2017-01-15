@@ -8,8 +8,12 @@ import org.kohsuke.args4j.{CmdLineException, CmdLineParser, Option => ArgsjOptio
 /**
   * @author Mike Skells
   */
-object LinkerToolCommandLine{
+class LinkerToolCommandLine(args: Array[String]){
 
+  val parser = new CmdLineParser(this)
+  parser.getProperties.withShowDefaults(true).withUsageWidth(120)
+
+  init(args)
   //basic options
   @ArgsjOption(name="-in", aliases=Array("--input"), required = true,
     usage="input jar file to process. Exactly one of -in or -inPath must be specified"  )
@@ -55,11 +59,6 @@ object LinkerToolCommandLine{
 //  private var javapV:String = _
 //  def javaP = javapV
 //
-
-
-
-  val parser = new CmdLineParser(this)
-  parser.getProperties.withShowDefaults(true).withUsageWidth(120)
 
   def parametersInError(msg:String): Nothing = {
     println(msg)
