@@ -5,26 +5,33 @@ import java.nio.file._
 import java.util.jar._
 import java.util.zip._
 
+import scala.annotation.tailrec
 import scala.tools.nsc.{Global, Settings}
 import scala.tools.nsc.reporters._
 import scala.collection.JavaConversions._
+import scala.collection.mutable
 import scala.collection.breakOut
 import scala.tools.linker._
+import scala.tools.nsc.symtab.classfile.Pickler
+import scala.util.control.NonFatal
 
 /**
   * @author Mike Skells
   */
 object LinkerTool extends App {
 
-  case class JarClassInfo(val entryName: String, val packageName: String, val symbolName: String) {
-    def className = if (packageName.isEmpty) symbolName else s"$packageName.$symbolName"
-    def outmostSymbolName = {
-      val dIndex = symbolName.indexOf('$')
-      if (dIndex == -1) symbolName else symbolName.take(dIndex)
-    }
-    def outmostClassName = {
-      if (packageName.isEmpty) outmostSymbolName else s"$packageName.$outmostSymbolName"
-    }
+
+  case class JarClassInfo(val entryName: String, val packageName: String, val localName: String, parent:String) {
+    def className = if (packageName.isEmpty) localName else s"$packageName.$localName"
+//    def outmostSymbolName = {
+//      val dIndex = symbolName.indexOf('$')
+//      if (dIndex == -1) symbolName else symbolName.take(dIndex)
+//    }
+//    def outmostClassName = {
+//      if (packageName.isEmpty) outmostSymbolName else s"$packageName.$outmostSymbolName"
+//    }
+    def localSymbolName = localName.replace('$','.').replace("..",".")
+    def fullSymbolName = if (packageName.isEmpty) localSymbolName else s"$packageName.$localSymbolName"
   }
 
   private def error(s: String): Unit = {
@@ -34,6 +41,10 @@ object LinkerTool extends App {
 
   val params = new LinkerToolCommandLine(args)
 
+  @inline def verbose (txt: => String): Unit = {
+    if (params.verbose) println(txt)
+  }
+
   val entries: List[JarClassInfo] = {
     val inJar = new JarFile(params.inputFile)
     val res = inJar.entries.toList.filter( _.getName.endsWith(".class")).map {
@@ -42,44 +53,102 @@ object LinkerTool extends App {
         val dirIndex = name.lastIndexOf('/')
         val packageName = if (dirIndex == -1) "" else name.substring(0, dirIndex).replace('/', '.')
         val localName = name.substring(dirIndex + 1)
-        val dollarIndex = localName.indexOf('$')
-        //name ends with ".class" or "$<something"
-        val symbolName = localName.take(if (dollarIndex == -1) localName.length - 6 else dollarIndex )
-        JarClassInfo(name, packageName, symbolName)
+//        val dollarIndex = localName.indexOf('$')
+//        //name ends with ".class" or "$<something"
+//        val symbolName = localName.take(if (dollarIndex == -1) localName.length - 6 else dollarIndex )
+        JarClassInfo(name, packageName, localName.take(localName.length -6), "")
     }
     inJar.close()
-    res
+    val byName = res.groupBy(_.className)
+    @tailrec def findParentClassName(className:String): String = {
+      val di =className.lastIndexOf('$')
+      if (di == -1) ""
+      else {
+        val parent = className.take(di)
+        if (byName.contains(parent)) parent
+        else findParentClassName(parent)
+      }
+    }
+    res map {
+      case j @ JarClassInfo(name, packageName, localName, _ ) =>
+        JarClassInfo(name, packageName, localName, findParentClassName(j.className) )
+    }
   }
 
-  val byOutMostName = entries.groupBy(_.outmostClassName)
-
-  def newGlobal(includeInput:Boolean) = {
-    val reporter = new StoreReporter
-    val global = new Global(new Settings(x => sys.error(x)), reporter)
+  def newGlobal(includeInput:Boolean, console:Boolean) = {
+    val settings = new Settings(x => sys.error(x))
+    val reporter = if (console) new ConsoleReporter(settings) else new StoreReporter
+    val global = new Global(settings, reporter)
     new global.Run()
 
     global
   }
 
-  val linkerData = {
-    val global = newGlobal(true)
+  val allBadSymbols = new mutable.HashSet[String]()
+//  val allBadEntries = new mutable.HashSet[String]()
+
+  val topLevel: List[JarClassInfo] = entries filter (_.parent == "")
+//    val global = newGlobal(true, true)
+//    global.settings.debug.value = true
+//    import global._
+//
+//    val toTopSym = entries.
+////    filterNot {
+////      case JarClassInfo(entryName, _, _) => allBadEntries.contains(entryName)
+////    }
+//    map {
+//      case entry :JarClassInfo =>
+//        verbose(s" loading ${entry.entryName} ")
+//        verbose(s" loading ${entry.fullSymbolName} ")
+//        val sym = rootMirror.getRequiredClass(entry.fullSymbolName)
+//        (entry, sym, sym.enclosingTopLevelClass)
+//    }
+//    val topLevel:Map[Symbol, JarClassInfo] = toTopSym.collect{
+//      case (entry, sym, top) if sym == top=> (top->entry)
+//    } .toMap
+//    toTopSym.groupBy {
+//      case (entry, sym, top) => topLevel(top)
+//    }.map {
+//      case (k,list) => (k-> list.map(_._1))
+//    }
+//  }
+
+  @tailrec def getReadableSymbols() :RootLinkerSymbolWriter= {
+    val initialSize = allBadSymbols.size
+    val global = newGlobal(true, false)
     import global._, global.definitions._
 
-    var count = 1
-    byOutMostName foreach {
-      case (name, entries) =>
-        println(s"count $count - $name $entries")
-        count += 1
-        val dummyUnit = newCompilationUnit("", "dummy.scala")
-        val javaSym = rootMirror.getClassIfDefined(name)
-        dummyUnit.body = ClassDef(javaSym, NoMods, Nil, Nil, NoPosition)
-        currentRun.symSource(javaSym) = dummyUnit.source.file
-        currentRun.picklerPhase.asInstanceOf[GlobalPhase].apply(dummyUnit)
+    val withSym = topLevel.filter {
+      case JarClassInfo(entryName, _,_,parent) => parent == "" && !allBadSymbols.contains(entryName)
+    } map {
+      case entry @ JarClassInfo(entryName, packageName, symbolName, parent) =>
+        verbose(s" loading $entryName ")
+//        verbose(s" loading ${entry.fullSymbolName} ")
+        (entry, rootMirror.getRequiredClass(entry.className))
     }
-    currentRun.linkerPhase.run()
-    currentRun.linkerData.getOrElse(???)
+    withSym map {
+      case (entry, sym) =>
+        //        val dummyUnit = newCompilationUnit("", "dummy.scala")
+        //        dummyUnit.body = ClassDef(sym, NoMods, Nil, Nil, NoPosition)
+        //        currentRun.symSource(sym) = dummyUnit.source.file
+        //        currentRun.picklerPhase.asInstanceOf[GlobalPhase].apply(dummyUnit)
+        try global.pickler.pickle(true, sym, sym.companion)
+        catch {
+          case NonFatal(x) =>
+            if (params.verbose) x.printStackTrace
+            allBadSymbols += entry.entryName
+        }
+    }
+    if (initialSize != allBadSymbols.size) {
+      if (params.verbose) inform(s"${allBadSymbols.size} bad symbols detected - retrying")
+      getReadableSymbols()
+    } else {
+      //val symData = currentRun.symData.toMap
+      currentRun.linkerPhase.run()
+      currentRun.linkerData.getOrElse(???)
+    }
   }
-
+  val linkerData = getReadableSymbols()
 
 
   //copy and add new entries to the jar
@@ -103,7 +172,7 @@ object LinkerTool extends App {
 
 
   if (params.debug) {
-    val global = newGlobal(false)
+    val global = newGlobal(false, false)
     import global._
     import global.definitions._
     import scala.collection.mutable
@@ -116,13 +185,13 @@ object LinkerTool extends App {
 
       override def newScan(_bytes: Array[Byte], offset: Int, classRoot: Symbol, moduleRoot: Symbol, filename: String) = {
         require (unpickledSymbols == null)
-        unpickledSymbols = new mutable.HashSet[Symbol]
+        unpickledSymbols = new mutable.HashSet[Symbol]()
+        println("new TraceScan")
         new TraceScan(_bytes, offset, classRoot, moduleRoot, filename)
       }
 
       class TraceScan(_bytes: Array[Byte], offset: Int, classRoot: Symbol, moduleRoot: Symbol, filename: String) extends Scan(_bytes, offset, classRoot, moduleRoot, filename) {
         override protected def readSymbol(): unpickler.symbolTable.Symbol = {
-
           var r = super.readSymbol()
           unpickledSymbols += r
           r
@@ -130,29 +199,26 @@ object LinkerTool extends App {
       }
     }
 
-    println(linkerData.allClasses.keySet)
-    val classAndData = byOutMostName map {
-      case (name, entries) =>
-        val first = entries.head
-        println(s"$name -> $entries")
-        val pack = rootMirror.getPackageIfDefined(TermName(first.packageName)).moduleClass
-        val (moduleSym, classSym) = pack.newModuleAndClassSymbol(TermName(first.outmostSymbolName), NoPosition, 0L)
+    val classAndData = topLevel.filter { jar => !allBadSymbols.contains(jar.entryName)} map { top =>
+        verbose(s"$top -> $top")
+        val pack = rootMirror.getPackageIfDefined(TermName(top.packageName)).moduleClass
+        val (moduleSym, classSym) = pack.newModuleAndClassSymbol(TermName(top.localSymbolName), NoPosition, 0L)
         // TODO enter symbols in info of package class.
 
-        val sig = linkerData.allClasses(first.className) match {
+        val sig = linkerData.allClasses(top.className) match {
           case ref: ScalaClassReference => ref.scalaClassSignature
         }
-        (name, entries, moduleSym, classSym, sig)
+        (top, moduleSym, classSym, sig)
     }
     val unpickledSymbols = classAndData map {
-      case (name, entries, moduleSym, classSym, sig) =>
+      case (name, moduleSym, classSym, sig) =>
         unpickler.unpickle(sig.scalaSigBytesCopy, 0, classSym, moduleSym, "Dummy.file")
         val unpickled = unpickler.unpickledSymbols.toSet
         unpickler.unpickledSymbols = null
-        (name, entries, moduleSym, classSym, unpickled)
+        (name, moduleSym, classSym, unpickled)
     }
     unpickledSymbols foreach {
-      case (name, entries, moduleSym, classSym, unpickled) =>
+      case (name, moduleSym, classSym, unpickled) =>
 
 //        definitions.fullyInitializeSymbol(classSym)
         val visited = new mutable.HashSet[Symbol]

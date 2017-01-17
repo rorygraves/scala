@@ -31,10 +31,14 @@ abstract class Pickler extends SubComponent {
 
   def newPhase(prev: Phase): StdPhase = new PicklePhase(prev)
 
-  def pickle(root:Symbol, otherSymbols: Symbol *) : PickleBuffer= {
+  def pickle(addToRun:Boolean, root:Symbol, otherSymbols: Symbol *) : PickleBuffer= {
     val res = new Pickle(root)
     res putSymbol root
-    otherSymbols foreach res.putSymbol
+    if (addToRun) currentRun.symData(root) = res
+    otherSymbols foreach { sym =>
+      res.putSymbol(sym)
+      if (addToRun) currentRun.symData(sym) = res
+    }
     res.writeArray()
     res
   }
