@@ -54,6 +54,8 @@ trait BytecodeWriters {
   trait BytecodeWriter {
     def writeClass(label: String, jclassName: String, jclassBytes: Array[Byte], outfile: AbstractFile): Unit
     def close(): Unit = ()
+    //TODO
+    def isSingleThreaded = true
   }
 
   class DirectToJarfileWriter(jfile: JFile) extends BytecodeWriter {
