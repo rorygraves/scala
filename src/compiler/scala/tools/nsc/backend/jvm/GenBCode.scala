@@ -265,6 +265,7 @@ abstract class GenBCode extends BCodeSyncAndTry with BCodeParallel  {
       (workers2 ++ workers3) foreach {
         // check for any exception during the operation of the background threads
         f => scala.concurrent.Await.result(f, scala.concurrent.duration.Duration.Inf)
+          f.value.get.get
       }
       assert(ec.shutdownNow().isEmpty)
 
