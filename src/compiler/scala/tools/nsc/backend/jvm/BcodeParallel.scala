@@ -16,10 +16,14 @@ import scala.util.control.NonFatal
 trait BCodeParallel {
   genBCode: GenBCode =>
 
+  case class Item1(arrivalPos: Int, cd: global.ClassDef, cunit: global.CompilationUnit, workflow :Workflow)
+
   class Workflow extends AsyncReporter {
-    val optimise = Promise[Item2]
+    val optimize = Promise[Item2]
     val item2 = Promise[Item2]
     val item3 = Promise[Item3]
+
+    override def toString: String = s"Workflow optimizeComplete: ${optimize.isCompleted} item2Complete: ${item2.isCompleted} item2Complete: ${item2.isCompleted}"
   }
 
   case class Item2(arrivalPos: Int,
@@ -89,7 +93,7 @@ trait BCodeParallel {
     }
   }
 
-  class OptimisationWorkflow(allData: ArrayBuffer[Workflow]) extends Runnable {
+  class OptimisationWorkflow(allData: ArrayBuffer[Item1]) extends Runnable {
 
     import scala.util.{Try, Success, Failure}
 
@@ -103,9 +107,10 @@ trait BCodeParallel {
 
     override def run(): Unit = {
       try {
-        val downstreams = allData map { workflow =>
-          Await.ready(workflow.optimise.future, Duration.Inf)
-          val upstream = workflow.optimise.future.value.get
+        val downstreams = allData map { item1 : Item1 =>
+          val workflow = item1.workflow
+          Await.ready(workflow.optimize.future, Duration.Inf)
+          val upstream = workflow.optimize.future.value.get
           try {
             upstream match {
               case Success(item) =>
@@ -138,7 +143,7 @@ trait BCodeParallel {
           if (compilerSettings.optClosureInvocations)
             bTypes.closureOptimizer.rewriteClosureApplyInvocations()
           for (i <- 0 to allData.size) {
-            allData(i).item2.complete(downstreams(i))
+            allData(i).workflow.item2.complete(downstreams(i))
           }
         }
 
@@ -146,7 +151,7 @@ trait BCodeParallel {
         case t: Throwable =>
           val fail = Failure(t)
           allData map {
-            _.item2.tryComplete(fail)
+            _.workflow.item2.tryComplete(fail)
           }
           throw t
       }

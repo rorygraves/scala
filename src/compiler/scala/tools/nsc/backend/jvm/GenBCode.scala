@@ -75,8 +75,6 @@ abstract class GenBCode extends BCodeSyncAndTry with BCodeParallel  {
 
     /* ---------------- q1 ---------------- */
 
-    case class Item1(arrivalPos: Int, cd: ClassDef, cunit: CompilationUnit, workflow :Workflow)
-
     private val allData = new ArrayBuffer[Item1]
 
     /* ---------------- q2 ---------------- */
@@ -254,19 +252,26 @@ abstract class GenBCode extends BCodeSyncAndTry with BCodeParallel  {
         java.util.concurrent.Executors.newCachedThreadPool(), onWorkerError
       )
       import scala.concurrent.Future
-      val workers2 = (1 to 3) map {i => Future(new Worker2(i,q2))(ec)}
-      val workers3 = (1 to (if (bytecodeWriter.isSingleThreaded) 1 else 3)) map {i => Future(new Worker3(i,q3, bytecodeWriter))(ec)}
-
       feedPipeline1()
+
+      val workerOpt:Future[Unit] = Future(new OptimisationWorkflow(allData).run)(ec)
+      val workers2:Seq[Future[Unit]] = (1 to 3) map {i => Future(new Worker2(i,q2).run)(ec)}
+      val workers3:Seq[Future[Unit]] = (1 to (if (bytecodeWriter.isSingleThreaded) 1 else 3)) map {i => Future(new Worker3(i,q3, bytecodeWriter).run)(ec)}
+
       val genStart = Statistics.startTimer(BackendStats.bcodeGenStat)
       (new Worker1(needsOutFolder)).run()
       Statistics.stopTimer(BackendStats.bcodeGenStat, genStart)
 
-      (workers2 ++ workers3) foreach {
-        // check for any exception during the operation of the background threads
-        f => scala.concurrent.Await.result(f, scala.concurrent.duration.Duration.Inf)
-          f.value.get.get
+      def checkWorker(worker:Future[Unit]) = {
+        scala.concurrent.Await.result(worker, scala.concurrent.duration.Duration.Inf)
+        worker.value.get.get
       }
+
+      // check for any exception during the operation of the background threads
+      checkWorker(workerOpt)
+      workers2 foreach checkWorker
+      workers3 foreach checkWorker
+
       assert(ec.shutdownNow().isEmpty)
 
       // we're done
