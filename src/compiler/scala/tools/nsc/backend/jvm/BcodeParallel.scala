@@ -6,21 +6,20 @@ import scala.annotation.tailrec
 import scala.collection.mutable.ArrayBuffer
 import scala.concurrent.{Await, Future, Promise}
 import scala.concurrent.duration.Duration
-import scala.reflect.internal.util.Statistics
+import scala.reflect.internal.util.{NoPosition, Statistics}
 import scala.tools.asm
 import scala.tools.asm.tree.ClassNode
 import scala.util.control.NonFatal
 
+// support classes for GenBcode
+// seperated here to allow for different imports, and to better ensure that there is not tree access
 trait BCodeParallel {
   genBCode: GenBCode =>
 
-  //support classes for GenBcode
-  // seperated here to allow for different imports, and to better ensure that there is not tree access
-  class Workflow {
+  class Workflow extends AsyncReporter {
     val optimise = Promise[Item2]
     val item2 = Promise[Item2]
     val item3 = Promise[Item3]
-    var errors = List.empty[String]
   }
 
   case class Item2(arrivalPos: Int,
@@ -67,29 +66,26 @@ trait BCodeParallel {
     @tailrec final def run(): Unit = {
       currentWork = queue.poll()
       if (currentWork ne null) {
-        val work = getWork(currentWork)
-        Await.ready(work, Duration.Inf)
-        work.value.get match {
-          case Success(item) =>
-            val start = timer.start()
-            try {
-              process(item)
-              nextStageSuccess(currentWork, process(item))
-            } catch {
-              case t: Throwable =>
-                nextStageFailed(currentWork, t)
-            }
-            timer.stop(start)
-          case Failure(f) => //TODO
-            nextStageFailed(currentWork, f)
+        withReporterOverride(currentWork) {
+          val work = getWork(currentWork)
+          Await.ready(work, Duration.Inf)
+          work.value.get match {
+            case Success(item) =>
+              val start = timer.start()
+              try {
+                process(item)
+                nextStageSuccess(currentWork, process(item))
+              } catch {
+                case t: Throwable =>
+                  nextStageFailed(currentWork, t)
+              }
+              timer.stop(start)
+            case Failure(f) => //TODO
+              nextStageFailed(currentWork, f)
+          }
         }
-
         run()
       }
-    }
-
-    def error(msg: String): Unit = {
-      currentWork.errors ::= msg
     }
   }
 
@@ -197,11 +193,11 @@ trait BCodeParallel {
         makeItem3(item)
       } catch {
         case e: java.lang.RuntimeException if e.getMessage != null && (e.getMessage contains "too large!") =>
-          error(s"Could not write class ${item.plain.name} because it exceeds JVM code size limits. ${e.getMessage}")
+          reporter.error(NoPosition, s"Could not write class ${item.plain.name} because it exceeds JVM code size limits. ${e.getMessage}")
           throw e
         case ex: Throwable =>
           ex.printStackTrace()
-          error(s"Error while emitting ${item.plain.name}\n${ex.getMessage}")
+          reporter.error(NoPosition, s"Error while emitting ${item.plain.name}\n${ex.getMessage}")
           throw ex
       }
     }
@@ -257,7 +253,7 @@ trait BCodeParallel {
         }
         catch {
           case e: FileConflictException =>
-            error(s"error writing $jclassName: ${e.getMessage}")
+            reporter.error(NoPosition, s"error writing $jclassName: ${e.getMessage}")
         }
       }
     }

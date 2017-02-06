@@ -52,7 +52,7 @@ import scala.util.control.NonFatal
  *
  */
 abstract class GenBCode extends BCodeSyncAndTry with BCodeParallel  {
-  import global._
+  import global.{reporter => _, _}
 
   import bTypes._
   import coreBTypes._
@@ -255,7 +255,7 @@ abstract class GenBCode extends BCodeSyncAndTry with BCodeParallel  {
       )
       import scala.concurrent.Future
       val workers2 = (1 to 3) map {i => Future(new Worker2(i,q2))(ec)}
-      val workers3 = (1 to 3) map {i => Future(new Worker3(i,q3, bytecodeWriter))(ec)}
+      val workers3 = (1 to (if (bytecodeWriter.isSingleThreaded) 1 else 3)) map {i => Future(new Worker3(i,q3, bytecodeWriter))(ec)}
 
       feedPipeline1()
       val genStart = Statistics.startTimer(BackendStats.bcodeGenStat)
@@ -269,9 +269,16 @@ abstract class GenBCode extends BCodeSyncAndTry with BCodeParallel  {
       assert(ec.shutdownNow().isEmpty)
 
       // we're done
-      allData.clear()
       assert(q2.isEmpty, s"Some classfiles remained in the second queue: $q2")
       assert(q3.isEmpty, s"Some classfiles weren't written to disk: $q3")
+
+
+      //report any deferred messages
+      val globalReporter = reporter
+      allData foreach {
+        data => data.workflow.relayReports(globalReporter)
+      }
+      allData.clear()
 
     }
 
