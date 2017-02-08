@@ -11,6 +11,10 @@ trait HasReporter {
 
   val global : Global
 
+  @inline def withAstTreeLock[T](fn: => T): T = {
+    global.synchronized(fn)
+  }
+
   object defaultReporter extends LocalReporter {
     override def innerReporter: Reporter = global.reporter
   }

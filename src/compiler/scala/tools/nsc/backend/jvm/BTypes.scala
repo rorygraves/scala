@@ -82,19 +82,22 @@ abstract class BTypes {
    */
   val callsitePositions: concurrent.Map[MethodInsnNode, Position] = recordPerRunCache(TrieMap.empty)
 
+  private def emptyConcSet[T <: AnyRef] = {
+    java.util.Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap[T, java.lang.Boolean]).asScala
+  }
   /**
    * Stores callsite instructions of invocatinos annotated `f(): @inline/noinline`.
    * Instructions are added during code generation (BCodeBodyBuilder). The maps are then queried
    * when building the CallGraph, every Callsite object has an annotated(No)Inline field.
    */
-  val inlineAnnotatedCallsites: mutable.Set[MethodInsnNode] = recordPerRunCache(mutable.Set.empty)
-  val noInlineAnnotatedCallsites: mutable.Set[MethodInsnNode] = recordPerRunCache(mutable.Set.empty)
+  val inlineAnnotatedCallsites: mutable.Set[MethodInsnNode] = recordPerRunCache(emptyConcSet[MethodInsnNode])
+  val noInlineAnnotatedCallsites: mutable.Set[MethodInsnNode] = recordPerRunCache(emptyConcSet[MethodInsnNode])
 
   /**
    * Contains the internal names of all classes that are defined in Java source files of the current
    * compilation run (mixed compilation). Used for more detailed error reporting.
    */
-  val javaDefinedClasses: mutable.Set[InternalName] = recordPerRunCache(mutable.Set.empty)
+  val javaDefinedClasses: mutable.Set[InternalName] = recordPerRunCache(emptyConcSet[InternalName])
 
   /**
    * Cache, contains methods whose unreachable instructions are eliminated.
@@ -106,14 +109,14 @@ abstract class BTypes {
    * This cache allows running dead code elimination whenever an analyzer is used. If the method
    * is already optimized, DCE can return early.
    */
-  val unreachableCodeEliminated: mutable.Set[MethodNode] = recordPerRunCache(mutable.Set.empty)
+  val unreachableCodeEliminated: mutable.Set[MethodNode] = recordPerRunCache(emptyConcSet[MethodNode])
 
   /**
    * Cache of methods which have correct `maxLocals` / `maxStack` values assigned. This allows
    * invoking `computeMaxLocalsMaxStack` whenever running an analyzer but performing the actual
    * computation only when necessary.
    */
-  val maxLocalsMaxStackComputed: mutable.Set[MethodNode] = recordPerRunCache(mutable.Set.empty)
+  val maxLocalsMaxStackComputed: mutable.Set[MethodNode] = recordPerRunCache(emptyConcSet[MethodNode])
 
   /**
    * Classes with indyLambda closure instantiations where the SAM type is serializable (e.g. Scala's
@@ -122,24 +125,31 @@ abstract class BTypes {
    * inlining: when inlining an indyLambda instruction into a class, we need to make sure the class
    * has the method.
    */
-  val indyLambdaImplMethods: mutable.AnyRefMap[InternalName, mutable.LinkedHashSet[asm.Handle]] = recordPerRunCache(mutable.AnyRefMap())
+    //value is not exposed and is synchronized on access
+  private val indyLambdaImplMethods: concurrent.Map[InternalName, mutable.LinkedHashSet[asm.Handle]] = recordPerRunCache(TrieMap.empty[InternalName, mutable.LinkedHashSet[asm.Handle]])
   def addIndyLambdaImplMethod(hostClass: InternalName, handle: Seq[asm.Handle]): Seq[asm.Handle] = {
     if (handle.isEmpty) Nil else {
       val set = indyLambdaImplMethods.getOrElseUpdate(hostClass, mutable.LinkedHashSet())
-      val added = handle.filterNot(set)
-      set ++= handle
-      added
+      set.synchronized {
+        handle.foldLeft(List.empty[asm.Handle]) {
+          case (added, next) =>
+            if (set.add(next)) next :: added else added
+        }
+      }
     }
   }
   def removeIndyLambdaImplMethod(hostClass: InternalName, handle: Seq[asm.Handle]): Unit = {
     if (handle.nonEmpty)
-      indyLambdaImplMethods.getOrElseUpdate(hostClass, mutable.LinkedHashSet()) --= handle
+      indyLambdaImplMethods.get(hostClass) match {
+        case Some(xs) =>  xs.synchronized(xs --= handle)
+        case None =>
+      }
   }
 
   def getIndyLambdaImplMethods(hostClass: InternalName): Iterable[asm.Handle] = {
-    indyLambdaImplMethods.getOrNull(hostClass) match {
-      case null => Nil
-      case xs => xs
+    indyLambdaImplMethods.get(hostClass) match {
+      case None => Nil
+      case Some(xs) => xs.synchronized(xs.toList)
     }
   }
 

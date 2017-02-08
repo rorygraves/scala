@@ -110,6 +110,7 @@ trait BCodeParallel {
         val downstreams = allData map { item1 : Item1 =>
           val workflow = item1.workflow
           Await.ready(workflow.optimize.future, Duration.Inf)
+          trace("start optimise")
           val upstream = workflow.optimize.future.value.get
           try {
             upstream match {
@@ -118,6 +119,7 @@ trait BCodeParallel {
                 // look up classes and methods in the code repo.
                 if (optAddToBytecodeRepository) {
                   val someSourceFilePath = Some(item.sourceFilePath)
+                  //byteCodeRepository.add is threadsafe and doesnt access tree
                   if (item.mirror != null) byteCodeRepository.add(item.mirror, someSourceFilePath)
                   if (item.plain != null) byteCodeRepository.add(item.plain, someSourceFilePath)
                   if (item.bean != null) byteCodeRepository.add(item.bean, someSourceFilePath)
@@ -128,20 +130,27 @@ trait BCodeParallel {
                 }
               case _ =>
             }
-            if (!hasGlobalOptimisations) workflow.item2.complete(upstream)
+            if (!hasGlobalOptimisations) {
+              trace("push to Worker2")
+              workflow.item2.complete(upstream)
+            }
             upstream
           } catch {
             case NonFatal(t) =>
               val downstream = Failure(t)
-              if (!hasGlobalOptimisations) workflow.item2.complete(downstream)
+              if (!hasGlobalOptimisations) {
+                trace("push to Worker2")
+                workflow.item2.complete(downstream)
+              }
               downstream
           }
         }
-        if (hasGlobalOptimisations) {
+        if (hasGlobalOptimisations) withAstTreeLock {
           if (compilerSettings.optInlinerEnabled)
             bTypes.inliner.runInliner()
           if (compilerSettings.optClosureInvocations)
             bTypes.closureOptimizer.rewriteClosureApplyInvocations()
+          trace("push all to Worker2")
           for (i <- 0 to allData.size) {
             allData(i).workflow.item2.complete(downstreams(i))
           }
@@ -170,14 +179,17 @@ trait BCodeParallel {
 
     override def getWork(workflow: Workflow): Future[Item2] = workflow.item2.future
 
-    override def nextStageSuccess(workflow: Workflow, result: Item3): Unit =
+    override def nextStageSuccess(workflow: Workflow, result: Item3): Unit = {
+      trace("push to Worker3")
       workflow.item3.success(result)
+    }
 
-    override def nextStageFailed(workflow: Workflow, ex: Throwable): Unit =
+    override def nextStageFailed(workflow: Workflow, ex: Throwable): Unit = {
+      trace("push to Worker3")
       workflow.item3.failure(ex)
+    }
 
-
-    def localOptimizations(classNode: ClassNode): Unit = {
+    def localOptimizations(classNode: ClassNode): Unit = withAstTreeLock{
       BackendStats.timed(BackendStats.methodOptTimer)(localOpt.methodOptimizations(classNode))
     }
 
@@ -188,6 +200,7 @@ trait BCodeParallel {
 
     override def process(item: Item2): Item3 = {
       try {
+        trace("start Worker2")
         localOptimizations(item.plain)
         setInnerClasses(item.plain)
         val lambdaImplMethods = bTypes.getIndyLambdaImplMethods(item.plain.name)
@@ -243,9 +256,13 @@ trait BCodeParallel {
 
     override def getWork(workflow: Workflow): Future[Item3] = workflow.item3.future
 
-    override def nextStageSuccess(workflow: Workflow, result: Unit): Unit = ()
+    override def nextStageSuccess(workflow: Workflow, result: Unit): Unit = {
+      trace("done Worker3")
+    }
 
-    override def nextStageFailed(workflow: Workflow, ex: Throwable): Unit = ()
+    override def nextStageFailed(workflow: Workflow, ex: Throwable): Unit = {
+      trace("done Worker3")
+    }
 
     def sendToDisk(cfr: SubItem3, outFolder: scala.tools.nsc.io.AbstractFile) {
       if (cfr != null) {
@@ -264,10 +281,12 @@ trait BCodeParallel {
     }
 
     override def process(item: Item3): Unit = {
+      trace("start Worker3")
       val outFolder = item.outFolder
       sendToDisk(item.mirror, outFolder)
       sendToDisk(item.plain, outFolder)
       sendToDisk(item.bean, outFolder)
     }
   }
+  def trace(s:String) = println (s)
 }

@@ -100,7 +100,7 @@ abstract class GenBCode extends BCodeSyncAndTry with BCodeParallel  {
       def run() = {
         allData foreach { item1 =>
           val item2Try = Try {
-            withCurrentUnitNoLog(item1.cunit)(visit(item1))
+            withAstTreeLock(withCurrentUnitNoLog(item1.cunit)(visit(item1)))
           }
           item2Try match {
             case Failure(ex: Throwable) =>
@@ -113,7 +113,8 @@ abstract class GenBCode extends BCodeSyncAndTry with BCodeParallel  {
         }
       }
       def startPipeline(item1:Item1, item2:Try[Item2]) = {
-        item1.workflow.item2.complete(item2)
+        trace("push to optimise")
+        item1.workflow.optimize.complete(item2)
       }
 
       /*
