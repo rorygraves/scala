@@ -253,33 +253,41 @@ abstract class GenBCode extends BCodeSyncAndTry with BCodeParallel  {
         java.util.concurrent.Executors.newCachedThreadPool(), onWorkerError
       )
       import scala.concurrent.Future
+      val runInParallel = false
+
       feedPipeline1()
+      if (runInParallel) {
 
-      val workerOpt:Future[Unit] = Future(new OptimisationWorkflow(allData).run)(ec)
-      val workers2:Seq[Future[Unit]] = (1 to 3) map {i => Future(new Worker2(i,q2).run)(ec)}
-      val workers3:Seq[Future[Unit]] = (1 to (if (bytecodeWriter.isSingleThreaded) 1 else 3)) map {i => Future(new Worker3(i,q3, bytecodeWriter).run)(ec)}
+        val workerOpt: Future[Unit] = Future(new OptimisationWorkflow(allData).run)(ec)
+        val workers2: Seq[Future[Unit]] = (1 to 3) map { i => Future(new Worker2(i, q2).run)(ec) }
+        val workers3: Seq[Future[Unit]] = (1 to (if (bytecodeWriter.isSingleThreaded) 1 else 3)) map { i => Future(new Worker3(i, q3, bytecodeWriter).run)(ec) }
 
-      val genStart = Statistics.startTimer(BackendStats.bcodeGenStat)
-      (new Worker1(needsOutFolder)).run()
-      Statistics.stopTimer(BackendStats.bcodeGenStat, genStart)
+        val genStart = Statistics.startTimer(BackendStats.bcodeGenStat)
+        (new Worker1(needsOutFolder)).run()
+        Statistics.stopTimer(BackendStats.bcodeGenStat, genStart)
 
-      def checkWorker(worker:Future[Unit]) = {
-        scala.concurrent.Await.result(worker, scala.concurrent.duration.Duration.Inf)
-        worker.value.get.get
+        def checkWorker(worker: Future[Unit]) = {
+          scala.concurrent.Await.result(worker, scala.concurrent.duration.Duration.Inf)
+          worker.value.get.get
+        }
+
+        // check for any exception during the operation of the background threads
+        checkWorker(workerOpt)
+        workers2 foreach checkWorker
+        workers3 foreach checkWorker
+
+        assert(ec.shutdownNow().isEmpty)
+
+        // we're done
+        assert(q2.isEmpty, s"Some classfiles remained in the second queue: $q2")
+        assert(q3.isEmpty, s"Some classfiles weren't written to disk: $q3")
+
+      } else {
+        new Worker1(needsOutFolder).run()
+        new OptimisationWorkflow(allData).run
+        new Worker2(99, q2).run
+        new Worker3(99, q3, bytecodeWriter).run
       }
-
-      // check for any exception during the operation of the background threads
-      checkWorker(workerOpt)
-      workers2 foreach checkWorker
-      workers3 foreach checkWorker
-
-      assert(ec.shutdownNow().isEmpty)
-
-      // we're done
-      assert(q2.isEmpty, s"Some classfiles remained in the second queue: $q2")
-      assert(q3.isEmpty, s"Some classfiles weren't written to disk: $q3")
-
-
       //report any deferred messages
       val globalReporter = reporter
       allData foreach {
