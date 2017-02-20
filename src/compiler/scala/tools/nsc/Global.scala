@@ -30,6 +30,7 @@ import backend.jvm.GenBCode
 import scala.language.postfixOps
 import scala.tools.nsc.ast.{TreeGen => AstTreeGen}
 import scala.tools.nsc.classpath._
+import scala.tools.nsc.profile.Profiler
 
 class Global(var currentSettings: Settings, var reporter: Reporter)
     extends SymbolTable
@@ -1084,6 +1085,8 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
     /** The currently compiled unit; set from GlobalPhase */
     var currentUnit: CompilationUnit = NoCompilationUnit
 
+    val profiler: Profiler = Profiler(settings)
+
     // used in sbt
     def uncheckedWarnings: List[(Position, String)]   = reporting.uncheckedWarnings.map{case (pos, (msg, since)) => (pos, msg)}
     // used in sbt
@@ -1393,7 +1396,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
      *  unless there is a problem already,
      *  such as a plugin was passed a bad option.
      */
-    def compileSources(sources: List[SourceFile]) = if (!reporter.hasErrors) {
+    def compileSources(sources: List[SourceFile]): Unit = if (!reporter.hasErrors) {
 
       def checkDeprecations() = {
         warnDeprecatedAndConflictingSettings(newCompilationUnit(""))
@@ -1408,9 +1411,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
       }
     }
 
-    def compileUnits(units: List[CompilationUnit], fromPhase: Phase): Unit =
-      compileUnitsInternal(units, fromPhase)
-
+    def compileUnits(units: List[CompilationUnit], fromPhase: Phase): Unit =  compileUnitsInternal(units,fromPhase)
     private def compileUnitsInternal(units: List[CompilationUnit], fromPhase: Phase) {
       def currentTime = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime())
 
@@ -1424,7 +1425,9 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
       while (globalPhase.hasNext && !reporter.hasErrors) {
         val startTime = currentTime
         phase = globalPhase
+        val profileBefore=profiler.before(phase)
         globalPhase.run()
+        profiler.after(phase, profileBefore)
 
         // progress update
         informTime(globalPhase.description, startTime)
@@ -1459,6 +1462,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
 
         advancePhase()
       }
+      profiler.finished()
 
       reporting.summarizeErrors()
 
@@ -1487,17 +1491,25 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
 
     /** Compile list of abstract files. */
     def compileFiles(files: List[AbstractFile]) {
-      try compileSources(files map getSourceFile)
+      try {
+        val snap = profiler.beforeInit()
+        val sources = files map getSourceFile
+        profiler.afterInit(snap)
+        compileSources(sources)
+      }
       catch { case ex: IOException => globalError(ex.getMessage()) }
     }
 
     /** Compile list of files given by their names */
     def compile(filenames: List[String]) {
       try {
+        val snap = profiler.beforeInit()
+
         val sources: List[SourceFile] =
           if (settings.script.isSetByUser && filenames.size > 1) returning(Nil)(_ => globalError("can only compile one script at a time"))
           else filenames map getSourceFile
 
+        profiler.afterInit(snap)
         compileSources(sources)
       }
       catch { case ex: IOException => globalError(ex.getMessage()) }
