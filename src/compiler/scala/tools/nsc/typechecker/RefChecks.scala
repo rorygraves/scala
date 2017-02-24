@@ -133,9 +133,9 @@ abstract class RefChecks extends Transform {
           case _                          => false
         }
         val haveDefaults = methods filter (
-          if (settings.isScala211)
-             (sym => mexists(sym.info.paramss)(_.hasDefault) && !nme.isProtectedAccessorName(sym.name))
-          else
+//          if (settings.isScala211)
+//             (sym => mexists(sym.info.paramss)(_.hasDefault) && !nme.isProtectedAccessorName(sym.name))
+//          else
             (sym => hasDefaultParam(sym.info) && !nme.isProtectedAccessorName(sym.name))
         )
 

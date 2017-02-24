@@ -7,12 +7,14 @@ package scala
 package reflect
 package internal
 
+import java.nio.charset.Charset
+
 import scala.collection.immutable
 import scala.collection.mutable.ListBuffer
-import util.{ Statistics, shortClassOfInstance }
+import util.{Statistics, shortClassOfInstance}
 import Flags._
 import scala.annotation.tailrec
-import scala.reflect.io.{ AbstractFile, NoAbstractFile }
+import scala.reflect.io.{AbstractFile, NoAbstractFile}
 import Variance._
 
 trait Symbols extends api.Symbols { self: SymbolTable =>
@@ -3683,7 +3685,16 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
           fn(sym.sourceModule)
     }
 
-  def markFlagsCompleted(syms: Symbol*)(mask: Long): Unit = forEachRelevantSymbols(syms, _.markFlagsCompleted(mask))
+  def markFlagsCompleted(sym: Symbol)(mask: Long): Unit = {
+    sym.markFlagsCompleted(mask)
+    sym.moduleClass.markFlagsCompleted(mask)
+    sym.sourceModule.markFlagsCompleted(mask)
+  }
+  def markFlagsCompleted(sym: Symbol, syms: Symbol*)(mask: Long): Unit = {
+    markFlagsCompleted(sym)(mask)
+    syms.foreach(markFlagsCompleted(_)(mask))
+  }
+
   def markAllCompleted(syms: Symbol*): Unit = forEachRelevantSymbols(syms, _.markAllCompleted)
 }
 

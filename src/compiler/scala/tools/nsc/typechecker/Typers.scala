@@ -1866,8 +1866,8 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
 
       val impl2  = finishMethodSynthesis(impl1, clazz, context)
 
-      if (settings.isScala211  && mdef.symbol == PredefModule)
-        ensurePredefParentsAreInSameSourceFile(impl2)
+//      if (settings.isScala211  && mdef.symbol == PredefModule)
+//        ensurePredefParentsAreInSameSourceFile(impl2)
 
       treeCopy.ModuleDef(mdef, typedMods, mdef.name, impl2) setType NoType
     }

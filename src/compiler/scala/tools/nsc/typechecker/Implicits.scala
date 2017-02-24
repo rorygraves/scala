@@ -1423,14 +1423,14 @@ trait Implicits {
               maybeInvalidConversionError(s"the result type of an implicit conversion must be more specific than ${sym.name}")
               true
             }
-            if (prohibit(AnyRefClass) || (settings.isScala211 && prohibit(AnyValClass)))
+            if (prohibit(AnyRefClass))
               result = SearchFailure
           case _                 => false
         }
-        if (settings.isScala211 && isInvalidConversionSource(pt)) {
-          maybeInvalidConversionError("an expression of type Null is ineligible for implicit conversion")
-          result = SearchFailure
-        }
+//        if (settings.isScala211 && isInvalidConversionSource(pt)) {
+//          maybeInvalidConversionError("an expression of type Null is ineligible for implicit conversion")
+//          result = SearchFailure
+//        }
       }
 
       if (result.isFailure && settings.debug) // debuglog is not inlined for some reason

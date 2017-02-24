@@ -5,10 +5,12 @@ package scala.tools.nsc.classpath
 
 import java.io.File
 import java.net.URL
+
 import scala.collection.Seq
 import scala.reflect.io.AbstractFile
 import scala.reflect.io.FileZipArchive
 import FileUtils.AbstractFileOps
+import scala.collection.mutable.ListBuffer
 import scala.tools.nsc.util.{ClassPath, ClassRepresentation}
 
 /**
@@ -34,11 +36,23 @@ trait ZipArchiveFileLookup[FileEntryType <: ClassRepresentation] extends ClassPa
     } yield PackageEntryImpl(prefix + entry.name)
   }
 
-  protected def files(inPackage: String): Seq[FileEntryType] =
-    for {
-      dirEntry <- findDirEntry(inPackage).toSeq
-      entry <- dirEntry.iterator if isRequiredFileType(entry)
-    } yield createFileEntry(entry)
+  protected def files(inPackage: String): Seq[FileEntryType] = {
+    findDirEntry(inPackage) match {
+      case Some(dirEntry) =>
+        val buf = ListBuffer[FileEntryType]()
+        dirEntry.iterator.foreach { f =>
+          if(isRequiredFileType(f))
+            buf += createFileEntry(f)
+        }
+        buf.toList
+      case None =>
+        Nil
+    }
+//    for {
+//      dirEntry <- findDirEntry(inPackage).toSeq
+//      entry <- dirEntry.iterator if isRequiredFileType(entry)
+//    } yield createFileEntry(entry)
+  }
 
   override private[nsc] def list(inPackage: String): ClassPathEntries = {
     val foundDirEntry = findDirEntry(inPackage)
