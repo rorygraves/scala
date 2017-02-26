@@ -396,7 +396,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
       }
     }
 
-    final def withCurrentUnitNoLog(unit: CompilationUnit)(task: => Unit) {
+    @inline final def withCurrentUnitNoLog(unit: CompilationUnit)(task: => Unit) {
       val unit0 = currentUnit
       try {
         currentRun.currentUnit = unit

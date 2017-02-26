@@ -16,6 +16,13 @@ import scala.tools.asm
 import scala.tools.asm.tree.ClassNode
 import scala.tools.nsc.backend.jvm.opt.ByteCodeRepository
 
+import java.util.concurrent.BlockingQueue
+import scala.annotation.tailrec
+import scala.collection.mutable.ArrayBuffer
+import scala.concurrent.duration.Duration
+import scala.concurrent.{Await, Future, Promise}
+import scala.util.control.NonFatal
+
 /*
  *  Prepare in-memory representations of classfiles using the ASM Tree API, and serialize them to disk.
  *
@@ -45,8 +52,8 @@ import scala.tools.nsc.backend.jvm.opt.ByteCodeRepository
  *  @version 1.0
  *
  */
-abstract class GenBCode extends BCodeSyncAndTry {
-  import global._
+abstract class GenBCode extends BCodeSyncAndTry with BCodeParallel with HasReporter{
+  import global.{reporter => _, _}
 
   import bTypes._
   import coreBTypes._
@@ -63,10 +70,59 @@ abstract class GenBCode extends BCodeSyncAndTry {
     override def description = "Generate bytecode from ASTs using the ASM library"
     override def erasedTypes = true
 
-    private var bytecodeWriter  : BytecodeWriter   = null
-    private var mirrorCodeGen   : JMirrorBuilder   = null
-    private var beanInfoCodeGen : JBeanInfoBuilder = null
+    protected[this] var bytecodeWriter  : BytecodeWriter   = null
+    protected[this] var mirrorCodeGen   : JMirrorBuilder   = null
+    protected[this] var beanInfoCodeGen : JBeanInfoBuilder = null
 
+    private val allData = new ArrayBuffer[Item1]
+    abstract class ParallelWorker[I <: AnyRef, O](val id: Int, val queue: BlockingQueue[Workflow], val timer: Statistics.Timer) extends Runnable {
+
+      import scala.concurrent.{Await, Future}
+      import scala.concurrent.duration.Duration
+      import scala.util.{Success, Failure}
+
+      def getWork(workflow: Workflow): Future[I]
+
+      def process(input: I): O
+
+      def nextStageSuccess(workflow: Workflow, result: O): Unit
+
+      def nextStageFailed(workflow: Workflow, ex: Throwable): Unit
+
+      var currentWork: Workflow = _
+
+      @tailrec final def run(): Unit = {
+        currentWork = queue.poll()
+        if (currentWork ne null) {
+          withReporterOverride(currentWork) {
+            val work = getWork(currentWork)
+            Await.ready(work, Duration.Inf)
+            work.value.get match {
+              case Success(item) =>
+                val start = timer.start()
+                try {
+                  process(item)
+                  nextStageSuccess(currentWork, process(item))
+                } catch {
+                  case t: Throwable =>
+                    nextStageFailed(currentWork, t)
+                }
+                timer.stop(start)
+              case Failure(f) => //TODO
+                nextStageFailed(currentWork, f)
+            }
+          }
+          run()
+        }
+      }
+    }
+    class Workflow extends AsyncReporter {
+          val optimize = Promise[Item2]
+          val item2 = Promise[Item2]
+          val item3 = Promise[Item3]
+
+          override def toString: String = s"Workflow optimizeComplete: ${optimize.isCompleted} item2Complete: ${item2.isCompleted} item2Complete: ${item2.isCompleted}"
+        }
     /* ---------------- q1 ---------------- */
 
     case class Item1(arrivalPos: Int, cd: ClassDef, cunit: CompilationUnit) {
@@ -125,6 +181,9 @@ abstract class GenBCode extends BCodeSyncAndTry {
      *  Pipeline that takes ClassDefs from queue-1, lowers them into an intermediate form, placing them on queue-2
      */
     class Worker1(needsOutFolder: Boolean) {
+
+      //TODO should be a scalac param
+      val checkCaseInsensitively = true
 
       val caseInsensitively = mutable.Map.empty[String, Symbol]
 
