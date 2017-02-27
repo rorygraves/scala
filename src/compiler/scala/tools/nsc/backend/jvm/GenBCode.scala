@@ -22,6 +22,7 @@ import scala.collection.mutable.ArrayBuffer
 import scala.concurrent.duration.Duration
 import scala.concurrent.{Await, Future, Promise}
 import scala.util.control.NonFatal
+import java.util.{concurrent => juc}
 
 /*
  *  Prepare in-memory representations of classfiles using the ASM Tree API, and serialize them to disk.
@@ -70,9 +71,9 @@ abstract class GenBCode extends BCodeSyncAndTry with BCodeParallel with HasRepor
     override def description = "Generate bytecode from ASTs using the ASM library"
     override def erasedTypes = true
 
-    protected[this] var bytecodeWriter  : BytecodeWriter   = null
-    protected[this] var mirrorCodeGen   : JMirrorBuilder   = null
-    protected[this] var beanInfoCodeGen : JBeanInfoBuilder = null
+    private var bytecodeWriter  : BytecodeWriter   = null
+    private var mirrorCodeGen   : JMirrorBuilder   = null
+    private var beanInfoCodeGen : JBeanInfoBuilder = null
 
     private val allData = new ArrayBuffer[Item1]
     abstract class ParallelWorker[I <: AnyRef, O](val id: Int, val queue: BlockingQueue[Workflow], val timer: Statistics.Timer) extends Runnable {
@@ -116,71 +117,18 @@ abstract class GenBCode extends BCodeSyncAndTry with BCodeParallel with HasRepor
         }
       }
     }
-    class Workflow extends AsyncReporter {
-          val optimize = Promise[Item2]
-          val item2 = Promise[Item2]
-          val item3 = Promise[Item3]
 
-          override def toString: String = s"Workflow optimizeComplete: ${optimize.isCompleted} item2Complete: ${item2.isCompleted} item2Complete: ${item2.isCompleted}"
-        }
-    /* ---------------- q1 ---------------- */
+    case class Item1(cd: ClassDef, cunit: CompilationUnit, workflow: Workflow)
 
-    case class Item1(arrivalPos: Int, cd: ClassDef, cunit: CompilationUnit) {
-      def isPoison = { arrivalPos == Int.MaxValue }
-    }
-    private val poison1 = Item1(Int.MaxValue, null, null)
-    private val q1 = new java.util.LinkedList[Item1]
-
-    /* ---------------- q2 ---------------- */
-
-    case class Item2(arrivalPos:     Int,
-                     mirror:         asm.tree.ClassNode,
-                     plain:          asm.tree.ClassNode,
-                     bean:           asm.tree.ClassNode,
-                     sourceFilePath: String,
-                     outFolder:      scala.tools.nsc.io.AbstractFile) {
-      def isPoison = { arrivalPos == Int.MaxValue }
-    }
-
-    private val poison2 = Item2(Int.MaxValue, null, null, null, null, null)
-    private val q2 = new _root_.java.util.LinkedList[Item2]
-
-    /* ---------------- q3 ---------------- */
-
-    /*
-     *  An item of queue-3 (the last queue before serializing to disk) contains three of these
-     *  (one for each of mirror, plain, and bean classes).
-     *
-     *  @param jclassName  internal name of the class
-     *  @param jclassBytes bytecode emitted for the class SubItem3 represents
-     */
-    case class SubItem3(
-      jclassName:  String,
-      jclassBytes: Array[Byte]
-    )
-
-    case class Item3(arrivalPos: Int,
-                     mirror:     SubItem3,
-                     plain:      SubItem3,
-                     bean:       SubItem3,
-                     outFolder:  scala.tools.nsc.io.AbstractFile) {
-
-      def isPoison  = { arrivalPos == Int.MaxValue }
-    }
-    private val i3comparator = new java.util.Comparator[Item3] {
-      override def compare(a: Item3, b: Item3) = {
-        if (a.arrivalPos < b.arrivalPos) -1
-        else if (a.arrivalPos == b.arrivalPos) 0
-        else 1
-      }
-    }
-    private val poison3 = Item3(Int.MaxValue, null, null, null, null)
-    private val q3 = new java.util.PriorityQueue[Item3](1000, i3comparator)
+    private val optimise:juc.BlockingQueue[Workflow] = new juc.LinkedBlockingQueue[Workflow]
+    private val q2:juc.BlockingQueue[Workflow] = new juc.LinkedBlockingQueue[Workflow]
+    private val q3:juc.BlockingQueue[Workflow] = new juc.LinkedBlockingQueue[Workflow]
 
     /*
      *  Pipeline that takes ClassDefs from queue-1, lowers them into an intermediate form, placing them on queue-2
      */
     class Worker1(needsOutFolder: Boolean) {
+      import scala.util.{Try, Success, Failure}
 
       //TODO should be a scalac param
       val checkCaseInsensitively = true
@@ -188,22 +136,42 @@ abstract class GenBCode extends BCodeSyncAndTry with BCodeParallel with HasRepor
       val caseInsensitively = mutable.Map.empty[String, Symbol]
 
       def run() {
-        while (true) {
-          val item = q1.poll
-          if (item.isPoison) {
-            q2 add poison2
-            return
+        allData foreach { item1 =>
+          val item2Try = Try {
+            withAstTreeLock(withCurrentUnitNoLog(item1.cunit)(visit(item1)))
           }
-          else {
-            try   { withCurrentUnitNoLog(item.cunit)(visit(item)) }
-            catch {
-              case ex: Throwable =>
-                ex.printStackTrace()
-                error(s"Error while emitting ${item.cunit.source}\n${ex.getMessage}")
-            }
+          item2Try match {
+            case Failure(ex: Throwable) =>
+              ex.printStackTrace()
+              //we can report directly to the reporter - this is not parallelised
+              reporter.error(NoPosition, s"Error while emitting ${item1.cunit.source}\n${ex.getMessage}")
+            case _ =>
           }
+          startPipeline(item1, item2Try)
         }
       }
+      def startPipeline(item1:Item1, item2:Try[Item2]) = {
+        trace("push to item2")
+        item1.workflow.item2.complete(item2)
+      }
+
+//
+//      while (true) {
+//          val item = q1.poll
+//          if (item.isPoison) {
+//            q2 add poison2
+//            return
+//          }
+//          else {
+//            try   { withCurrentUnitNoLog(item.cunit)(visit(item)) }
+//            catch {
+//              case ex: Throwable =>
+//                ex.printStackTrace()
+//                error(s"Error while emitting ${item.cunit.source}\n${ex.getMessage}")
+//            }
+//          }
+//        }
+
 
       /*
        *  Checks for duplicate internal names case-insensitively,
@@ -211,21 +179,23 @@ abstract class GenBCode extends BCodeSyncAndTry with BCodeParallel with HasRepor
        *  enqueues them in queue-2.
        *
        */
-      def visit(item: Item1) {
-        val Item1(arrivalPos, cd, cunit) = item
+      def visit(item: Item1) = {
+        val Item1(cd, cunit, _) = item
         val claszSymbol = cd.symbol
 
-        // GenASM checks this before classfiles are emitted, https://github.com/scala/scala/commit/e4d1d930693ac75d8eb64c2c3c69f2fc22bec739
-        val lowercaseJavaClassName = claszSymbol.javaClassName.toLowerCase
-        caseInsensitively.get(lowercaseJavaClassName) match {
-          case None =>
-            caseInsensitively.put(lowercaseJavaClassName, claszSymbol)
-          case Some(dupClassSym) =>
-            reporter.warning(
-              claszSymbol.pos,
-              s"Class ${claszSymbol.javaClassName} differs only in case from ${dupClassSym.javaClassName}. " +
-              "Such classes will overwrite one another on case-insensitive filesystems."
-            )
+        if (checkCaseInsensitively) {
+          // GenASM checks this before classfiles are emitted, https://github.com/scala/scala/commit/e4d1d930693ac75d8eb64c2c3c69f2fc22bec739
+          val lowercaseJavaClassName = claszSymbol.javaClassName.toLowerCase
+          caseInsensitively.get(lowercaseJavaClassName) match {
+            case None =>
+              caseInsensitively.put(lowercaseJavaClassName, claszSymbol)
+            case Some(dupClassSym) =>
+              reporter.warning(
+                claszSymbol.pos,
+                s"Class ${claszSymbol.javaClassName} differs only in case from ${dupClassSym.javaClassName}. " +
+                  "Such classes will overwrite one another on case-insensitive filesystems."
+              )
+          }
         }
 
         // shim for SBT, see https://github.com/sbt/sbt/issues/2076
@@ -260,15 +230,12 @@ abstract class GenBCode extends BCodeSyncAndTry with BCodeParallel with HasRepor
             )
           } else null
 
-          // ----------- hand over to pipeline-2
+        // ----------- hand over to pipeline-2
 
-        val item2 =
-          Item2(arrivalPos,
-                mirrorC, plainC, beanC,
-                cunit.source.file.canonicalPath,
-                outF)
+        Item2(mirrorC, plainC, beanC,
+          cunit.source.file.canonicalPath,
+          outF)
 
-        q2 add item2 // at the very end of this method so that no Worker2 thread starts mutating before we're done.
 
       } // end of method visit(Item1)
 
@@ -281,21 +248,26 @@ abstract class GenBCode extends BCodeSyncAndTry with BCodeParallel with HasRepor
      *          - converting the plain ClassNode to byte array and placing it on queue-3
      */
     class Worker2 {
+      import scala.collection.JavaConverters._
+
       def runGlobalOptimizations(): Unit = {
         import scala.collection.JavaConverters._
 
         // add classes to the bytecode repo before building the call graph: the latter needs to
         // look up classes and methods in the code repo.
         if (settings.optAddToBytecodeRepository) q2.asScala foreach {
-          case Item2(_, mirror, plain, bean, sourceFilePath, _) =>
+          case wf: Workflow =>
+            val Item2(mirror, plain, bean, sourceFilePath, _) = Await.result(wf.item2.future, Duration.Inf)
             val someSourceFilePath = Some(sourceFilePath)
             if (mirror != null) byteCodeRepository.add(mirror, someSourceFilePath)
-            if (plain != null)  byteCodeRepository.add(plain, someSourceFilePath)
-            if (bean != null)   byteCodeRepository.add(bean, someSourceFilePath)
+            if (plain != null) byteCodeRepository.add(plain, someSourceFilePath)
+            if (bean != null) byteCodeRepository.add(bean, someSourceFilePath)
         }
-        if (settings.optBuildCallGraph) q2.asScala foreach { item =>
-          // skip call graph for mirror / bean: wd don't inline into tem, and they are not used in the plain class
-          if (item.plain != null) callGraph.addClass(item.plain)
+        if (settings.optBuildCallGraph) q2.asScala foreach {
+          case wf: Workflow =>
+            val item = Await.result(wf.item2.future, Duration.Inf)
+            // skip call graph for mirror / bean: wd don't inline into tem, and they are not used in the plain class
+            if (item.plain != null) callGraph.addClass(item.plain)
         }
         if (settings.optInlinerEnabled)
           bTypes.inliner.runInliner()
@@ -314,14 +286,9 @@ abstract class GenBCode extends BCodeSyncAndTry with BCodeParallel with HasRepor
 
       def run() {
         runGlobalOptimizations()
-
-        while (true) {
-          val item = q2.poll
-          if (item.isPoison) {
-            q3 add poison3
-            return
-          }
-          else {
+        var workflow = q2.poll()
+        while (workflow ne null) {
+            val item = Await.result(workflow.item2.future, Duration.Inf)
             try {
               localOptimizations(item.plain)
               setInnerClasses(item.plain)
@@ -330,8 +297,8 @@ abstract class GenBCode extends BCodeSyncAndTry with BCodeParallel with HasRepor
                 backendUtils.addLambdaDeserialize(item.plain, lambdaImplMethods)
               setInnerClasses(item.mirror)
               setInnerClasses(item.bean)
-              addToQ3(item)
-          } catch {
+              addToQ3(workflow, item)
+            } catch {
               case e: java.lang.RuntimeException if e.getMessage != null && (e.getMessage contains "too large!") =>
                 reporter.error(NoPosition,
                   s"Could not write class ${item.plain.name} because it exceeds JVM code size limits. ${e.getMessage}")
@@ -339,11 +306,12 @@ abstract class GenBCode extends BCodeSyncAndTry with BCodeParallel with HasRepor
                 ex.printStackTrace()
                 error(s"Error while emitting ${item.plain.name}\n${ex.getMessage}")
             }
-          }
+          workflow = q2.poll()
         }
       }
 
-      private def addToQ3(item: Item2) {
+
+      private def addToQ3(workflow: Workflow, item: Item2) {
 
         def getByteArray(cn: asm.tree.ClassNode): Array[Byte] = {
           val cw = new CClassWriter(extraProc)
@@ -351,11 +319,11 @@ abstract class GenBCode extends BCodeSyncAndTry with BCodeParallel with HasRepor
           cw.toByteArray
         }
 
-        val Item2(arrivalPos, mirror, plain, bean, _, outFolder) = item
+        val Item2(mirror, plain, bean, _, outFolder) = item
 
         val mirrorC = if (mirror == null) null else SubItem3(mirror.name, getByteArray(mirror))
-        val plainC  = SubItem3(plain.name, getByteArray(plain))
-        val beanC   = if (bean == null)   null else SubItem3(bean.name, getByteArray(bean))
+        val plainC = SubItem3(plain.name, getByteArray(plain))
+        val beanC = if (bean == null) null else SubItem3(bean.name, getByteArray(bean))
 
         if (AsmUtils.traceSerializedClassEnabled && plain.name.contains(AsmUtils.traceSerializedClassPattern)) {
           if (mirrorC != null) AsmUtils.traceClass(mirrorC.jclassBytes)
@@ -363,13 +331,11 @@ abstract class GenBCode extends BCodeSyncAndTry with BCodeParallel with HasRepor
           if (beanC != null) AsmUtils.traceClass(beanC.jclassBytes)
         }
 
-        q3 add Item3(arrivalPos, mirrorC, plainC, beanC, outFolder)
+        workflow.item3.success(Item3(mirrorC, plainC, beanC, outFolder))
 
       }
 
     } // end of class BCodePhase.Worker2
-
-    var arrivalPos = 0
 
     /**
      * The `run` method is overridden because the backend has a different data flow than the default
@@ -391,7 +357,7 @@ abstract class GenBCode extends BCodeSyncAndTry with BCodeParallel with HasRepor
       val bcodeStart = Statistics.startTimer(BackendStats.bcodeTimer)
 
       val initStart = Statistics.startTimer(BackendStats.bcodeInitTimer)
-      arrivalPos = 0 // just in case
+      allData.clear() // just in case
       scalaPrimitives.init()
       bTypes.initializeCoreBTypes()
       bTypes.javaDefinedClasses.clear()
@@ -451,11 +417,11 @@ abstract class GenBCode extends BCodeSyncAndTry with BCodeParallel with HasRepor
     /* Feed pipeline-1: place all ClassDefs on q1, recording their arrival position. */
     private def feedPipeline1() {
       super.run()
-      q1 add poison1
     }
 
     /* Pipeline that writes classfile representations to disk. */
     private def drainQ3() {
+      import scala.collection.JavaConverters._
 
       def sendToDisk(cfr: SubItem3, outFolder: scala.tools.nsc.io.AbstractFile) {
         if (cfr != null){
@@ -473,25 +439,19 @@ abstract class GenBCode extends BCodeSyncAndTry with BCodeParallel with HasRepor
         }
       }
 
-      var moreComing = true
-      // `expected` denotes the arrivalPos whose Item3 should be serialized next
-      var expected = 0
-
-      while (moreComing) {
-        val incoming = q3.poll
-        moreComing   = !incoming.isPoison
-        if (moreComing) {
-          val item = incoming
+      var workflow = q3.poll()
+      while (workflow ne null) {
+          val item = Await.result(workflow.item3.future, Duration.Inf)
           val outFolder = item.outFolder
           sendToDisk(item.mirror, outFolder)
           sendToDisk(item.plain,  outFolder)
           sendToDisk(item.bean,   outFolder)
-          expected += 1
+        workflow = q3.poll()
         }
-      }
+
 
       // we're done
-      assert(q1.isEmpty, s"Some ClassDefs remained in the first queue: $q1")
+//      assert(q1.isEmpty, s"Some ClassDefs remained in the first queue: $q1")
       assert(q2.isEmpty, s"Some classfiles remained in the second queue: $q2")
       assert(q3.isEmpty, s"Some classfiles weren't written to disk: $q3")
 
@@ -504,8 +464,11 @@ abstract class GenBCode extends BCodeSyncAndTry with BCodeParallel with HasRepor
           case EmptyTree            => ()
           case PackageDef(_, stats) => stats foreach gen
           case cd: ClassDef         =>
-            q1 add Item1(arrivalPos, cd, cunit)
-            arrivalPos += 1
+            val workflow = new Workflow
+            allData += Item1(cd, cunit, workflow)
+            q2 add workflow
+            q3 add workflow
+            optimise add workflow
         }
       }
 
@@ -513,6 +476,10 @@ abstract class GenBCode extends BCodeSyncAndTry with BCodeParallel with HasRepor
     }
 
   } // end of class BCodePhase
+
+  def trace(s:String): Unit = {
+//    println(s)
+  }
 
 } // end of class GenBCode
 
@@ -525,3 +492,31 @@ object GenBCode {
   val CLASS_CONSTRUCTOR_NAME    = "<clinit>"
   val INSTANCE_CONSTRUCTOR_NAME = "<init>"
 }
+class Workflow extends AsyncReporter {
+  val optimize = Promise[Item2]
+  val item2 = Promise[Item2]
+  val item3 = Promise[Item3]
+
+  override def toString: String = s"Workflow optimizeComplete: ${optimize.isCompleted} item2Complete: ${item2.isCompleted} item2Complete: ${item2.isCompleted}"
+}
+case class Item2(mirror:         asm.tree.ClassNode,
+                 plain:          asm.tree.ClassNode,
+                 bean:           asm.tree.ClassNode,
+                 sourceFilePath: String,
+                 outFolder:      scala.tools.nsc.io.AbstractFile)
+/*
+ *  An item of queue-3 (the last queue before serializing to disk) contains three of these
+ *  (one for each of mirror, plain, and bean classes).
+ *
+ *  @param jclassName  internal name of the class
+ *  @param jclassBytes bytecode emitted for the class SubItem3 represents
+ */
+case class SubItem3(
+                     jclassName:  String,
+                     jclassBytes: Array[Byte]
+                   )
+
+case class Item3(mirror:     SubItem3,
+                 plain:      SubItem3,
+                 bean:       SubItem3,
+                 outFolder:  scala.tools.nsc.io.AbstractFile)
