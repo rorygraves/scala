@@ -337,7 +337,7 @@ abstract class GenBCode extends BCodeSyncAndTry with BCodeParallel with HasRepor
 
       override def process(item: Item2): Item3 = { ???
 //        try {
-//          trace("start Worker2")
+//          trace(s"start Worker2 ${item.sourceFilePath}")
 //          localOptimizations(item.plain)
 //          setInnerClasses(item.plain)
 //          val lambdaImplMethods = getIndyLambdaImplMethods(item.plain.name)
@@ -359,11 +359,11 @@ abstract class GenBCode extends BCodeSyncAndTry with BCodeParallel with HasRepor
 //        }
       }
   override def run() {
-    runGlobalOptimizations()
     var workflow = q2.poll()
     while (workflow ne null) {
       val item = Await.result(workflow.item2.future, Duration.Inf)
       try {
+        trace(s"start Worker2 ${item.sourceFilePath}")
         localOptimizations(item.plain)
         setInnerClasses(item.plain)
         val lambdaImplMethods = getIndyLambdaImplMethods(item.plain.name)
