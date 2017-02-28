@@ -225,56 +225,81 @@ abstract class GenBCode extends BCodeSyncAndTry with BCodeParallel with HasRepor
 
     } // end of class BCodePhase.Worker1
 
-    class OptimisationWorkflow(allData: ArrayBuffer[Item1]) extends Runnable {
-      private val optAddToBytecodeRepository = settings.optAddToBytecodeRepository
-      private val optBuildCallGraph = settings.optBuildCallGraph
-      private val optInlinerEnabled = settings.optInlinerEnabled
-      private val optClosureInvocations = settings.optClosureInvocations
+  class OptimisationWorkflow(allData: ArrayBuffer[Item1]) extends Runnable {
 
-      override def run(): Unit = {
-        try {
-          // add classes to the bytecode repo before building the call graph: the latter needs to
-          // look up classes and methods in the code repo.
-          if (optAddToBytecodeRepository) {
-            val downstreams = allData map { item1: Item1 =>
-              val workflow = item1.workflow
-              val item2 = Await.result(workflow.optimize.future, Duration.Inf)
-              trace("start optimise1")
-              val Item2(mirror, plain, bean, sourceFilePath, _) = item2
-              val someSourceFilePath = Some(sourceFilePath)
-              if (mirror != null) byteCodeRepository.add(mirror, someSourceFilePath)
-              if (plain != null) byteCodeRepository.add(plain, someSourceFilePath)
-              if (bean != null) byteCodeRepository.add(bean, someSourceFilePath)
+    import scala.util.{Try, Success, Failure}
 
-            }
-          }
+    val compilerSettings = bTypes.compilerSettings
+    val byteCodeRepository = bTypes.byteCodeRepository
+    val callGraph = bTypes.callGraph
 
-          if (optBuildCallGraph) {
-            val downstreams = allData map { item1: Item1 =>
-              val workflow = item1.workflow
-              val item = Await.result(workflow.optimize.future, Duration.Inf)
-              trace("start optimise2")
-              // skip call graph for mirror / bean: wd don't inline into tem, and they are not used in the plain class
-              if (item.plain != null) callGraph.addClass(item.plain)
+    val optAddToBytecodeRepository = compilerSettings.optAddToBytecodeRepository
+    val optBuildCallGraph = compilerSettings.optBuildCallGraph
+    val optInlinerEnabled  = compilerSettings.optInlinerEnabled
+    val optClosureInvocations =  compilerSettings.optClosureInvocations
+    val hasGlobalOptimisations = optInlinerEnabled || optClosureInvocations
+
+    override def run(): Unit = {
+      try {
+        val downstreams = allData map { item1 : Item1 =>
+          val workflow = item1.workflow
+          Await.ready(workflow.optimize.future, Duration.Inf)
+          trace("start optimise")
+          val upstream = workflow.optimize.future.value.get
+          try {
+            upstream match {
+              case Success(item) =>
+                // add classes to the bytecode repo before building the call graph: the latter needs to
+                // look up classes and methods in the code repo.
+                if (optAddToBytecodeRepository) {
+                  val someSourceFilePath = Some(item.sourceFilePath)
+                  //byteCodeRepository.add is threadsafe and doesnt access tree
+                  if (item.mirror != null) byteCodeRepository.add(item.mirror, someSourceFilePath)
+                  if (item.plain != null) byteCodeRepository.add(item.plain, someSourceFilePath)
+                  if (item.bean != null) byteCodeRepository.add(item.bean, someSourceFilePath)
+                }
+                if (optBuildCallGraph) {
+                  // skip call graph for mirror / bean: wd don't inline into them, and they are not used in the plain class
+                  if (item.plain != null) callGraph.addClass(item.plain)
+                }
+              case _ =>
             }
-          }
-          if (settings.optInlinerEnabled)
-            bTypes.inliner.runInliner()
-          if (settings.optClosureInvocations)
-            closureOptimizer.rewriteClosureApplyInvocations()
-          allData foreach { item1 =>
-            item1.workflow.item2.completeWith(item1.workflow.optimize.future)
-          }
-        } catch {
-          case t: Throwable =>
-            val fail = scala.util.Failure(t)
-            allData foreach {
-              _.workflow.item2.tryComplete(fail)
+            if (!hasGlobalOptimisations) {
+              trace("push to Worker2")
+              workflow.item2.complete(upstream)
             }
-            throw t
+            upstream
+          } catch {
+            case NonFatal(t) =>
+              val downstream = Failure(t)
+              if (!hasGlobalOptimisations) {
+                trace("push to Worker2")
+                workflow.item2.complete(downstream)
+              }
+              downstream
+          }
         }
+        if (hasGlobalOptimisations) withAstTreeLock {
+          if (optInlinerEnabled)
+            bTypes.inliner.runInliner()
+          if (optClosureInvocations)
+            bTypes.closureOptimizer.rewriteClosureApplyInvocations()
+          trace("push all to Worker2")
+          for (i <- 0 to allData.size) {
+            allData(i).workflow.item2.complete(downstreams(i))
+          }
+        }
+
+      } catch {
+        case t: Throwable =>
+          val fail = Failure(t)
+          allData map {
+            _.workflow.item2.tryComplete(fail)
+          }
+          throw t
       }
-    }// end of class BCodePhase.OptimisationWorkflow
+    }
+  }
 
 
           /*
@@ -423,7 +448,7 @@ abstract class GenBCode extends BCodeSyncAndTry with BCodeParallel with HasRepor
     private def buildAndSendToDisk(needsOutFolder: Boolean) {
 
       import scala.concurrent.Future
-      val runInParallel = false
+      val runInParallel = settings.YgenBcodeParallel.value
 
       feedPipeline1()
       if (runInParallel) {
@@ -431,6 +456,8 @@ abstract class GenBCode extends BCodeSyncAndTry with BCodeParallel with HasRepor
           workerFailed.printStackTrace()
           reporter.error(NoPosition, workerFailed.toString)
         }
+
+        def checkWorker(worker: Future[Unit]) = Await.result(worker, Duration.Inf)
 
         val ec = scala.concurrent.ExecutionContext.fromExecutorService(
           java.util.concurrent.Executors.newCachedThreadPool(), onWorkerError
@@ -444,9 +471,10 @@ abstract class GenBCode extends BCodeSyncAndTry with BCodeParallel with HasRepor
         val genStart = Statistics.startTimer(BackendStats.bcodeGenStat)
         (new Worker1(needsOutFolder)).run()
         Statistics.stopTimer(BackendStats.bcodeGenStat, genStart)
-        (workerOpt :: workers2 ::: workers3) foreach {
-          Await.result(_, Duration.Inf)
-        }
+        // check for any exception during the operation of the background threads
+        checkWorker(workerOpt)
+        workers2 foreach checkWorker
+        workers3 foreach checkWorker
       } else {
         val genStart = Statistics.startTimer(BackendStats.bcodeGenStat)
         (new Worker1(needsOutFolder)).run()
