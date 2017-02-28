@@ -192,7 +192,7 @@ object ArrayOps {
 
     override protected[this] def thisCollection: WrappedArray[T] = new WrappedArray.ofRef[T](repr)
     override protected[this] def toCollection(repr: Array[T]): WrappedArray[T] = new WrappedArray.ofRef[T](repr)
-    override protected[this] def newBuilder = new ArrayBuilder.ofRef[T]()(ClassTag[T](arrayElementClass(repr.getClass)))
+    override protected[this] def newBuilder = new ArrayBuilder.ofRef[T]()(ClassTag[T](repr.getClass.getComponentType))
 
     def length: Int = repr.length
     def apply(index: Int): T = repr(index)

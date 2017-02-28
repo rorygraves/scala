@@ -88,17 +88,17 @@ extends AbstractSeq[T]
 }
 
 private[mutable] abstract class WrappedArrayImpl[T] extends WrappedArray[T] {
-  override def slice(from: Int, until: Int): WrappedArray[T] = {
-    val start = if (from < 0) 0 else from
-    if (until <= start || start >= repr.length)
-      return emptyImpl
-    val end = if (until > length) length else until
-    sliceImpl(start, end)
-  }
-
-  protected def emptyImpl: WrappedArray[T]
-
-  protected def sliceImpl(from: Int, until: Int): WrappedArray[T]
+//  override def slice(from: Int, until: Int): WrappedArray[T] = {
+//    val start = if (from < 0) 0 else from
+//    if (until <= start || start >= repr.length)
+//      return emptyImpl
+//    val end = if (until > length) length else until
+//    sliceImpl(start, end)
+//  }
+//
+//  protected def emptyImpl: WrappedArray[T]
+//
+//  protected def sliceImpl(from: Int, until: Int): WrappedArray[T]
 }
 
 /** A companion object used to create instances of `WrappedArray`.
