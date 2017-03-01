@@ -152,8 +152,8 @@ abstract class GenBCode extends BCodeSyncAndTry with BCodeParallel with HasRepor
         }
       }
       def startPipeline(item1:Item1, item2:Try[Item2]) = {
-        trace("push to item2")
-        item1.workflow.item2.complete(item2)
+        trace("push to optimize")
+        item1.workflow.optimize.complete(item2)
       }
 
 
@@ -240,7 +240,11 @@ abstract class GenBCode extends BCodeSyncAndTry with BCodeParallel with HasRepor
     val hasGlobalOptimisations = optInlinerEnabled || optClosureInvocations
 
     override def run(): Unit = {
+      val oldName = Thread.currentThread.getName
       try {
+        try Thread.currentThread().setName("GenBcode - OptimisationWorkflow")
+        catch { case _ : SecurityException => /*ignore*/ }
+
         val downstreams = allData map { item1 : Item1 =>
           val workflow = item1.workflow
           Await.ready(workflow.optimize.future, Duration.Inf)
@@ -279,7 +283,9 @@ abstract class GenBCode extends BCodeSyncAndTry with BCodeParallel with HasRepor
               downstream
           }
         }
-        if (hasGlobalOptimisations) withAstTreeLock {
+        //we dont need a tree lock here as the this is a global operation -
+        //globally blocking already
+        if (hasGlobalOptimisations) {
           if (optInlinerEnabled)
             bTypes.inliner.runInliner()
           if (optClosureInvocations)
@@ -297,6 +303,9 @@ abstract class GenBCode extends BCodeSyncAndTry with BCodeParallel with HasRepor
             _.workflow.item2.tryComplete(fail)
           }
           throw t
+      } finally {
+        try Thread.currentThread().setName(oldName)
+        catch { case _ : SecurityException => /*ignore */ }
       }
     }
   }
@@ -334,7 +343,7 @@ abstract class GenBCode extends BCodeSyncAndTry with BCodeParallel with HasRepor
         addInnerClasses(classNode, bTypes.backendUtils.collectNestedClasses(classNode))
       }
 
-      override def process(item: Item2): Item3 = {
+      override def process(item: Item2): Item3 = withAstTreeLock{
         try {
           trace(s"start Worker2 ${item.sourceFilePath}")
           localOptimizations(item.plain)
@@ -452,6 +461,7 @@ abstract class GenBCode extends BCodeSyncAndTry with BCodeParallel with HasRepor
 
       feedPipeline1()
       if (runInParallel) {
+        reporter.echo(NoPosition, "running GenBCode in parallel")
         def onWorkerError(workerFailed: Throwable): Unit = {
           workerFailed.printStackTrace()
           reporter.error(NoPosition, workerFailed.toString)
