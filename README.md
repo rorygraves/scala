@@ -14,5 +14,5 @@ Come chat with us on gitter if you have ideas/want to be involved.
 
 ## Development
 
-Use the standard instructions within your target branch (2.11.x, 2.12.x) for integration with your favorite editor.
+There are some instructions here: https://github.com/rorygraves/scalac_perf/wiki to get you started getting setup and how to contribute.
 
