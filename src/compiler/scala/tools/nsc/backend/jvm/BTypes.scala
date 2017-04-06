@@ -136,7 +136,7 @@ abstract class BTypes {
   }
   def removeIndyLambdaImplMethod(hostClass: InternalName, handle: Seq[asm.Handle]): Unit = {
     if (handle.nonEmpty)
-      indyLambdaImplMethods.getOrElseUpdate(hostClass, mutable.LinkedHashSet()) --= handle
+      indyLambdaImplMethods.get(hostClass).foreach(_ --= handle)
   }
 
   def getIndyLambdaImplMethods(hostClass: InternalName): Iterable[asm.Handle] = {
