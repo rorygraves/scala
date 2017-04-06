@@ -136,7 +136,12 @@ abstract class BTypes {
         handle
       } else {
         var added = List.empty[asm.Handle]
-        handle foreach { h => if (set.add(h)) added ::= h}
+        var next = handle
+        while(!next.isEmpty) {
+          val h = next.head
+          if (set.add(h)) added ::= h
+          next = next.tail
+        }
         added
       }
     }
