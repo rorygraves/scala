@@ -123,12 +123,22 @@ abstract class BTypes {
    * has the method.
    */
   val indyLambdaImplMethods: mutable.AnyRefMap[InternalName, mutable.LinkedHashSet[asm.Handle]] = recordPerRunCache(mutable.AnyRefMap())
+
+  /**
+    * add methods
+    * @return the added methods. Note the order is undefined
+    */
   def addIndyLambdaImplMethod(hostClass: InternalName, handle: Seq[asm.Handle]): Seq[asm.Handle] = {
     if (handle.isEmpty) Nil else {
       val set = indyLambdaImplMethods.getOrElseUpdate(hostClass, mutable.LinkedHashSet())
-      val added = handle.filterNot(set)
-      set ++= handle
-      added
+      if (set isEmpty) {
+        set ++= handle
+        handle
+      } else {
+        var added = List.empty[asm.Handle]
+        handle foreach { h => if (set.add(h)) added ::= h}
+        added
+      }
     }
   }
   def addIndyLambdaImplMethod(hostClass: InternalName, handle: asm.Handle): Boolean = {
