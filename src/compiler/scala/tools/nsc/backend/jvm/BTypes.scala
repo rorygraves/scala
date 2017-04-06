@@ -896,11 +896,6 @@ abstract class BTypes {
       assert(info.get.nestedClasses.forall(c => ifInit(c)(_.isNestedClass.get)), info.get.nestedClasses)
     }
 
-    /**
-     * @return The class name without the package prefix
-     */
-    def simpleName: String = internalName.split("/").last
-
     def isInterface: Either[NoClassBTypeInfo, Boolean] = info.map(i => (i.flags & asm.Opcodes.ACC_INTERFACE) != 0)
 
     def superClassesTransitive: Either[NoClassBTypeInfo, List[ClassBType]] = info.flatMap(i => i.superClass match {
