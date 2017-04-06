@@ -258,7 +258,7 @@ abstract class BTypes {
   def inlineInfoFromClassfile(classNode: ClassNode): InlineInfo = {
     def fromClassfileAttribute: Option[InlineInfo] = {
       if (classNode.attrs == null) None
-      else classNode.attrs.asScala.collect({ case a: InlineInfoAttribute => a}).headOption.map(_.inlineInfo)
+      else classNode.attrs.asScala.collectFirst{ case a: InlineInfoAttribute => a.inlineInfo}
     }
 
     def fromClassfileWithoutAttribute = {
