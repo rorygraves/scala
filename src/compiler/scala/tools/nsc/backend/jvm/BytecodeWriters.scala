@@ -28,8 +28,8 @@ object OutputDirectories {
 
   private class PathDirInfo (val base:JNPath) extends OutputDirectories {
     //should be strict, when we fix duplicate file names
-    val optsStrict = util.EnumSet.of(StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)
-    val optsLax = util.EnumSet.of(StandardOpenOption.CREATE, StandardOpenOption.WRITE)
+    val optsStrict = util.EnumSet.of(StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING)
+    val optsLax = util.EnumSet.of(StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING)
     val noAttr = Array[JNFileAttribute[_]]()
 
     class PathFile(path:JNPath) extends OutputFile{
