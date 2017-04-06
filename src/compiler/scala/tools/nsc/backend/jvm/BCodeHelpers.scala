@@ -224,20 +224,22 @@ abstract class BCodeHelpers extends BCodeIdiomatic with BytecodeWriters {
    * This is a hack to work around SI-9111. The completer of `methodSym` may report type errors. We
    * cannot change the typer context of the completer at this point and make it silent: the context
    * captured when creating the completer in the namer. However, we can temporarily replace
-   * global.reporter (it's a var) to store errors.
+   * global.reporter (it's a var) to ignore errors.
    */
   def completeSilentlyAndCheckErroneous(sym: Symbol): Boolean =
     if (sym.hasCompleteInfo) false
     else {
-      withoutReporting(sym.info)
+      val currentReporter = reporter
+      reporter = NoReporter
+      try sym.info finally reporter = currentReporter
       sym.isErroneous
     }
 
-  @inline def withoutReporting[T](fn : => T) = {
-    val currentReporter = reporter
-    reporter = NoReporter
-    try fn finally reporter = currentReporter
-  }
+//  @inline def withoutReporting[T](fn : => T) = {
+//    val currentReporter = reporter
+//    reporter = NoReporter
+//    try fn finally reporter = currentReporter
+//  }
 
 
   /*
