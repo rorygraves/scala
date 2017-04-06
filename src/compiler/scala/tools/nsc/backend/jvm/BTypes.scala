@@ -131,6 +131,9 @@ abstract class BTypes {
       added
     }
   }
+  def addIndyLambdaImplMethod(hostClass: InternalName, handle: asm.Handle): Boolean = {
+    indyLambdaImplMethods.getOrElseUpdate(hostClass, mutable.LinkedHashSet()).add(handle)
+  }
   def removeIndyLambdaImplMethod(hostClass: InternalName, handle: Seq[asm.Handle]): Unit = {
     if (handle.nonEmpty)
       indyLambdaImplMethods.getOrElseUpdate(hostClass, mutable.LinkedHashSet()) --= handle
