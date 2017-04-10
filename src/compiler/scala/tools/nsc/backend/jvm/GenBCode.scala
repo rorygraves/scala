@@ -9,9 +9,10 @@ package tools.nsc
 package backend
 package jvm
 
+import java.io.IOException
+
 import scala.collection.mutable
 import scala.reflect.internal.util.Statistics
-
 import scala.tools.asm
 import scala.tools.asm.tree.ClassNode
 import scala.tools.nsc.backend.jvm.opt.ByteCodeRepository
@@ -434,7 +435,7 @@ abstract class GenBCode extends BCodeSyncAndTry {
             bytecodeWriter.writeClass(jclassName, jclassName, jclassBytes, outFile)
           }
           catch {
-            case e: FileConflictException =>
+            case e: IOException =>
               error(s"error writing $jclassName: ${e.getMessage}")
           }
         }

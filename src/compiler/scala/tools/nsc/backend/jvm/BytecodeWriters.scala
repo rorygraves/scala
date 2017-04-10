@@ -16,8 +16,6 @@ import scala.tools.nsc.io._
 import java.util.jar.Attributes.Name
 import scala.language.postfixOps
 
-/** Can't output a file due to the state of the file system. */
-class FileConflictException(msg: String, val file: AbstractFile) extends IOException(msg)
 object OutputDirectories {
 
   def apply(file:AbstractFile) :OutputDirectories = {
@@ -35,17 +33,16 @@ object OutputDirectories {
     class PathFile(path:JNPath) extends OutputFile{
       override def writeFile(bytes: Array[Byte]): Unit = {
 
-        val channel = path.getFileSystem.provider.newByteChannel(path, optsLax, noAttr : _*)
-
+        val channel = path.getFileSystem.provider.newByteChannel(path, optsLax, noAttr: _*)
         val bb = ByteBuffer.wrap(bytes)
-        try while (bb.remaining() > 0)
-          channel.write(bb)
+
+        try do channel.write(bb) while (bb.remaining() > 0)
         finally channel.close()
 
       }
     }
     class PathDir(path:String) extends OutputDirectory{
-      lazy val dir = JNFiles.createDirectories(base.resolve(path))
+      private lazy val dir = JNFiles.createDirectories(base.resolve(path))
       override def file(name: String): OutputFile = new PathFile(dir.resolve(name))
     }
     private val dirs = new collection.concurrent.TrieMap[String, PathDir]()
