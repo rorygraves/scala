@@ -231,15 +231,12 @@ abstract class BCodeHelpers extends BCodeIdiomatic with BytecodeWriters {
       val originalReporter = global.reporter
       val storeReporter = new reporters.StoreReporter()
       global.reporter = storeReporter
-      try {
-        sym.info
-      } finally {
-        global.reporter = originalReporter
-      }
+      try sym.info
+      finally global.reporter = originalReporter
       sym.isErroneous
     }
 
-    var pickledBytes = 0 // statistics
+  var pickledBytes = 0 // statistics
 
   // -----------------------------------------------------------------------------------------
   // finding the least upper bound in agreement with the bytecode verifier (given two internal names handed by ASM)

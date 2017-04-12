@@ -15,7 +15,6 @@ import scala.collection.mutable
 import scala.reflect.internal.util.Statistics
 import scala.tools.asm
 import scala.tools.asm.tree.ClassNode
-import scala.tools.nsc.backend.jvm.opt.ByteCodeRepository
 import scala.tools.nsc.io.AbstractFile
 
 /*
@@ -127,6 +126,7 @@ abstract class GenBCode extends BCodeSyncAndTry {
      *  Pipeline that takes ClassDefs from queue-1, lowers them into an intermediate form, placing them on queue-2
      */
     abstract class Worker1 {
+      protected def getOutFolder(csym: Symbol, cName: String, cunit: CompilationUnit): OutputDirectories
 
       val caseInsensitively = mutable.Map.empty[String, Symbol]
 
@@ -147,7 +147,8 @@ abstract class GenBCode extends BCodeSyncAndTry {
           }
         }
       }
-      protected def getOutFolder(csym: Symbol, cName: String, cunit: CompilationUnit): OutputDirectories       /*
+
+      /*
        *  Checks for duplicate internal names case-insensitively,
        *  builds ASM ClassNodes for mirror, plain, and bean classes;
        *  enqueues them in queue-2.
@@ -215,21 +216,27 @@ abstract class GenBCode extends BCodeSyncAndTry {
       } // end of method visit(Item1)
 
     } // end of class BCodePhase.Worker1
-    def newWorker1(needsOutputFile:Boolean): Worker1 = {
-      if (!needsOutputFile)
-        new SingleOutputWorker1(null)
+
+    def newWorker1(needsOutputFile: Boolean): Worker1 = {
+      // Item2.outFolder will be `null` if `needsOutputFile` is false
+      if (!needsOutputFile) new SingleOutputWorker1(null)
       else settings.outputDirs.getSingleOutput match {
         case Some(dir) =>
-          new SingleOutputWorker1(OutputDirectories (dir))
-        case _ => new MultiOutputWorker1()
+          new SingleOutputWorker1(OutputDirectories(dir))
+        case _ =>
+          new MultiOutputWorker1()
       }
     }
-    class SingleOutputWorker1(val folder : OutputDirectories) extends Worker1 {
 
+    class SingleOutputWorker1(folder: OutputDirectories) extends Worker1 {
       override protected def getOutFolder(csym: global.Symbol, cName: String, cunit: global.CompilationUnit) = folder
     }
+
     class MultiOutputWorker1() extends Worker1 {
-      val knownDirectories = mutable.Map[AbstractFile, OutputDirectories]()
+      private def outputDirectory(sym: Symbol): AbstractFile =
+        settings.outputDirs outputDirFor enteringFlatten(sym.sourceFile)
+
+      private val knownDirectories = mutable.Map[AbstractFile, OutputDirectories]()
 
       override protected def getOutFolder(csym: global.Symbol, cName: String, cunit: global.CompilationUnit): OutputDirectories =
         try {
@@ -402,8 +409,8 @@ abstract class GenBCode extends BCodeSyncAndTry {
      *    (d) serialize to disk by draining queue-3.
      */
     private def buildAndSendToDisk(needsOutFolder: Boolean) {
-
       feedPipeline1()
+
       val genStart = Statistics.startTimer(BackendStats.bcodeGenStat)
       newWorker1(needsOutFolder).run()
       Statistics.stopTimer(BackendStats.bcodeGenStat, genStart)
@@ -413,7 +420,6 @@ abstract class GenBCode extends BCodeSyncAndTry {
       val writeStart = Statistics.startTimer(BackendStats.bcodeWriteTimer)
       drainQ3()
       Statistics.stopTimer(BackendStats.bcodeWriteTimer, writeStart)
-
     }
 
     /* Feed pipeline-1: place all ClassDefs on q1, recording their arrival position. */
@@ -424,7 +430,6 @@ abstract class GenBCode extends BCodeSyncAndTry {
 
     /* Pipeline that writes classfile representations to disk. */
     private def drainQ3() {
-
       def sendToDisk(cfr: SubItem3, outFolder: OutputDirectories) {
         if (cfr != null){
           val SubItem3(jclassName, jclassBytes) = cfr
@@ -462,11 +467,9 @@ abstract class GenBCode extends BCodeSyncAndTry {
       assert(q1.isEmpty, s"Some ClassDefs remained in the first queue: $q1")
       assert(q2.isEmpty, s"Some classfiles remained in the second queue: $q2")
       assert(q3.isEmpty, s"Some classfiles weren't written to disk: $q3")
-
     }
 
     override def apply(cunit: CompilationUnit): Unit = {
-
       def gen(tree: Tree) {
         tree match {
           case EmptyTree            => ()
