@@ -27,6 +27,7 @@ import transform.patmat.PatternMatching
 import transform._
 import backend.{JavaPlatform, ScalaPrimitives}
 import backend.jvm.GenBCode
+import scala.concurrent.Future
 import scala.language.postfixOps
 import scala.tools.nsc.ast.{TreeGen => AstTreeGen}
 import scala.tools.nsc.classpath._
@@ -1492,9 +1493,9 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
     /** Compile list of abstract files. */
     def compileFiles(files: List[AbstractFile]) {
       try {
-        val snap = profiler.beforeInit()
+        val snap = profiler.before(Global.InitPhase)
         val sources = files map getSourceFile
-        profiler.afterInit(snap)
+        profiler.after(Global.InitPhase, snap)
         compileSources(sources)
       }
       catch { case ex: IOException => globalError(ex.getMessage()) }
@@ -1503,13 +1504,13 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
     /** Compile list of files given by their names */
     def compile(filenames: List[String]) {
       try {
-        val snap = profiler.beforeInit()
+        val snap = profiler.before(Global.InitPhase)
 
         val sources: List[SourceFile] =
           if (settings.script.isSetByUser && filenames.size > 1) returning(Nil)(_ => globalError("can only compile one script at a time"))
           else filenames map getSourceFile
 
-        profiler.afterInit(snap)
+        profiler.after(Global.InitPhase, snap)
         compileSources(sources)
       }
       catch { case ex: IOException => globalError(ex.getMessage()) }
@@ -1617,5 +1618,10 @@ object Global {
     //val loader = ScalaClassLoader(getClass.getClassLoader)  // apply does not make delegate
     val loader = new ClassLoader(getClass.getClassLoader) with ScalaClassLoader
     loader.create[Reporter](settings.reporter.value, settings.errorFn)(settings)
+  }
+  private object InitPhase extends Phase(null) {
+    def name = "<init phase>"
+    override def keepsTypeParams = false
+    def run() { throw new Error("InitPhase.run") }
   }
 }
