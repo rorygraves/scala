@@ -57,6 +57,12 @@ object NameTransformer {
   enterOp('?', "$qmark")
   enterOp('@', "$at")
 
+  for ( c <- 0 until nops) {
+    if ((op2code(c) eq null) && !Character.isJavaIdentifierPart(c)) {
+      op2code(c) = "$u%04X".format(c)
+    }
+  }
+
   /** Replace operator symbols by corresponding `\$opname`.
    *
    *  @param name the string to encode
@@ -68,13 +74,15 @@ object NameTransformer {
     var i = 0
     while (i < len) {
       val c = name charAt i
-      if (c < nops && (op2code(c.toInt) ne null)) {
-        if (buf eq null) {
-          buf = new StringBuilder()
-          buf.append(name.substring(0, i))
+      if (c < nops) {
+        if (op2code(c.toInt) ne null) {
+          if (buf eq null) {
+            buf = new StringBuilder()
+            buf.append(name.substring(0, i))
+          }
+          buf.append(op2code(c.toInt))
+          /* Handle glyphs that are not valid Java/JVM identifiers */
         }
-        buf.append(op2code(c.toInt))
-      /* Handle glyphs that are not valid Java/JVM identifiers */
       }
       else if (!Character.isJavaIdentifierPart(c)) {
         if (buf eq null) {
