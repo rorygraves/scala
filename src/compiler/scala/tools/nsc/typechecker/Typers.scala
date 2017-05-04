@@ -514,7 +514,7 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
       sym.rawInfo.isInstanceOf[loaders.ClassfileLoader] && {
         sym.rawInfo.load(sym)
         (sym.sourceFile ne null) &&
-        (currentRun.compiledFiles contains sym.sourceFile.path)
+        (currentRun.compilesFile (sym.sourceFile.path))
       }
     }
 

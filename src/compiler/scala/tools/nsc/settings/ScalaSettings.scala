@@ -223,6 +223,9 @@ trait ScalaSettings extends AbsScalaSettings
   val exposeEmptyPackage = BooleanSetting ("-Yexpose-empty-package", "Internal only: expose the empty package.").internalOnly()
   val Ydelambdafy        = ChoiceSetting  ("-Ydelambdafy", "strategy", "Strategy used for translating lambdas into JVM code.", List("inline", "method"), "method")
 
+  val YParallelRead      = BooleanSetting ("-Yparallel-read", "early phases in parallel")
+  YParallelRead.value = true
+
   object optChoices extends MultiChoiceEnumeration {
     val unreachableCode         = Choice("unreachable-code",          "Eliminate unreachable code, exception handlers guarding no instructions, redundant metadata (debug information, line numbers).")
     val simplifyJumps           = Choice("simplify-jumps",            "Simplify branching instructions, eliminate unnecessary ones.")

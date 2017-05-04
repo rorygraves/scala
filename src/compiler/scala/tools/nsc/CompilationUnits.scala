@@ -5,9 +5,13 @@
 
 package scala.tools.nsc
 
-import scala.reflect.internal.util.{ SourceFile, NoSourceFile, FreshNameCreator }
+import scala.reflect.internal.util.{FreshNameCreator, NoSourceFile, SourceFile}
 import scala.collection.mutable
-import scala.collection.mutable.{ LinkedHashSet, ListBuffer }
+import scala.collection.mutable.{LinkedHashSet, ListBuffer}
+import scala.concurrent.duration.Duration
+import scala.concurrent.{Await, Future}
+import scala.reflect.io.AbstractFile
+import scala.tools.nsc.reporters.{Reporter, StoreReporter}
 
 trait CompilationUnits { global: Global =>
 
@@ -124,5 +128,31 @@ trait CompilationUnits { global: Global =>
     lazy val isJava = source.file.name.endsWith(".java")
 
     override def toString() = source.toString()
+  }
+  object StreamableCompilationUnit {
+    def apply(unit : CompilationUnit) = new NonStreamedCompilationUnit(unit)
+  }
+  trait StreamableCompilationUnit {
+    def sourceFile : SourceFile
+    def underlyingFile : AbstractFile
+    def unit : CompilationUnit
+    def relayReports(reporter:Reporter):Unit
+
+  }
+  class NonStreamedCompilationUnit(val unit : CompilationUnit) extends StreamableCompilationUnit {
+    override def underlyingFile: AbstractFile = sourceFile.file
+    override def sourceFile: SourceFile = unit.source
+    override def relayReports(reporter:Reporter): Unit = ()
+  }
+  class StreamedCompilationUnit(val underlyingFile: AbstractFile, unitFuture: Future[CompilationUnit],
+                                sourceFuture: Future[SourceFile], reporter:StoreReporter)  extends StreamableCompilationUnit {
+    override def sourceFile: SourceFile = Await.result(sourceFuture, Duration.Inf)
+    override def unit = Await.result(unitFuture, Duration.Inf)
+
+    override def relayReports(globalReporter:Reporter): Unit = {
+      //TODO
+      ???
+    }
+
   }
 }

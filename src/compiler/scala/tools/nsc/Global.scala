@@ -10,9 +10,12 @@ package nsc
 import java.io.{File, FileNotFoundException, IOException}
 import java.net.URL
 import java.nio.charset.{Charset, CharsetDecoder, IllegalCharsetNameException, UnsupportedCharsetException}
+
+import jline.internal.NonBlockingInputStream
+
 import scala.collection.{immutable, mutable}
 import io.{AbstractFile, Path, SourceReader}
-import reporters.Reporter
+import reporters.{Reporter, StoreReporter}
 import util.{ClassPath, StatisticsInfo, returning}
 import scala.reflect.ClassTag
 import scala.reflect.internal.util.{BatchSourceFile, NoSourceFile, ScalaClassLoader, ScriptSourceFile, SourceFile}
@@ -27,6 +30,7 @@ import transform.patmat.PatternMatching
 import transform._
 import backend.{JavaPlatform, ScalaPrimitives}
 import backend.jvm.GenBCode
+import scala.concurrent.Future
 import scala.language.postfixOps
 import scala.tools.nsc.ast.{TreeGen => AstTreeGen}
 import scala.tools.nsc.classpath._
@@ -314,10 +318,15 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
 
 // ------------ File interface -----------------------------------------
 
-  private val reader: SourceReader = {
-    val defaultEncoding = Properties.sourceEncoding
-
-    def loadCharset(name: String) =
+  private object SourceReaderFactory  {
+    val sourceReaderSetting = settings.sourceReader.valueSetByUser
+    val allowMultiThreads = sourceReaderSetting.isEmpty
+    private lazy val charset = settings.encoding.valueSetByUser flatMap loadCharset getOrElse {
+      val defaultEncoding = Properties.sourceEncoding
+      settings.encoding.value = defaultEncoding // A mandatory charset
+      Charset.forName(defaultEncoding)
+    }
+    private def loadCharset(name: String) =
       try Some(Charset.forName(name))
       catch {
         case _: IllegalCharsetNameException =>
@@ -328,23 +337,22 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
           None
       }
 
-    val charset = settings.encoding.valueSetByUser flatMap loadCharset getOrElse {
-      settings.encoding.value = defaultEncoding // A mandatory charset
-      Charset.forName(defaultEncoding)
-    }
+    def newReader(reporter:Reporter): SourceReader = {
 
-    def loadReader(name: String): Option[SourceReader] = {
-      def ccon = Class.forName(name).getConstructor(classOf[CharsetDecoder], classOf[Reporter])
+      def loadReader(name: String): Option[SourceReader] = {
+        def ccon = Class.forName(name).getConstructor(classOf[CharsetDecoder], classOf[Reporter])
 
-      try Some(ccon.newInstance(charset.newDecoder(), reporter).asInstanceOf[SourceReader])
-      catch { case ex: Throwable =>
-        globalError("exception while trying to instantiate source reader '" + name + "'")
-        None
+        try Some(ccon.newInstance(charset.newDecoder(), reporter).asInstanceOf[SourceReader])
+        catch {
+          case ex: Throwable =>
+            globalError("exception while trying to instantiate source reader '" + name + "'")
+            None
+        }
       }
-    }
 
-    settings.sourceReader.valueSetByUser flatMap loadReader getOrElse {
-      new SourceReader(charset.newDecoder(), reporter)
+      sourceReaderSetting flatMap loadReader getOrElse {
+        new SourceReader(charset.newDecoder(), reporter)
+      }
     }
   }
 
@@ -354,13 +362,15 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
       s"[search path for class files: ${classPath.asClassPathString}]"
     )
 
-  def getSourceFile(f: AbstractFile): BatchSourceFile = new BatchSourceFile(f, reader read f)
+  def getSourceFile(f: AbstractFile): BatchSourceFile = getSourceFile(f, SourceReaderFactory.newReader(reporter))
+  private def getSourceFile(f: AbstractFile, reader : SourceReader): BatchSourceFile = new BatchSourceFile(f, reader read f)
 
-  def getSourceFile(name: String): SourceFile = {
+  def getSourceFile(name: String): SourceFile = getSourceFile(name, SourceReaderFactory.newReader(reporter))
+  private def getSourceFile(name: String, reader : SourceReader ): SourceFile = {
     val f = AbstractFile.getFile(name)
     if (f eq null) throw new FileNotFoundException(
       "source file '" + name + "' could not be found")
-    getSourceFile(f)
+    getSourceFile(f, reader)
   }
 
   lazy val loaders = new {
@@ -1090,26 +1100,49 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
     def deprecationWarnings: List[(Position, String)] = reporting.deprecationWarnings.map{case (pos, (msg, since)) => (pos, msg)}
 
     private class SyncedCompilationBuffer { self =>
+
+      private val pending = new mutable.ArrayBuffer[StreamableCompilationUnit]
       private val underlying = new mutable.ArrayBuffer[CompilationUnit]
-      def size = synchronized { underlying.size }
-      def +=(cu: CompilationUnit): this.type = { synchronized { underlying += cu }; this }
-      def head: CompilationUnit = synchronized{ underlying.head }
-      def apply(i: Int): CompilationUnit = synchronized { underlying(i) }
+      def size = synchronized { pending.size }
+      def +=(cu: StreamableCompilationUnit): this.type = {
+        synchronized {
+          pending += cu
+          _fileNames += cu.underlyingFile.file.getName
+        }
+        this
+      }
+      def head: CompilationUnit = iterator.next
       def iterator: Iterator[CompilationUnit] = new collection.AbstractIterator[CompilationUnit] {
         private var used = 0
-        def hasNext = self.synchronized{ used < underlying.size }
+        def hasNext = self.synchronized{ used < pending.length }
         def next = self.synchronized {
           if (!hasNext) throw new NoSuchElementException("next on empty Iterator")
+          if (used == underlying.length) {
+            underlying += pending(used).unit
+          }
           used += 1
           underlying(used-1)
         }
       }
-      def toList: List[CompilationUnit] = synchronized{ underlying.toList }
+      private def force() = {
+        require(Thread.holdsLock(self))
+        if (pending.length > underlying.length) {
+          iterator.size
+        }
+      }
+      private [Global] def sortedFileNames: List[String] = synchronized{
+        force()
+        underlying.toList.map {_.source.file.name}.sorted
+      }
+      private val _fileNames = mutable.HashSet[String]()
+      val fileNamesSnap: Set[String] = synchronized {_fileNames.toSet}
+      def compilesFile(filename:String) = synchronized {_fileNames.contains(filename)}
     }
 
     private val unitbuf = new SyncedCompilationBuffer
+    def compiledFiles = unitbuf.fileNamesSnap
 
-    val compiledFiles   = new mutable.HashSet[String]
+    def compilesFile(filename:String) = unitbuf.compilesFile(filename)
 
     /** A map from compiled top-level symbols to their source files */
     val symSource = new mutable.HashMap[Symbol, AbstractFile]
@@ -1121,7 +1154,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
     private var unitc: Int   = 0   // units completed this phase
 
     def size = unitbuf.size
-    override def toString = "scalac Run for:\n  " + compiledFiles.toList.sorted.mkString("\n  ")
+    override def toString = "scalac Run for:\n  " + unitbuf.sortedFileNames.mkString("\n  ")
 
     // Calculate where to stop based on settings -Ystop-before or -Ystop-after.
     // The result is the phase to stop at BEFORE running it.
@@ -1291,9 +1324,8 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
 
 
     /** add unit to be compiled in this run */
-    private def addUnit(unit: CompilationUnit) {
+    private def addUnit(unit: StreamableCompilationUnit) {
       unitbuf += unit
-      compiledFiles += unit.source.file.path
     }
     private def warnDeprecatedAndConflictingSettings(unit: CompilationUnit) {
       // issue warnings for any usage of deprecated settings
@@ -1408,13 +1440,17 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
       }
     }
 
+    //not sure if we can remove this
     def compileUnits(units: List[CompilationUnit], fromPhase: Phase): Unit =
+      compileUnitsInternal(units map StreamableCompilationUnit.apply, fromPhase)
+
+    def compileStreamableUnits(units: List[StreamableCompilationUnit], fromPhase: Phase): Unit =
       compileUnitsInternal(units, fromPhase)
 
-    private def compileUnitsInternal(units: List[CompilationUnit], fromPhase: Phase) {
+    private def compileUnitsInternal(unitStream: List[StreamableCompilationUnit], fromPhase: Phase) {
       def currentTime = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime())
 
-      units foreach addUnit
+      unitStream foreach addUnit
       val startTime = currentTime
 
       reporter.reset()
@@ -1487,18 +1523,43 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
 
     /** Compile list of abstract files. */
     def compileFiles(files: List[AbstractFile]) {
-      try compileSources(files map getSourceFile)
+
+      try {
+        val units =
+          if (settings.YParallelRead) {
+            import scala.concurrent.ExecutionContext.Implicits.global
+            files map { file =>
+              val reporter = new StoreReporter
+              val sourceFileFuture = Future(getSourceFile(file, SourceReaderFactory.newReader(reporter)))
+              val compileUnitFuture = sourceFileFuture map { file => new CompilationUnit(file)}
+              new StreamedCompilationUnit(file, compileUnitFuture, sourceFileFuture, reporter)
+            }
+        } else {
+            val reader = SourceReaderFactory.newReader(reporter)
+            files map { file =>
+              val sourceFile = getSourceFile(file, reader)
+              new NonStreamedCompilationUnit(new CompilationUnit(sourceFile))
+            }
+          }
+
+        compileStreamableUnits(units, firstPhase)
+      }
       catch { case ex: IOException => globalError(ex.getMessage()) }
     }
 
     /** Compile list of files given by their names */
     def compile(filenames: List[String]) {
       try {
-        val sources: List[SourceFile] =
-          if (settings.script.isSetByUser && filenames.size > 1) returning(Nil)(_ => globalError("can only compile one script at a time"))
-          else filenames map getSourceFile
+        val files: List[AbstractFile] =
+          if (settings.script.isSetByUser && filenames.size > 1) {
+            globalError("can only compile one script at a time")
+            Nil
+          } else if (settings.YParallelRead && !SourceReaderFactory.allowMultiThreads) {
+            globalError("cannot allow parallel reader if the source reader in not parallel")
+            Nil
+          } else filenames map AbstractFile.getFile
 
-        compileSources(sources)
+        compileFiles(files)
       }
       catch { case ex: IOException => globalError(ex.getMessage()) }
     }
@@ -1513,14 +1574,14 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
      *  to phase "namer".
      */
     def compileLate(file: AbstractFile) {
-      if (!compiledFiles(file.path))
-        compileLate(new CompilationUnit(scripted(getSourceFile(file))))
+      if (!compilesFile(file.path))
+        compileLate(new CompilationUnit(scripted(getSourceFile(file, SourceReaderFactory.newReader(reporter)))))
     }
 
     /** Compile abstract file until `globalPhase`, but at least to phase "namer".
      */
     def compileLate(unit: CompilationUnit) {
-      addUnit(unit)
+      addUnit(new NonStreamedCompilationUnit(unit))
 
       if (firstPhase ne null) { // we might get here during initialization, is a source is newer than the binary
         val maxId = math.max(globalPhase.id, typerPhase.id)
