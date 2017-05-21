@@ -134,9 +134,11 @@ object ClassPath {
   @deprecated("shim for sbt's compiler interface", since = "2.12.0")
   sealed abstract class JavaContext
 }
-
-trait ClassRepresentation {
+trait Named {
   def name: String
+}
+
+trait ClassRepresentation extends Named {
   def binary: Option[AbstractFile]
   def source: Option[AbstractFile]
 }
