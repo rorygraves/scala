@@ -5,11 +5,16 @@ package scala.tools.nsc.classpath
 
 import java.io.File
 import java.net.URL
+import java.util.Map
+
 import scala.annotation.tailrec
 import scala.reflect.io.{AbstractFile, FileZipArchive, ManifestResources}
-import scala.tools.nsc.util.ClassPath
+import scala.tools.nsc.util.{CachedClassPath, ClassPath}
 import scala.tools.nsc.Settings
 import FileUtils._
+import scala.collection.mutable
+import scala.concurrent.ExecutionContext
+import scala.tools.nsc.util.CachedClassPath.CachedClassPath
 
 /**
  * A trait providing an optional cache for classpath entries obtained from zip and jar files.
@@ -20,23 +25,14 @@ import FileUtils._
  * when there are a lot of projects having a lot of common dependencies.
  */
 sealed trait ZipAndJarFileLookupFactory {
-  private val cache = collection.mutable.Map.empty[AbstractFile, ClassPath]
 
   def create(zipFile: AbstractFile, settings: Settings): ClassPath = {
     if (settings.YdisableFlatCpCaching) createForZipFile(zipFile)
-    else createUsingCache(zipFile, settings)
+    else ZipJarClasspathCache.createUsingCache(zipFile, settings, createForZipFile _)
   }
 
   protected def createForZipFile(zipFile: AbstractFile): ClassPath
 
-  private def createUsingCache(zipFile: AbstractFile, settings: Settings): ClassPath = cache.synchronized {
-    def newClassPathInstance = {
-      if (settings.verbose || settings.Ylogcp)
-        println(s"$zipFile is not yet in the classpath cache")
-      createForZipFile(zipFile)
-    }
-    cache.getOrElseUpdate(zipFile, newClassPathInstance)
-  }
 }
 
 /**
@@ -172,4 +168,69 @@ object ZipAndJarSourcePathFactory extends ZipAndJarFileLookupFactory {
   }
 
   override protected def createForZipFile(zipFile: AbstractFile): ClassPath = ZipArchiveSourcePath(zipFile.file)
+}
+
+object ZipJarClasspathCache {
+  import scala.collection.JavaConverters._
+  def configureFromSettings(settings: Settings) :Unit = cache.synchronized {
+    if (!settings.YClassPathCacheJars) {
+      cacheSize = 0
+      cache.clear()
+    } else {
+      cacheSize = settings.YClassPathCacheJarsSize.value
+      if (cache.size() > cacheSize) {
+        cache.keySet().iterator().asScala.drop(cacheSize) foreach(cache.remove)
+      }
+    }
+  }
+
+  private var cacheSize = 1
+  private val cache = new java.util.LinkedHashMap[AbstractFile, (CachedFileInfo, ClassPath)] {
+    override def removeEldestEntry(eldest: Map.Entry[AbstractFile, (CachedFileInfo, ClassPath)]): Boolean =
+      size() > cacheSize
+  }
+
+  private [classpath] def createUsingCache(zipFile: AbstractFile, settings: Settings, createForZipFile : (AbstractFile) => ClassPath): ClassPath = cache.synchronized {
+    def addNewClassPathInstance :ClassPath = {
+      if (settings.verbose || settings.Ylogcp)
+        println(s"$zipFile is not yet in the classpath cache")
+      createForZipFile(zipFile)
+    }
+    def cached(classPath:ClassPath):ClassPath = {
+      if (settings.verbose || settings.Ylogcp)
+        println(s"$zipFile cached:${settings.YClassPathCacheJars.value}")
+      if (settings.YClassPathCacheJars) CachedClassPath(classPath) else classPath
+    }
+    val newCacheInfo = CachedFileInfo(zipFile, settings)
+    val newClassPath = cache.get(zipFile) match {
+      case (oldCacheInfo, classPath)  =>
+        if (oldCacheInfo == newCacheInfo) {
+          if (settings.verbose || settings.Ylogcp)
+            println(s"$zipFile from the classpath cache")
+          classPath
+        } else {
+          if (settings.verbose || settings.Ylogcp)
+            println(s"$zipFile is not up to date in the classpath cache")
+          cached(createForZipFile(zipFile))
+        }
+      case miss =>
+        if (settings.verbose || settings.Ylogcp)
+          println(s"$zipFile is not yet in the classpath cache")
+        cached(createForZipFile(zipFile))
+    }
+    cache.put(zipFile, (newCacheInfo, newClassPath))
+    if (settings.YClassPathJarPrefetch) newClassPath match {
+      case cached : CachedClassPath => cached.startPrefetch(ExecutionContext.Implicits.global)
+      case _ =>
+    }
+    newClassPath
+  }
+
+  private def CachedFileInfo(zipFile: AbstractFile, settings: Settings) = {
+    val file = zipFile.file
+    new CachedFileInfo(file.getAbsolutePath, file.lastModified(), file.length(), settings.YClassPathCacheJars)
+  }
+
+  private case class CachedFileInfo(path: String, lastModified: Long, length: Long, cached:Boolean)
+
 }

@@ -11,7 +11,7 @@ package jvm
 
 import scala.collection.mutable
 import scala.reflect.internal.util.Statistics
-
+import scala.reflect.io.AbstractFile
 import scala.tools.asm
 import scala.tools.asm.tree.ClassNode
 import scala.tools.nsc.backend.jvm.opt.ByteCodeRepository
@@ -103,13 +103,23 @@ abstract class GenBCode extends BCodeSyncAndTry {
       jclassBytes: Array[Byte]
     )
 
-    case class Item3(arrivalPos: Int,
+    sealed trait Item3 {
+      def arrivalPos: Int
+      def isPoison  = { arrivalPos == Int.MaxValue }
+    }
+    case class RawItem3(name:String,
+                        value:Array[Byte],
+                        outFolder:scala.tools.nsc.io.AbstractFile) extends Item3 {
+      override def arrivalPos: Id = -1
+      def data = SubItem3(name,value)
+    }
+
+    case class ClassItem3(arrivalPos: Int,
                      mirror:     SubItem3,
                      plain:      SubItem3,
                      bean:       SubItem3,
-                     outFolder:  scala.tools.nsc.io.AbstractFile) {
+                     outFolder:  scala.tools.nsc.io.AbstractFile) extends Item3 {
 
-      def isPoison  = { arrivalPos == Int.MaxValue }
     }
     private val i3comparator = new java.util.Comparator[Item3] {
       override def compare(a: Item3, b: Item3) = {
@@ -118,7 +128,7 @@ abstract class GenBCode extends BCodeSyncAndTry {
         else 1
       }
     }
-    private val poison3 = Item3(Int.MaxValue, null, null, null, null)
+    private val poison3 = ClassItem3(Int.MaxValue, null, null, null, null)
     private val q3 = new java.util.PriorityQueue[Item3](1000, i3comparator)
 
     /*
@@ -304,7 +314,7 @@ abstract class GenBCode extends BCodeSyncAndTry {
           if (beanC != null) AsmUtils.traceClass(beanC.jclassBytes)
         }
 
-        q3 add Item3(arrivalPos, mirrorC, plainC, beanC, outFolder)
+        q3 add ClassItem3(arrivalPos, mirrorC, plainC, beanC, outFolder)
 
       }
 
@@ -367,6 +377,25 @@ abstract class GenBCode extends BCodeSyncAndTry {
        */
     }
 
+    def addAdditionalFiles(): Unit = {
+      //TODO should be ia a registration
+      //TODO check all registration doesn't overlap
+      //TODO should cope with modification of files - e.g. incremental
+      //TODO should better cope with jar or file
+      val files = global.linker.getFiles
+      val base = settings.outdir.outputDirs.getSingleOutput
+      files foreach {
+        case (name, data) =>
+          val split = name.lastIndexOf('/')
+          val (dir, localName ) = (split, base)  match {
+            case (-1, _) => (base orNull, name)
+            case (_, Some(dir)) if dir.isDirectory => (dir.subdirectoryNamed(name.substring(0,split)), name.substring(split+1))
+            case (_, Some(dir)) /* a jar */ => (null, name)
+          }
+          q3.add(RawItem3(localName, data, dir))
+      }
+    }
+
     /*
      *  Sequentially:
      *    (a) place all ClassDefs in queue-1
@@ -375,6 +404,7 @@ abstract class GenBCode extends BCodeSyncAndTry {
      *    (d) serialize to disk by draining queue-3.
      */
     private def buildAndSendToDisk(needsOutFolder: Boolean) {
+      addAdditionalFiles()
 
       feedPipeline1()
       val genStart = Statistics.startTimer(BackendStats.bcodeGenStat)
@@ -398,22 +428,26 @@ abstract class GenBCode extends BCodeSyncAndTry {
     /* Pipeline that writes classfile representations to disk. */
     private def drainQ3() {
 
-      def sendToDisk(cfr: SubItem3, outFolder: scala.tools.nsc.io.AbstractFile) {
+      def sendToDisk(cfr: SubItem3, isClass:Boolean, outFolder: scala.tools.nsc.io.AbstractFile) {
         if (cfr != null){
-          val SubItem3(jclassName, jclassBytes) = cfr
+          val SubItem3(name, bytes) = cfr
           try {
             val outFile =
               if (outFolder == null) null
-              else getFileForClassfile(outFolder, jclassName, ".class")
-            bytecodeWriter.writeClass(jclassName, jclassName, jclassBytes, outFile)
+              else if(isClass) getFileForClassfile(outFolder, name, ".class")
+              else outFolder.fileNamed(name)
+            if (isClass)
+              bytecodeWriter.writeClass(name, name, bytes, outFile)
+            else
+              bytecodeWriter.writeRaw(name, name, bytes, outFile)
           }
           catch {
             case e: FileConflictException =>
-              error(s"error writing $jclassName: ${e.getMessage}")
+              error(s"error writing ${cfr.jclassName}: ${e.getMessage}")
             case e: java.nio.file.FileSystemException =>
               if (settings.debug)
                 e.printStackTrace()
-              error(s"error writing $jclassName: ${e.getClass.getName} ${e.getMessage}")
+              error(s"error writing ${cfr.jclassName}: ${e.getClass.getName} ${e.getMessage}")
           }
         }
       }
@@ -426,12 +460,16 @@ abstract class GenBCode extends BCodeSyncAndTry {
         val incoming = q3.poll
         moreComing   = !incoming.isPoison
         if (moreComing) {
-          val item = incoming
-          val outFolder = item.outFolder
-          sendToDisk(item.mirror, outFolder)
-          sendToDisk(item.plain,  outFolder)
-          sendToDisk(item.bean,   outFolder)
-          expected += 1
+          incoming match {
+            case item: ClassItem3 =>
+              val outFolder = item.outFolder
+              sendToDisk(item.mirror, true, outFolder)
+              sendToDisk(item.plain,  true, outFolder)
+              sendToDisk(item.bean,   true, outFolder)
+              expected += 1
+            case item: RawItem3 =>
+              sendToDisk(item.data,   false, item.outFolder)
+          }
         }
       }
 

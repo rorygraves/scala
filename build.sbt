@@ -50,6 +50,9 @@ val asmDep            = "org.scala-lang.modules" % "scala-asm"       % versionPr
 val jlineDep          = "jline"                  % "jline"           % versionProps("jline.version")
 val antDep            = "org.apache.ant"         % "ant"             % "1.9.4"
 
+// Used by linkertool
+val args4jDep  = "args4j" % "args4j" % "2.33"
+val ow2AsmDep = "org.ow2.asm" % "asm" % "5.1"
 /** Publish to ./dists/maven-sbt, similar to the Ant build which publishes to ./dists/maven. This
   * can be used to compare the output of the sbt and Ant builds during the transition period. Any
   * real publishing should be done with sbt's standard `publish` task. */
@@ -543,6 +546,20 @@ lazy val scalap = configureAsSubproject(project)
   )
   .dependsOn(compiler)
 
+lazy val linkertool = configureAsSubproject(project)
+  .settings(
+    description := "Scala Linker Tool",
+    // Include decoder.properties
+    includeFilter in unmanagedResources in Compile := "*.properties",
+    libraryDependencies ++= Seq(args4jDep, ow2AsmDep),
+    fixPom(
+      "/project/name" -> <name>ScalaLinker</name>,
+      "/project/description" -> <description>linker tool</description>,
+      "/project/properties" -> scala.xml.Text("")
+    )
+  )
+  .dependsOn(compiler)
+
 lazy val partestExtras = Project("partest-extras", file(".") / "src" / "partest-extras")
   .dependsOn(replJlineEmbedded, scaladoc)
   .settings(commonSettings)
@@ -748,7 +765,7 @@ lazy val scalaDist = Project("scala-dist", file(".") / "target" / "scala-dist-di
       docMappings ++ resMappings ++ binMappings
     },
     resourceGenerators in Compile += Def.task {
-      val command = "fsc, scala, scalac, scaladoc, scalap"
+      val command = "fsc, scala, scalac, scaladoc, scalap, linkertool"
       val htmlOut = (resourceManaged in Compile).value / "doc/tools"
       val manOut = (resourceManaged in Compile).value / "genman"
       val fixedManOut = (resourceManaged in Compile).value / "man"
@@ -776,7 +793,7 @@ lazy val scalaDist = Project("scala-dist", file(".") / "target" / "scala-dist-di
     ),
     publishArtifact in (Compile, packageSrc) := false
   )
-  .dependsOn(libraryAll, compiler, scalap)
+  .dependsOn(libraryAll, compiler, scalap,linkertool)
 
 lazy val root: Project = (project in file("."))
   .settings(disableDocs)
@@ -884,19 +901,19 @@ lazy val root: Project = (project in file("."))
     incOptions := incOptions.value.withNameHashing(!antStyle.value).withAntStyle(antStyle.value)
   )
   .aggregate(library, reflect, compiler, interactive, repl, replJline, replJlineEmbedded,
-    scaladoc, scalap, partestExtras, junit, libraryAll, scalaDist).settings(
+    scaladoc, scalap, linkertool, partestExtras, junit, libraryAll, scalaDist).settings(
     sources in Compile := Seq.empty,
     onLoadMessage := """|*** Welcome to the sbt build definition for Scala! ***
       |Check README.md for more information.""".stripMargin
   )
 
 // The following subprojects' binaries are required for building "pack":
-lazy val distDependencies = Seq(replJline, replJlineEmbedded, compiler, library, reflect, scalap, scaladoc)
+lazy val distDependencies = Seq(replJline, replJlineEmbedded, compiler, library, reflect, scalap, linkertool, scaladoc)
 
 lazy val dist = (project in file("dist"))
   .settings(commonSettings)
   .settings(
-    libraryDependencies ++= Seq(scalaSwingDep, jlineDep),
+    libraryDependencies ++= Seq(scalaSwingDep, jlineDep, args4jDep, ow2AsmDep),
     mkBin := mkBinImpl.value,
     mkQuick := Def.task {
       val cp = (fullClasspath in IntegrationTest in LocalProject("test")).value
@@ -909,7 +926,7 @@ lazy val dist = (project in file("dist"))
     mkPack := Def.task { (buildDirectory in ThisBuild).value / "pack" }.dependsOn(packagedArtifact in (Compile, packageBin), mkBin).value,
     target := (baseDirectory in ThisBuild).value / "target" / thisProject.value.id,
     packageBin in Compile := {
-      val extraDeps = Set(scalaSwingDep, scalaParserCombinatorsDep, scalaXmlDep)
+      val extraDeps = Set(scalaSwingDep, scalaParserCombinatorsDep, scalaXmlDep, args4jDep, ow2AsmDep)
       val targetDir = (buildDirectory in ThisBuild).value / "pack" / "lib"
       def uniqueModule(m: ModuleID) = (m.organization, m.name.replaceFirst("_.*", ""))
       val extraModules = extraDeps.map(uniqueModule)
@@ -998,7 +1015,9 @@ lazy val mkBinImpl: Def.Initialize[Task[Seq[File]]] = Def.task {
   mkBin("scalac"   , "scala.tools.nsc.Main",              (fullClasspath in Compile in compiler).value) ++
   mkBin("fsc"      , "scala.tools.nsc.CompileClient",     (fullClasspath in Compile in compiler).value) ++
   mkBin("scaladoc" , "scala.tools.nsc.ScalaDoc",          (fullClasspath in Compile in scaladoc).value) ++
-  mkBin("scalap"   , "scala.tools.scalap.Main",           (fullClasspath in Compile in scalap).value)
+  mkBin("scalap"   , "scala.tools.scalap.Main",           (fullClasspath in Compile in scalap).value) ++
+  mkBin("linkertool" , "scala.tools.linkertool.LinkerTool",           (fullClasspath in Compile in linkertool).value)
+
 }
 
 /** Generate service provider definition files under META-INF/services */

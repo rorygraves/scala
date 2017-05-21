@@ -32,6 +32,7 @@ import scala.language.postfixOps
 import scala.tools.nsc.ast.{TreeGen => AstTreeGen}
 import scala.tools.nsc.classpath._
 import scala.tools.nsc.profile.Profiler
+import scala.tools.linker.RootLinkerSymbolWriter
 
 class Global(var currentSettings: Settings, var reporter: Reporter)
     extends SymbolTable
@@ -478,10 +479,17 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
     val runsRightAfter = None
   } with Pickler
 
+  // phaseName = "linker"
+  object linker extends {
+    val global: Global.this.type = Global.this
+    val runsAfter = List("pickler")
+    val runsRightAfter = None
+  } with Linker
+
   // phaseName = "refchecks"
   object refChecks extends {
     val global: Global.this.type = Global.this
-    val runsAfter = List("pickler")
+    val runsAfter = List("linker")
     val runsRightAfter = None
   } with RefChecks
 
@@ -635,6 +643,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
       superAccessors          -> "add super accessors in traits and nested classes",
       extensionMethods        -> "add extension methods for inline classes",
       pickler                 -> "serialize symbol tables",
+      linker                  -> "export data to support dependent project compilation",
       refChecks               -> "reference/override checking, translate nested objects",
       uncurry                 -> "uncurry, translate function values to anonymous classes",
       fields                  -> "synthesize accessors and fields, add bitmaps for lazy vals",
@@ -1143,6 +1152,8 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
     /** Should we skip the given phase? */
     protected def skipPhase(name: String) = settings.skip contains name
 
+    var linkerData = Option.empty[RootLinkerSymbolWriter]
+
     private val firstPhase = {
       // Initialization.  definitions.init requires phase != NoPhase
       import scala.reflect.internal.SomePhase
@@ -1270,6 +1281,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
     // val inlineclassesPhase           = phaseNamed("inlineclasses")
     // val superaccessorsPhase          = phaseNamed("superaccessors")
     val picklerPhase                 = phaseNamed("pickler")
+    val linkerPhase                  = phaseNamed("linker")
     val refchecksPhase               = phaseNamed("refchecks")
     val uncurryPhase                 = phaseNamed("uncurry")
     // val fieldsPhase                  = phaseNamed("fields")
@@ -1422,6 +1434,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
       reporter.reset()
       warnDeprecatedAndConflictingSettings(unitbuf.head)
       globalPhase = fromPhase
+      val profiler = profile.Profiler(settings)
 
       while (globalPhase.hasNext && !reporter.hasErrors) {
         val startTime = currentTime
@@ -1460,6 +1473,8 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
         // output collected statistics
         if (settings.YstatisticsEnabled)
           statistics.print(phase)
+
+        println(s"${phase.id} ${classPath}")
 
         advancePhase()
       }

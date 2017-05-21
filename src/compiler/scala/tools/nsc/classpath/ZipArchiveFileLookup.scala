@@ -3,12 +3,15 @@
  */
 package scala.tools.nsc.classpath
 
-import java.io.File
+import java.io.{DataInputStream, File}
 import java.net.URL
+import java.util.zip.ZipFile
+
 import scala.collection.Seq
 import scala.reflect.io.AbstractFile
 import scala.reflect.io.FileZipArchive
 import FileUtils.AbstractFileOps
+import scala.tools.linker.LinkerSymbol
 import scala.tools.nsc.util.{ClassPath, ClassRepresentation}
 
 /**
@@ -40,6 +43,18 @@ trait ZipArchiveFileLookup[FileEntryType <: ClassRepresentation] extends ClassPa
       entry <- dirEntry.iterator if isRequiredFileType(entry)
     } yield createFileEntry(entry)
 
+
+//  private val javaZipFile = new ZipFile(zipFile)
+//  // if it exists in the achive load the linker data
+//  val linkerData = {
+//    val entry = javaZipFile.getEntry("META-INF/language/scala/linker.eager.ser")
+//    if (entry eq null) None
+//    else {
+//      println("Loading linker data for " + zipFile)
+//      Some(LinkerSymbol.readFrom(new DataInputStream(javaZipFile.getInputStream(entry))))
+//    }
+//  }
+
   override private[nsc] def list(inPackage: String): ClassPathEntries = {
     val foundDirEntry = findDirEntry(inPackage)
 
@@ -55,7 +70,7 @@ trait ZipArchiveFileLookup[FileEntryType <: ClassRepresentation] extends ClassPa
           fileBuf += createFileEntry(entry)
       }
       ClassPathEntries(pkgBuf, fileBuf)
-    } getOrElse ClassPathEntries(Seq.empty, Seq.empty)
+    } getOrElse ClassPathEntries.empty
   }
 
   private def findDirEntry(pkg: String): Option[archive.DirEntry] = {

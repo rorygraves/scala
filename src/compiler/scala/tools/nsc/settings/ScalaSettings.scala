@@ -374,6 +374,20 @@ trait ScalaSettings extends AbsScalaSettings
     .withPostSetHook(_ => opt.tryToSet(List(optChoices.lClasspath.name)))
   val Xexperimental = BooleanSetting("-Xexperimental", "Enable experimental extensions.") enablingIfNotSetByUser experimentalSettings
 
+  // classpath caching
+  val YClassPathCacheJarsSize = IntSetting("-Yclasspath-jar-cache-size", "Maximum size of the jar cache", 2000, Some(1, 20000), (_: String) => None)
+  val YClassPathCacheJars     = BooleanSetting("-Yclasspath-jar-cache-enabled", "Enable cache of individual jars and zips, including across compiles")
+  val YClassPathTopPrefetch   = BooleanSetting("-Yclasspath-top-prefetch", "Enable full classpath cache prefetch in a background thread")
+  val YClassPathJarPrefetch   = BooleanSetting("-Yclasspath-jar-prefetch", "Enable jar cache prefetch in a background thread")
+  val YClassPathDirPrefetch   = BooleanSetting("-Yclasspath-dir-prefetch", "Enable dir cache prefetch in a background thread")
+  val YClassPathCache         = BooleanSetting("-Yclasspath-cache-enabled", "Enable cache of the compile class path")
+  YClassPathCacheJars.value = true
+  YClassPathTopPrefetch.value = true
+  YClassPathJarPrefetch.value = true
+  YClassPathDirPrefetch.value = true
+  YClassPathCache.value = true
+
+
   // Feature extensions
   val XmacroSettings          = MultiStringSetting("-Xmacro-settings", "option", "Custom settings for macros.")
 
@@ -393,6 +407,10 @@ trait ScalaSettings extends AbsScalaSettings
    */
   val pluginOptions = MultiStringSetting("-P", "plugin:opt", "Pass an option to a plugin") .
                         withHelpSyntax("-P:<plugin>:<opt>")
+
+  val linker = BooleanSetting("-linker", "Enable linker output.")
+  linker.value = true
+
 
   /** Test whether this is scaladoc we're looking at */
   def isScaladoc = false

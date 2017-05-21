@@ -3285,7 +3285,8 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
      *  returned, otherwise, `NoSymbol` is returned.
      */
     protected final def companionModule0: Symbol =
-      flatOwnerInfo.decl(name.toTermName).suchThat(sym => sym.isModule && (sym isCoDefinedWith this))
+      flatOwnerInfo.decl(name.toTermName).suchThat(sym =>
+        sym.isModule && (sym isCoDefinedWith this))
 
     override def companionModule    = companionModule0
     override def companionSymbol    = companionModule0
