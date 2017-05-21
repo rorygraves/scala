@@ -514,9 +514,13 @@ trait Names extends api.Names {
   private final class TermName_S(index0: Int, len0: Int, next0: TermName, override val toString: String) extends TermName(index0, len0, next0) {
     protected def createCompanionName(next: TypeName): TypeName = new TypeName_S(index, len, next, toString)
     override def newName(str: String): TermName = newTermNameCached(str)
+
+    override lazy val toTypeName = super.toTypeName
   }
   private final class TypeName_S(index0: Int, len0: Int, next0: TypeName, override val toString: String) extends TypeName(index0, len0, next0) {
     override def newName(str: String): TypeName = newTypeNameCached(str)
+
+    override lazy val toTermName = super.toTermName
   }
 
   private final class TermName_R(index0: Int, len0: Int, next0: TermName) extends TermName(index0, len0, next0) {
@@ -533,9 +537,9 @@ trait Names extends api.Names {
     type ThisNameType = TermName
     protected[this] def thisName: TermName = this
 
-    def isTermName: Boolean = true
-    def isTypeName: Boolean = false
-    def toTermName: TermName = this
+    final def isTermName: Boolean = true
+    final def isTypeName: Boolean = false
+    final def toTermName: TermName = this
     def toTypeName: TypeName = {
       def body = {
         // Re-computing the hash saves a field for storing it in the TermName
@@ -576,8 +580,8 @@ trait Names extends api.Names {
     type ThisNameType = TypeName
     protected[this] def thisName: TypeName = this
 
-    def isTermName: Boolean = false
-    def isTypeName: Boolean = true
+    final def isTermName: Boolean = false
+    final def isTypeName: Boolean = true
     def toTermName: TermName = {
       def body = {
         // Re-computing the hash saves a field for storing it in the TypeName
@@ -591,9 +595,9 @@ trait Names extends api.Names {
       }
       if (synchronizeNames) nameLock.synchronized(body) else body
     }
-    def toTypeName: TypeName = this
+    final def toTypeName: TypeName = this
     def newName(str: String): TypeName = newTypeName(str)
-    def companionName: TermName = toTermName
+    final def companionName: TermName = toTermName
     def subName(from: Int, to: Int): TypeName =
       newTypeName(chrs, start + from, to - from)
 

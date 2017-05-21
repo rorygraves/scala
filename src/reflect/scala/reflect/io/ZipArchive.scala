@@ -186,6 +186,7 @@ final class FileZipArchive(file: JFile) extends ZipArchive(file) {
     } finally {
       if (ZipArchive.closeZipFile) zipFile.close()
     }
+
     (root, dirs)
   }
 

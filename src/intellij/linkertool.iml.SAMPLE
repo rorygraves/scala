@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<module type="JAVA_MODULE" version="4">
+  <component name="NewModuleRootManager">
+    <output url="file://$MODULE_DIR$/../../build/quick/classes/linkertool" />
+    <output-test url="file://$MODULE_DIR$/../../out/test/linkertool" />
+    <exclude-output />
+    <content url="file://$MODULE_DIR$/../linkertool">
+      <sourceFolder url="file://$MODULE_DIR$/../linkertool" isTestSource="false" />
+    </content>
+    <orderEntry type="inheritedJdk" />
+    <orderEntry type="sourceFolder" forTests="false" />
+    <orderEntry type="module" module-name="linkertool" exported="" />
+    <orderEntry type="module" module-name="library" />
+    <orderEntry type="module" module-name="compiler" />
+    <orderEntry type="library" name="compiler-deps" level="project" />
+    <orderEntry type="library" name="args4j:args4j:2.33" level="project" />
+  </component>
+</module>

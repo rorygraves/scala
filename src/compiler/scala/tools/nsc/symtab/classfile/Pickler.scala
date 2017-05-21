@@ -31,15 +31,32 @@ abstract class Pickler extends SubComponent {
 
   def newPhase(prev: Phase): StdPhase = new PicklePhase(prev)
 
+  def pickle(addToRun:Boolean, root:Symbol, otherSymbol: Option[Symbol]) : PickleBuffer= {
+    assert (root != NoSymbol)
+    val res = new Pickle(root)
+    res putSymbol root
+    if (addToRun) currentRun.symData(root) = res
+    otherSymbol foreach { sym =>
+      assert (sym != NoSymbol)
+        res.putSymbol(sym)
+        if (addToRun) currentRun.symData(sym) = res
+    }
+    res.writeArray()
+    res
+  }
+
   class PicklePhase(prev: Phase) extends StdPhase(prev) {
     def apply(unit: CompilationUnit) {
+      val isJava = unit.isJava
+
       def pickle(tree: Tree) {
-        def add(sym: Symbol, pickle: Pickle) = {
+        def add(sym: Symbol, pickle: Pickle) :Boolean = {
           if (currentRun.compiles(sym) && !currentRun.symData.contains(sym)) {
             debuglog("pickling " + sym)
             pickle putSymbol sym
             currentRun.symData(sym) = pickle
-          }
+            true
+          } else false
         }
 
         tree match {
@@ -48,10 +65,10 @@ abstract class Pickler extends SubComponent {
           case ClassDef(_, _, _, _) | ModuleDef(_, _, _) =>
             val sym = tree.symbol
             val pickle = new Pickle(sym)
-            add(sym, pickle)
-            add(sym.companionSymbol, pickle)
-            pickle.writeArray()
-            currentRun registerPickle sym
+            if (add(sym, pickle) | add(sym.companionSymbol, pickle)) {
+              pickle.writeArray()
+              currentRun registerPickle sym
+            }
           case _ =>
         }
       }

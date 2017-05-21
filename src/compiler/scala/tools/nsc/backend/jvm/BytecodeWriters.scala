@@ -70,6 +70,7 @@ trait BytecodeWriters {
 
   trait BytecodeWriter {
     def writeClass(label: String, jclassName: String, jclassBytes: Array[Byte], outfile: AbstractFile): Unit
+    def writeRaw(label: String, name: String, bytes: Array[Byte], outfile: AbstractFile): Unit
     def close(): Unit = ()
   }
 
@@ -91,6 +92,19 @@ trait BytecodeWriters {
 
       informProgress("added " + label + path + " to jar")
     }
+
+    override def writeRaw(label: String, name: String, bytes: Array[Byte], outfile: AbstractFile): Unit = {
+      assert(outfile == null,
+        "The outfile formal param is there just because ClassBytecodeWriter overrides this method and uses it.")
+      val out  = writer.newOutputStream(name)
+
+      try out.write(bytes, 0, bytes.length)
+      finally out.flush()
+
+      informProgress("added raw " + label + name + " to jar")
+
+    }
+
     override def close() = writer.close()
   }
 
@@ -129,6 +143,10 @@ trait BytecodeWriters {
       asmpFile.parent.createDirectory()
       emitAsmp(jclassBytes, asmpFile)
     }
+
+    abstract override def writeRaw(label: String, name: String, bytes: Array[Byte], outfile: AbstractFile): Unit = {
+      super.writeRaw(label, name, bytes, outfile)
+    }
   }
 
   trait ClassBytecodeWriter extends BytecodeWriter {
@@ -151,6 +169,16 @@ trait BytecodeWriters {
 
       informProgress("wrote '" + label + "' to " + outfile)
     }
+
+    override def writeRaw(label: String, name: String, bytes: Array[Byte], outfile: AbstractFile): Unit = {
+      assert(outfile != null,
+        "Precisely this override requires its invoker to hand out a non-null AbstractFile.")
+      val outstream = new DataOutputStream(outfile.bufferedOutput)
+
+      try outstream.write(bytes, 0, bytes.length)
+      finally outstream.close()
+      informProgress("wrote '" + label + "' to " + outfile)
+    }
   }
 
   trait DumpBytecodeWriter extends BytecodeWriter {
@@ -166,6 +194,10 @@ trait BytecodeWriters {
 
       try outstream.write(jclassBytes, 0, jclassBytes.length)
       finally outstream.close()
+    }
+
+    abstract override def writeRaw(label: String, name: String, bytes: Array[Byte], outfile: AbstractFile): Unit = {
+      super.writeRaw(label,name,bytes,outfile)
     }
   }
 }
