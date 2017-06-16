@@ -3,15 +3,10 @@
  */
 package scala.tools.nsc.classpath
 
-import java.io.{DataInputStream, File}
-import java.net.URL
-import java.util.zip.ZipFile
 
-import scala.collection.Seq
-import scala.reflect.io.AbstractFile
-import scala.reflect.io.FileZipArchive
+import scala.collection.{Seq, mutable}
+import scala.reflect.io.{AbstractFile, FileZipArchive}
 import FileUtils.AbstractFileOps
-import scala.tools.linker.LinkerSymbol
 import scala.tools.nsc.util.{ClassPath, ClassRepresentation}
 
 /**
@@ -19,15 +14,10 @@ import scala.tools.nsc.util.{ClassPath, ClassRepresentation}
  * It provides common logic for classes handling class and source files.
  * It's aware of things like e.g. META-INF directory which is correctly skipped.
  */
-trait ZipArchiveFileLookup[FileEntryType <: ClassRepresentation] extends ClassPath {
-  val zipFile: File
+trait ZipArchiveFileLookup[FileEntryType <: ClassRepresentation] extends FileClassPath {
+  assert(rootFile != null, "Zip file in ZipArchiveFileLookup cannot be null")
 
-  assert(zipFile != null, "Zip file in ZipArchiveFileLookup cannot be null")
-
-  override def asURLs: Seq[URL] = Seq(zipFile.toURI.toURL)
-  override def asClassPathStrings: Seq[String] = Seq(zipFile.getPath)
-
-  private val archive = new FileZipArchive(zipFile)
+  private val archive = new FileZipArchive(rootFile)
 
   override private[nsc] def packages(inPackage: String): Seq[PackageEntry] = {
     val prefix = PackageNameUtils.packagePrefix(inPackage)
@@ -42,18 +32,6 @@ trait ZipArchiveFileLookup[FileEntryType <: ClassRepresentation] extends ClassPa
       dirEntry <- findDirEntry(inPackage).toSeq
       entry <- dirEntry.iterator if isRequiredFileType(entry)
     } yield createFileEntry(entry)
-
-
-//  private val javaZipFile = new ZipFile(zipFile)
-//  // if it exists in the achive load the linker data
-//  val linkerData = {
-//    val entry = javaZipFile.getEntry("META-INF/language/scala/linker.eager.ser")
-//    if (entry eq null) None
-//    else {
-//      println("Loading linker data for " + zipFile)
-//      Some(LinkerSymbol.readFrom(new DataInputStream(javaZipFile.getInputStream(entry))))
-//    }
-//  }
 
   override private[nsc] def list(inPackage: String): ClassPathEntries = {
     val foundDirEntry = findDirEntry(inPackage)
@@ -80,4 +58,5 @@ trait ZipArchiveFileLookup[FileEntryType <: ClassRepresentation] extends ClassPa
 
   protected def createFileEntry(file: FileZipArchive#Entry): FileEntryType
   protected def isRequiredFileType(file: AbstractFile): Boolean
+
 }

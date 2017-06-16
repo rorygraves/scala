@@ -27,11 +27,11 @@ import scala.tools.nsc.util.CachedClassPath.CachedClassPath
 sealed trait ZipAndJarFileLookupFactory {
 
   def create(zipFile: AbstractFile, settings: Settings): ClassPath = {
-    if (settings.YdisableFlatCpCaching) createForZipFile(zipFile)
+    if (settings.YdisableFlatCpCaching) createForZipFile(zipFile, settings)
     else ZipJarClasspathCache.createUsingCache(zipFile, settings, createForZipFile _)
   }
 
-  protected def createForZipFile(zipFile: AbstractFile): ClassPath
+  protected def createForZipFile(zipFile: AbstractFile, settings: Settings): ClassPath
 
 }
 
@@ -40,7 +40,7 @@ sealed trait ZipAndJarFileLookupFactory {
  * It should be the only way of creating them as it provides caching.
  */
 object ZipAndJarClassPathFactory extends ZipAndJarFileLookupFactory {
-  private case class ZipArchiveClassPath(zipFile: File)
+  private case class ZipArchiveClassPath(rootFile: File)
     extends ZipArchiveFileLookup[ClassFileEntryImpl]
     with NoSourcePaths {
 
@@ -54,6 +54,21 @@ object ZipAndJarClassPathFactory extends ZipAndJarFileLookupFactory {
     override protected def createFileEntry(file: FileZipArchive#Entry): ClassFileEntryImpl = ClassFileEntryImpl(file)
     override protected def isRequiredFileType(file: AbstractFile): Boolean = file.isClass
   }
+//  private case class RawZipArchiveClassPath(rootFile: File)
+//    extends RawZipArchiveFileLookup[ClassFileEntryImpl]
+//      with NoSourcePaths {
+//
+//    override protected def isValidFilename(fileName: String): Boolean = fileName.endsWith(".class")
+//
+//    override protected def toRepr(abstractFile: AbstractFile): ClassFileEntryImpl = ClassFileEntryImpl(abstractFile)
+//
+//    override private[nsc] def classes(inPackage: String) = files(inPackage)
+//
+//    override def findClassFile(className: String): Option[AbstractFile] ={
+//      val (pkg, simpleClassName) = PackageNameUtils.separatePkgAndClassNames(className)
+//      filesByName(pkg).get(simpleClassName).map(_.file)
+//    }
+//  }
 
   /**
    * This type of classpath is closely related to the support for JSR-223.
@@ -130,15 +145,16 @@ object ZipAndJarClassPathFactory extends ZipAndJarFileLookupFactory {
     }
 
     override private[nsc] def list(inPackage: String): ClassPathEntries = ClassPathEntries(packages(inPackage), classes(inPackage))
+
   }
 
   private object ManifestResourcesClassPath {
     case class PackageFileInfo(packageFile: AbstractFile, subpackages: Seq[AbstractFile])
     case class PackageInfo(packageName: String, subpackages: List[AbstractFile])
   }
-
-  override protected def createForZipFile(zipFile: AbstractFile): ClassPath =
+  override protected def createForZipFile(zipFile: AbstractFile, settings: Settings): ClassPath =
     if (zipFile.file == null) createWithoutUnderlyingFile(zipFile)
+    else if(settings.YClassPathRawJar) new RawZipClassesPath(zipFile.file)
     else ZipArchiveClassPath(zipFile.file)
 
   private def createWithoutUnderlyingFile(zipFile: AbstractFile) = zipFile match {
@@ -155,7 +171,7 @@ object ZipAndJarClassPathFactory extends ZipAndJarFileLookupFactory {
  * It should be the only way of creating them as it provides caching.
  */
 object ZipAndJarSourcePathFactory extends ZipAndJarFileLookupFactory {
-  private case class ZipArchiveSourcePath(zipFile: File)
+  private case class ZipArchiveSourcePath(rootFile: File)
     extends ZipArchiveFileLookup[SourceFileEntryImpl]
     with NoClassPaths {
 
@@ -167,7 +183,24 @@ object ZipAndJarSourcePathFactory extends ZipAndJarFileLookupFactory {
     override protected def isRequiredFileType(file: AbstractFile): Boolean = file.isScalaOrJavaSource
   }
 
-  override protected def createForZipFile(zipFile: AbstractFile): ClassPath = ZipArchiveSourcePath(zipFile.file)
+  private case class RawZipArchiveSourcePath(rootFile: File)
+    extends RawZipArchiveFileLookup[SourceFileEntryImpl]
+      with NoClassPaths {
+
+    override protected def isValidFilename(fileName: String): Boolean =
+      fileName.endsWith(".class") || fileName.endsWith(".scala")
+
+    override protected def toRepr(abstractFile: AbstractFile): SourceFileEntryImpl = SourceFileEntryImpl(abstractFile)
+
+    override def asSourcePathString: String = asClassPathString
+
+    override private[nsc] def sources(inPackage: String) = files(inPackage)
+
+  }
+
+  override protected def createForZipFile(zipFile: AbstractFile, settings: Settings): ClassPath =
+    if(settings.YClassPathRawJar) RawZipArchiveSourcePath(zipFile.file)
+    else ZipArchiveSourcePath(zipFile.file)
 }
 
 object ZipJarClasspathCache {
@@ -185,52 +218,33 @@ object ZipJarClasspathCache {
   }
 
   private var cacheSize = 1
-  private val cache = new java.util.LinkedHashMap[AbstractFile, (CachedFileInfo, ClassPath)] {
-    override def removeEldestEntry(eldest: Map.Entry[AbstractFile, (CachedFileInfo, ClassPath)]): Boolean =
+  private val cache = new java.util.LinkedHashMap[AbstractFile, ClassPath] {
+    override def removeEldestEntry(eldest: Map.Entry[AbstractFile, ClassPath]): Boolean =
       size() > cacheSize
   }
 
-  private [classpath] def createUsingCache(zipFile: AbstractFile, settings: Settings, createForZipFile : (AbstractFile) => ClassPath): ClassPath = cache.synchronized {
-    def addNewClassPathInstance :ClassPath = {
-      if (settings.verbose || settings.Ylogcp)
-        println(s"$zipFile is not yet in the classpath cache")
-      createForZipFile(zipFile)
-    }
+  private [classpath] def createUsingCache(zipFile: AbstractFile, settings: Settings, createForZipFile : (AbstractFile, Settings) => ClassPath): ClassPath = cache.synchronized {
     def cached(classPath:ClassPath):ClassPath = {
       if (settings.verbose || settings.Ylogcp)
         println(s"$zipFile cached:${settings.YClassPathCacheJars.value}")
       if (settings.YClassPathCacheJars) CachedClassPath(classPath) else classPath
     }
-    val newCacheInfo = CachedFileInfo(zipFile, settings)
     val newClassPath = cache.get(zipFile) match {
-      case (oldCacheInfo, classPath)  =>
-        if (oldCacheInfo == newCacheInfo) {
+      case classPath:ClassPath  =>
           if (settings.verbose || settings.Ylogcp)
             println(s"$zipFile from the classpath cache")
           classPath
-        } else {
-          if (settings.verbose || settings.Ylogcp)
-            println(s"$zipFile is not up to date in the classpath cache")
-          cached(createForZipFile(zipFile))
-        }
-      case miss =>
+      case _ =>
         if (settings.verbose || settings.Ylogcp)
           println(s"$zipFile is not yet in the classpath cache")
-        cached(createForZipFile(zipFile))
+        cached(createForZipFile(zipFile, settings))
     }
-    cache.put(zipFile, (newCacheInfo, newClassPath))
+    cache.put(zipFile, newClassPath)
     if (settings.YClassPathJarPrefetch) newClassPath match {
       case cached : CachedClassPath => cached.startPrefetch(ExecutionContext.Implicits.global)
       case _ =>
     }
     newClassPath
   }
-
-  private def CachedFileInfo(zipFile: AbstractFile, settings: Settings) = {
-    val file = zipFile.file
-    new CachedFileInfo(file.getAbsolutePath, file.lastModified(), file.length(), settings.YClassPathCacheJars)
-  }
-
-  private case class CachedFileInfo(path: String, lastModified: Long, length: Long, cached:Boolean)
 
 }

@@ -186,7 +186,7 @@ object PathResolver {
     }
 }
 
-final class PathResolver(settings: Settings) {
+final class PathResolver(settings: Settings, executionContext: ExecutionContext = ExecutionContext.global) {
   private val classPathFactory = new ClassPathFactory(settings)
 
   import PathResolver.{ AsLines, Defaults, ppcp }
@@ -290,7 +290,7 @@ final class PathResolver(settings: Settings) {
     val underlying = AggregateClassPath(containers.toIndexedSeq)
     if (settings.YClassPathCache) {
       val cached = CachedClassPath(underlying)
-      if (settings.YClassPathTopPrefetch) cached.startPrefetch(ExecutionContext.Implicits.global)
+      if (settings.YClassPathTopPrefetch) cached.startPrefetch(executionContext)
       cached
     } else underlying
 

@@ -386,6 +386,7 @@ trait ScalaSettings extends AbsScalaSettings
   YClassPathJarPrefetch.value = true
   YClassPathDirPrefetch.value = true
   YClassPathCache.value = true
+  val YClassPathRawJar        = BooleanSetting("-Yclasspath-raw-jar", "use alternative jar classpath")
 
 
   // Feature extensions

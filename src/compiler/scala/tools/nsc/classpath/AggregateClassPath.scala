@@ -4,8 +4,10 @@
 package scala.tools.nsc.classpath
 
 import java.net.URL
+
 import scala.annotation.tailrec
 import scala.collection.mutable.ArrayBuffer
+import scala.concurrent.ExecutionContext
 import scala.reflect.internal.FatalError
 import scala.reflect.io.AbstractFile
 import scala.tools.nsc.util.ClassPath
@@ -132,6 +134,18 @@ case class AggregateClassPath(aggregates: Seq[ClassPath]) extends ClassPath {
       if (seenNames.add(entry.name)) entriesBuffer += entry
     }
     if (entriesBuffer isEmpty) Nil else entriesBuffer.toIndexedSeq
+  }
+
+  override def startInUse(executionContext: ExecutionContext, proactive:Boolean): Unit =
+    aggregates foreach(_.startInUse(executionContext, proactive))
+
+  override def endInUse(executionContext: ExecutionContext): Unit =
+    aggregates foreach(_.endInUse(executionContext))
+
+  override def makeCacheValid(executionContext: ExecutionContext, proactive:Boolean): Long = {
+    aggregates.foldLeft(0L){
+      case (valid, child) => Math.max(child.makeCacheValid(executionContext, proactive), valid)
+    }
   }
 }
 
