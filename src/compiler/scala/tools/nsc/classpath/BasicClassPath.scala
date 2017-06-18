@@ -1,14 +1,15 @@
 package scala.tools.nsc.classpath
 
-import java.io.{File, InputStream, OutputStream}
+import java.io.{File, IOException, InputStream, OutputStream}
 import java.net.URL
-import java.nio.file.{Path, WatchEvent}
+import java.nio.file.attribute.BasicFileAttributes
+import java.nio.file._
 import java.util.zip.{ZipEntry, ZipFile}
 
 import scala.collection.{Seq, mutable}
 import scala.concurrent.{ExecutionContext, Future}
 import scala.reflect.io.AbstractFile
-import scala.tools.nsc.classpath.ClassPathWatcher.{BaseChangeListener, FileChangeListener}
+import scala.tools.nsc.classpath.ClassPathWatcher.{BaseChangeListener, DirectoryChangeListener, FileChangeListener}
 import scala.tools.nsc.util.{ClassPath, ClassRepresentation}
 
 
@@ -100,6 +101,30 @@ class RawZipClassesPath(rootFile :File) extends CommonZipClassPath[ClassFileEntr
 class RawZipSourcesPath(rootFile :File) extends CommonZipClassPath[SourceFileEntry](rootFile) with CommonNoClassesClassPath {
 
 }
+abstract class CommonDirClassPath[FileEntryType <: SingleClassRepresentation]( override val rootFile: File) extends
+  CommonClassPath[FileEntryType] {
+  self: TypedClassPath[FileEntryType] =>
+
+  type ContentType = DirArchiveContent[FileEntryType]
+
+  override object fileChangeListener extends DirectoryChangeListener(rootFile.toPath) {
+    override protected def dirChanged(path: Path, events: List[WatchEvent[Path]]) = {
+      content = null
+      true
+    }
+  }
+
+  override protected def newContent(): ZipArchiveContent[FileEntryType] = new ZipArchiveContent(rootFile, isValidFilename, toRepr)
+}
+
+class RawDirClassesPath(rootFile :File) extends CommonDirClassPath[ClassFileEntry](rootFile) with CommonNoSourcesClassPath {
+
+}
+class RawDirSourcesPath(rootFile :File) extends CommonDirClassPath[SourceFileEntry](rootFile) with CommonNoClassesClassPath {
+
+}
+
+
 //
 ///**
 //  * an implementation of Classpath with NIO and a file watcher.
@@ -189,18 +214,19 @@ abstract class ClassPathContent[FileEntryType <: SingleClassRepresentation](file
   final lazy val data :Map[String, PackageInfo] = buildData
   protected def buildData() :Map[String, PackageInfo]
 
-  class PackageInfo(packageName:String, val list:ClassPathEntries, val files:Seq[FileEntryType], val packages: Seq[PackageEntryImpl]) {
+  class PackageInfo(val packageName:String, val list:ClassPathEntries, val files:Seq[FileEntryType], val packages: Seq[PackageEntryImpl]) {
     lazy val filesByName:Map[String,AbstractFile] = files.map {
       file => file.name -> file.file}(collection.breakOut)
+    def isEmpty = list.classesAndSources.isEmpty
   }
   def reOpen() : Unit
   def close() :Unit
 
   }
 class ZipArchiveContent[FileEntryType <: SingleClassRepresentation](zipFile: File,
-                                                              isValid : String => Boolean,
-                                                              toRepr : AbstractFile => FileEntryType )
-extends ClassPathContent(zipFile, isValid, toRepr) {
+                                                                    isValid : String => Boolean,
+                                                                    toRepr : AbstractFile => FileEntryType )
+  extends ClassPathContent(zipFile, isValid, toRepr) {
   override def reOpen() = {
     zip = Some(new ZipFile(zipFile))
     println(s"open ${zipFile}")
@@ -291,6 +317,126 @@ extends ClassPathContent(zipFile, isValid, toRepr) {
     override def container: AbstractFile = notImplemented
 
     override def file: File = notImplemented
+
+    override def create(): Unit = notImplemented
+
+    override def delete(): Unit = notImplemented
+
+    override def isDirectory: Boolean = notImplemented
+
+    override def output: OutputStream = notImplemented
+
+    override def iterator: Iterator[AbstractFile] = notImplemented
+
+    override def lookupName(name: String, directory: Boolean): AbstractFile = notImplemented
+
+    override def lookupNameUnchecked(name: String, directory: Boolean): AbstractFile = notImplemented
+
+    private def notImplemented = ???
+
+  }
+
+}
+class DirArchiveContent[FileEntryType <: SingleClassRepresentation](rootDir: File,
+                                                                    isValid : String => Boolean,
+                                                                    toRepr : AbstractFile => FileEntryType,
+                                                                    dirListener: DirectoryChangeListener)
+  extends ClassPathContent(rootDir, isValid, toRepr) {
+  override def reOpen() = ()
+  override def close() = ()
+
+  protected def buildData(): Map[String, PackageInfo] = {
+    dirListener.removeAllWatches()
+    //TODO use ser format
+    class MutablePackageInfo(packageName:String, val parent:MutablePackageInfo) {
+      val packages = Vector.newBuilder[PackageEntryImpl]
+      val files = Vector.newBuilder[FileEntryType]
+      def result(): PackageInfo = {
+        val packagesResult = packages.result()
+        val filesResult = files.result()
+        val entries = new ClassPathEntries(packagesResult, filesResult)
+        new PackageInfo(packageName, entries, filesResult, packagesResult)
+      }
+    }
+    val staging = mutable.Map[String,MutablePackageInfo]()
+    def getPackageInfo(packageName:String): MutablePackageInfo = {
+      staging.get(packageName) match {
+        case Some(res) => res
+        case None =>
+          val res = new MutablePackageInfo(packageName)
+          staging.update(packageName, res)
+          if (packageName != "") {
+            val parentPackageName = packageName.take(packageName.lastIndexOf('.'))
+            getPackageInfo(parentPackageName).packages += PackageEntryImpl(packageName)
+          }
+          res
+      }
+    }
+
+    class DirVisitor extends FileVisitor[Path] {
+      val rootPath = rootDir.toPath
+      var current :MutablePackageInfo = null
+      val resultsBuilder = Map.newBuilder[String, PackageInfo]
+      override def postVisitDirectory(dir: Path, exc: IOException): FileVisitResult ={
+        if (exc ne null) throw exc
+        val result = current.result()
+        if (!result.isEmpty) {
+          resultsBuilder += ((result.packageName, result))
+        }
+        dirListener.addDirWatch(dir)
+        FileVisitResult.CONTINUE
+      }
+
+
+      override def visitFile(file: Path, attrs: BasicFileAttributes): FileVisitResult = {
+        if (isValid(file.getFileName.toString)) {
+          val name = file.relativize(rootPath).toString
+          val dirSeparator = name.lastIndexOf('/')
+          val packageName = name.take(dirSeparator).replace('/', '.')
+          val fileName = name.substring(dirSeparator + 1, name.lastIndexOf('.'))
+          getPackageInfo(packageName).files += toRepr(new PathFile(file, attr))
+        }
+
+      }
+
+      override def visitFileFailed(file: Path, exc: IOException): FileVisitResult = throw exc
+
+      override def preVisitDirectory(dir: Path, attrs: BasicFileAttributes): FileVisitResult = {
+        val name = dir.getFileName.toString
+        if (name.startsWith(".") || name == "META-INF") FileVisitResult.SKIP_SUBTREE
+        else {
+          current = new MutablePackageInfo("", current)
+          FileVisitResult.CONTINUE
+        }
+      }
+    }
+    this.synchronized {
+      val visitor = new DirVisitor
+      Files.walkFileTree(visitor.rootPath, visitor)
+    val res : Map[String, PackageInfo] = staging.map {
+      case (k,v) => ( k-> v.result())
+    } (collection.breakOut)
+    res.withDefaultValue(new PackageInfo("", ClassPathEntries.empty, Nil, Nil))
+  }
+  private class PathFile(private val jPath:Path, attr:BasicFileAttributes) extends AbstractFile{
+
+    /** Returns the name of this abstract file. */
+    override val name: String = jPath.getFileSystem.toString
+
+    /** returns an input stream so the file can be read */
+    override def input: InputStream = Files.newInputStream(jPath)
+
+    override def lastModified: Long = attr.lastAccessTime().toMillis
+
+    override def absolute: AbstractFile = notImplemented
+
+    override def container: AbstractFile = notImplemented
+
+    override def file: File = notImplemented
+
+    //the rest is minimal support from AbstractFile API
+    //used by toString()
+    override def path: String = jPath.toString
 
     override def create(): Unit = notImplemented
 

@@ -157,9 +157,13 @@ object ClassPathWatcher {
       watchInfo.removeWatch(this, keysToPath.keySet.toSeq : _*)
     }
 
-    def addDir(path:Path): Unit = keysToPath.synchronized{
+    def addDirWatch(path:Path): Unit = keysToPath.synchronized{
       val key = watchInfo.addWatch(this, path)
       keysToPath(key) = path
+    }
+    def removeAllWatches(): Unit = keysToPath.synchronized{
+      watchInfo.removeWatch(this, keysToPath.keySet.toSeq : _*)
+      keysToPath.clear()
     }
 
     override final def changed(key: WatchKey, events:Seq[WatchEvent[Path]]): Unit = keysToPath.synchronized{
