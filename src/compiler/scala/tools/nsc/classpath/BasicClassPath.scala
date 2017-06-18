@@ -78,119 +78,6 @@ abstract class CommonClassPath[FileEntryType <: SingleClassRepresentation] exten
   }
   protected def newContent() : ContentType
 
-}
-abstract class CommonZipClassPath[FileEntryType <: SingleClassRepresentation]( override val rootFile: File) extends
-  CommonClassPath[FileEntryType] {
-  self: TypedClassPath[FileEntryType] =>
-
-  type ContentType = ZipArchiveContent[FileEntryType]
-
-  override object fileChangeListener extends FileChangeListener(rootFile.toPath) {
-    override protected def fileChanged(events: List[WatchEvent[Path]]) = {
-      content = null
-      true
-    }
-  }
-
-  override protected def newContent(): ZipArchiveContent[FileEntryType] = new ZipArchiveContent(rootFile, isValidFilename, toRepr)
-}
-
-class RawZipClassesPath(rootFile :File) extends CommonZipClassPath[ClassFileEntry](rootFile) with CommonNoSourcesClassPath {
-
-}
-class RawZipSourcesPath(rootFile :File) extends CommonZipClassPath[SourceFileEntry](rootFile) with CommonNoClassesClassPath {
-
-}
-abstract class CommonDirClassPath[FileEntryType <: SingleClassRepresentation]( override val rootFile: File) extends
-  CommonClassPath[FileEntryType] {
-  self: TypedClassPath[FileEntryType] =>
-
-  type ContentType = DirArchiveContent[FileEntryType]
-
-  override object fileChangeListener extends DirectoryChangeListener(rootFile.toPath) {
-    override protected def dirChanged(path: Path, events: List[WatchEvent[Path]]) = {
-      content = null
-      true
-    }
-  }
-
-  override protected def newContent(): ZipArchiveContent[FileEntryType] = new ZipArchiveContent(rootFile, isValidFilename, toRepr)
-}
-
-class RawDirClassesPath(rootFile :File) extends CommonDirClassPath[ClassFileEntry](rootFile) with CommonNoSourcesClassPath {
-
-}
-class RawDirSourcesPath(rootFile :File) extends CommonDirClassPath[SourceFileEntry](rootFile) with CommonNoClassesClassPath {
-
-}
-
-
-//
-///**
-//  * an implementation of Classpath with NIO and a file watcher.
-//  * This enables the buiding of the caching to work efficiently
-//  */
-//trait NioDirectoryClassPath[FileEntryType <: ClassRepresentation] extends UsageTrackedFileClassPath {
-//
-//}
-//
-//class NioDirectoryClassesPath(val rootFile: File) extends CommonClassesPath{
-//
-//  override protected def inUse(inUseNow: Boolean, executionContext: ExecutionContext): Unit = ???
-//
-//}
-
-
-
-/**
-  * A trait allowing to look for classpath entries of given type in zip and jar files.
-  * Based on raw java APIs
-  * It provides common logic for classes handling class and source files.
-  * It's aware of things META-INF directory which is correctly skipped from class loading.
-  * The underlying jar or zip is lazyly opened when requested, and eagerly close thenthe classpath is not in use
-  */
-abstract class RawZipArchiveFileLookup[FileEntryType <: SingleClassRepresentation] extends UsageTrackedFileClassPath {
-
-  // if null then the zip ile has changed
-  //  content.zip is closed then the classpath is not is use, and lazyly opened when needed ( to read a file)
-  private var content : ZipArchiveContent[FileEntryType] = _
-
-  override object fileChangeListener extends FileChangeListener(rootFile.toPath) {
-    override def fileChanged(changes: List[WatchEvent[Path]]): Boolean = fileChangeListener.synchronized {
-      content = null
-      true
-    }
-  }
-
-  private def openContent(executionContext: ExecutionContext): Unit = {
-    content = new ZipArchiveContent(rootFile, isValidFilename, toRepr)
-    content.startScan(executionContext)
-  }
-
-  override protected def inUse(inUseNow: Boolean, executionContext: ExecutionContext): Unit = fileChangeListener.synchronized {
-    if (inUseNow) {
-      if (content eq null) {
-        content = new ZipArchiveContent(rootFile, isValidFilename, toRepr)
-        content.reOpen()
-        content.startScan(executionContext)
-      }
-    }
-    else {
-      if (content ne null) content.close()
-    }
-  }
-  protected def isValidFilename(fileName:String):Boolean
-  protected def toRepr(abstractFile: AbstractFile):FileEntryType
-
-  protected def files(inPackage: String): Seq[FileEntryType] =
-    content.data(inPackage).files
-
-  protected def filesByName(inPackage: String): Map[String, AbstractFile] =
-    content.data(inPackage).filesByName
-
-  override private[nsc] def list(inPackage: String): ClassPathEntries =
-    content.data(inPackage).list
-
   //  private val javaZipFile = new ZipFile(zipFile)
   //  // if it exists in the achive load the linker data
   //  val linkerData = {
@@ -204,6 +91,41 @@ abstract class RawZipArchiveFileLookup[FileEntryType <: SingleClassRepresentatio
 
 
 }
+abstract class CommonZipClassPath[FileEntryType <: SingleClassRepresentation](override val rootFile: File) extends CommonClassPath[FileEntryType] {
+  self: TypedClassPath[FileEntryType] =>
+  type ContentType = ZipArchiveContent[FileEntryType]
+
+  override object fileChangeListener extends FileChangeListener(rootFile.toPath) {
+    override protected def fileChanged(events: List[WatchEvent[Path]]) = {
+      content = null
+      true
+    }
+  }
+
+  override protected def newContent(): ZipArchiveContent[FileEntryType] = new ZipArchiveContent(rootFile, isValidFilename, toRepr)
+}
+
+
+abstract class CommonDirClassPath[FileEntryType <: SingleClassRepresentation]( override val rootFile: File) extends CommonClassPath[FileEntryType] {
+  self: TypedClassPath[FileEntryType] =>
+  type ContentType = DirArchiveContent[FileEntryType]
+
+  override object fileChangeListener extends DirectoryChangeListener(rootFile.toPath) {
+    override protected def dirChanged(path: Path, events: List[WatchEvent[Path]]) = {
+      content = null
+      true
+    }
+  }
+
+  override protected def newContent(): DirArchiveContent[FileEntryType] =
+    new DirArchiveContent(rootFile, isValidFilename, toRepr, fileChangeListener)
+}
+
+class RawZipClassesPath(rootFile :File) extends CommonZipClassPath[ClassFileEntry](rootFile) with CommonNoSourcesClassPath
+class RawZipSourcesPath(rootFile :File) extends CommonZipClassPath[SourceFileEntry](rootFile) with CommonNoClassesClassPath
+class RawDirClassesPath(rootFile :File) extends CommonDirClassPath[ClassFileEntry](rootFile) with CommonNoSourcesClassPath
+class RawDirSourcesPath(rootFile :File) extends CommonDirClassPath[SourceFileEntry](rootFile) with CommonNoClassesClassPath
+
 abstract class ClassPathContent[FileEntryType <: SingleClassRepresentation](file: File,
                                                              isValid : String => Boolean,
                                                              toRepr : AbstractFile => FileEntryType ) {
@@ -225,8 +147,7 @@ abstract class ClassPathContent[FileEntryType <: SingleClassRepresentation](file
   }
 class ZipArchiveContent[FileEntryType <: SingleClassRepresentation](zipFile: File,
                                                                     isValid : String => Boolean,
-                                                                    toRepr : AbstractFile => FileEntryType )
-  extends ClassPathContent(zipFile, isValid, toRepr) {
+                                                                    toRepr : AbstractFile => FileEntryType )  extends ClassPathContent(zipFile, isValid, toRepr) {
   override def reOpen() = {
     zip = Some(new ZipFile(zipFile))
     println(s"open ${zipFile}")
@@ -348,7 +269,7 @@ class DirArchiveContent[FileEntryType <: SingleClassRepresentation](rootDir: Fil
   protected def buildData(): Map[String, PackageInfo] = {
     dirListener.removeAllWatches()
     //TODO use ser format
-    class MutablePackageInfo(packageName:String, val parent:MutablePackageInfo) {
+    class MutablePackageInfo(val packageName:String, val parent:MutablePackageInfo) {
       val packages = Vector.newBuilder[PackageEntryImpl]
       val files = Vector.newBuilder[FileEntryType]
       def result(): PackageInfo = {
@@ -359,19 +280,6 @@ class DirArchiveContent[FileEntryType <: SingleClassRepresentation](rootDir: Fil
       }
     }
     val staging = mutable.Map[String,MutablePackageInfo]()
-    def getPackageInfo(packageName:String): MutablePackageInfo = {
-      staging.get(packageName) match {
-        case Some(res) => res
-        case None =>
-          val res = new MutablePackageInfo(packageName)
-          staging.update(packageName, res)
-          if (packageName != "") {
-            val parentPackageName = packageName.take(packageName.lastIndexOf('.'))
-            getPackageInfo(parentPackageName).packages += PackageEntryImpl(packageName)
-          }
-          res
-      }
-    }
 
     class DirVisitor extends FileVisitor[Path] {
       val rootPath = rootDir.toPath
@@ -380,7 +288,10 @@ class DirArchiveContent[FileEntryType <: SingleClassRepresentation](rootDir: Fil
       override def postVisitDirectory(dir: Path, exc: IOException): FileVisitResult ={
         if (exc ne null) throw exc
         val result = current.result()
+        current = current.parent
         if (!result.isEmpty) {
+          if (current ne null)
+            current.packages += PackageEntryImpl(current.packageName + "." + dir.getFileName.toString)
           resultsBuilder += ((result.packageName, result))
         }
         dirListener.addDirWatch(dir)
@@ -394,9 +305,9 @@ class DirArchiveContent[FileEntryType <: SingleClassRepresentation](rootDir: Fil
           val dirSeparator = name.lastIndexOf('/')
           val packageName = name.take(dirSeparator).replace('/', '.')
           val fileName = name.substring(dirSeparator + 1, name.lastIndexOf('.'))
-          getPackageInfo(packageName).files += toRepr(new PathFile(file, attr))
+          current.files += toRepr(new PathFile(file, attrs))
         }
-
+        FileVisitResult.CONTINUE
       }
 
       override def visitFileFailed(file: Path, exc: IOException): FileVisitResult = throw exc
@@ -413,10 +324,11 @@ class DirArchiveContent[FileEntryType <: SingleClassRepresentation](rootDir: Fil
     this.synchronized {
       val visitor = new DirVisitor
       Files.walkFileTree(visitor.rootPath, visitor)
-    val res : Map[String, PackageInfo] = staging.map {
-      case (k,v) => ( k-> v.result())
-    } (collection.breakOut)
-    res.withDefaultValue(new PackageInfo("", ClassPathEntries.empty, Nil, Nil))
+      val res: Map[String, PackageInfo] = staging.map {
+        case (k, v) => (k -> v.result())
+      }(collection.breakOut)
+      res.withDefaultValue(new PackageInfo("", ClassPathEntries.empty, Nil, Nil))
+    }
   }
   private class PathFile(private val jPath:Path, attr:BasicFileAttributes) extends AbstractFile{
 

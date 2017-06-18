@@ -378,15 +378,12 @@ trait ScalaSettings extends AbsScalaSettings
   val YClassPathCacheJarsSize = IntSetting("-Yclasspath-jar-cache-size", "Maximum size of the jar cache", 2000, Some(1, 20000), (_: String) => None)
   val YClassPathCacheJars     = BooleanSetting("-Yclasspath-jar-cache-enabled", "Enable cache of individual jars and zips, including across compiles")
   val YClassPathTopPrefetch   = BooleanSetting("-Yclasspath-top-prefetch", "Enable full classpath cache prefetch in a background thread")
-  val YClassPathJarPrefetch   = BooleanSetting("-Yclasspath-jar-prefetch", "Enable jar cache prefetch in a background thread")
-  val YClassPathDirPrefetch   = BooleanSetting("-Yclasspath-dir-prefetch", "Enable dir cache prefetch in a background thread")
   val YClassPathCache         = BooleanSetting("-Yclasspath-cache-enabled", "Enable cache of the compile class path")
   YClassPathCacheJars.value = true
   YClassPathTopPrefetch.value = true
-  YClassPathJarPrefetch.value = true
-  YClassPathDirPrefetch.value = true
   YClassPathCache.value = true
   val YClassPathRawJar        = BooleanSetting("-Yclasspath-raw-jar", "use alternative jar classpath")
+  val YClassPathRawDir        = BooleanSetting("-Yclasspath-raw-dir", "use alternative dir classpath")
 
 
   // Feature extensions
