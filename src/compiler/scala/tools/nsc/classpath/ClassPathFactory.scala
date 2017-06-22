@@ -63,7 +63,8 @@ class ClassPathFactory(settings: Settings) {
     if (file.isJarOrZip)
       ZipAndJarSourcePathFactory.create(file, settings)
     else if (file.isDirectory)
-      DirectorySourcePath(file.file)
+      if (settings.YClassPathRawDir) new RawDirSourcesPath(file.file)
+      else DirectorySourcePath(file.file)
     else
       sys.error(s"Unsupported sourcepath element: $file")
 }
@@ -75,7 +76,8 @@ object ClassPathFactory {
       if (file.isJarOrZip)
         ZipAndJarClassPathFactory.create(file, settings)
       else if (file.isDirectory)
-        DirectoryClassPath(file.file)
+        if (settings.YClassPathRawDir) new RawDirClassesPath(file.file)
+        else DirectoryClassPath(file.file)
       else
         sys.error(s"Unsupported classpath element: $file")
   }
