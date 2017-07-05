@@ -143,7 +143,7 @@ object ZipAndJarClassPathFactory extends ZipAndJarFileLookupFactory {
   }
   override protected def createForZipFile(zipFile: AbstractFile, settings: Settings): ClassPath =
     if (zipFile.file == null) createWithoutUnderlyingFile(zipFile)
-    else if(settings.YClassPathRawJar) new RawZipClassesPath(zipFile.file)
+    else if(settings.YClassPathRawJar) new RawZipClassesPath(zipFile.file, ClassPathFactory.filePolicy(zipFile.file, settings))
     else ZipArchiveClassPath(zipFile.file)
 
   private def createWithoutUnderlyingFile(zipFile: AbstractFile) = zipFile match {
@@ -173,7 +173,7 @@ object ZipAndJarSourcePathFactory extends ZipAndJarFileLookupFactory {
   }
 
   override protected def createForZipFile(zipFile: AbstractFile, settings: Settings): ClassPath =
-    if(settings.YClassPathRawJar) new RawZipSourcesPath(zipFile.file)
+    if(settings.YClassPathRawJar) new RawZipSourcesPath(zipFile.file, ClassPathFactory.filePolicy(zipFile.file, settings))
     else ZipArchiveSourcePath(zipFile.file)
 }
 

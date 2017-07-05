@@ -78,15 +78,7 @@ object ClassPathWatcher {
 
   abstract class BaseChangeListener (path:Path) {
 
-    @volatile private [ClassPathWatcher] var lastChangedRecordedNs = System.nanoTime()
-    def lastChangeNs = lastChangedRecordedNs
-
-    def resumeIfSuspended(): Unit = {
-      if (suspended) {
-        lastChangedRecordedNs = System.nanoTime()
-        resume(true)
-      }
-    }
+    def resumeIfSuspended(): Unit = if (suspended) resume(true)
 
     private [ClassPathWatcher] def changed(key:WatchKey, events:Seq[WatchEvent[Path]])
     @volatile private[ClassPathWatcher] var suspended = false
@@ -94,7 +86,7 @@ object ClassPathWatcher {
     @tailrec private [ClassPathWatcher] final def clearPendingChanges(key:WatchKey): Unit = {
       if (!key.pollEvents().isEmpty) clearPendingChanges(key)
     }
-    def resume(clearPending:Boolean): Unit
+    protected def resume(clearPending:Boolean): Unit
   }
   abstract class FileChangeListener(path: Path) extends BaseChangeListener(path) {
     require (Files.isRegularFile(path))
@@ -121,7 +113,6 @@ object ClassPathWatcher {
         //dont need to record time as it will be reset for resume
         trace(s"change ignored - suspended, $events")
       } else {
-        lastChangedRecordedNs = System.nanoTime()
         trace(s"change detected, $events")
         if (fileChanged(events)) {
           trace(s"resetting")
@@ -175,7 +166,6 @@ object ClassPathWatcher {
         //dont need to record time as it will be reset for resume
         trace(s"change ignored - suspended, $events")
       } else {
-        lastChangedRecordedNs = System.nanoTime()
         trace(s"change detected, $events")
         if (dirChanged(path, events)) {
           trace(s"resetting")

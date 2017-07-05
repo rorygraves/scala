@@ -136,8 +136,8 @@ case class AggregateClassPath(aggregates: Seq[ClassPath]) extends ClassPath {
   override def startInUse(executionContext: ExecutionContext, proactive:Boolean): Unit =
     aggregates foreach(_.startInUse(executionContext, proactive))
 
-  override def endInUse(executionContext: ExecutionContext): Unit =
-    aggregates foreach(_.endInUse(executionContext))
+  override def endInUse(): Unit =
+    aggregates foreach(_.endInUse())
 
   override def makeCacheValid(executionContext: ExecutionContext, proactive:Boolean): Long = {
     aggregates.foldLeft(0L){

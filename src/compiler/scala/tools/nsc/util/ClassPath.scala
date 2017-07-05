@@ -95,17 +95,12 @@ trait ClassPath {
     */
   def asSourcePathString: String
 
-  //true if the classpath cannot be modified between runs
-  // e.g. a jar of the java runtime, or in a maven repo, or when there is no interaction
-  // false when using an IDE for directories and build artifacts of projects that are built
-  // and may be changed between runs
-  val immutable = false
 
   def startInUse(executionContext: ExecutionContext, proactive:Boolean) = ()
-  def endInUse(executionContext: ExecutionContext) = ()
+  def endInUse() = ()
 
   /**
-    * make some upstream cache valid, and perform to initial work if the underlying data may have chnaged
+    * make some upstream cache valid, and perform to initial work if the underlying data may have changed
     * return value is used by upstream caches to resync
     * @param executionContext for any background work to be done
     * @param proactive a hint as to whether to expend effort

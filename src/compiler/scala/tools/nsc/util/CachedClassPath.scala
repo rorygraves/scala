@@ -35,8 +35,6 @@ object CachedClassPath {
   sealed trait CachedClassPath extends ClassPath {
     protected val underlying: ClassPath
 
-    override val immutable = underlying.immutable
-
     override def hashCode(): Int = underlying.hashCode() * 31
 
     override def equals(obj: scala.Any): Boolean = obj match {
@@ -106,7 +104,7 @@ object CachedClassPath {
 
     override def startInUse(executionContext: ExecutionContext, proactive:Boolean): Unit = underlying.startInUse(executionContext, proactive)
 
-    override def endInUse(executionContext: ExecutionContext): Unit = underlying.endInUse(executionContext: ExecutionContext)
+    override def endInUse(): Unit = underlying.endInUse()
 
     var lastCacheValidTime = 0L
 

@@ -3,7 +3,7 @@ package scala.tools.nsc.classpath
 import java.io.{File, IOException, InputStream, OutputStream}
 import java.net.URL
 import java.nio.file._
-import java.nio.file.attribute.BasicFileAttributes
+import java.nio.file.attribute.{BasicFileAttributes, FileTime}
 import java.util.zip.{ZipEntry, ZipFile}
 
 import scala.collection.{Seq, mutable}
@@ -29,39 +29,10 @@ abstract class BasicClassPath extends FileClassPath {
   override private[nsc] final def packages(inPackage: String) = list(inPackage).packages
 }
 
-
-abstract class UsageTrackedFileClassPath extends BasicClassPath {
-
-  val fileChangeListener: BaseChangeListener
-
-  private var inUseCount = 0
-
-  protected def inUse(inUseNow: Boolean, executionContext: ExecutionContext): Unit
-
-  override def startInUse(executionContext: ExecutionContext, proactive: Boolean): Unit = if (!immutable || (inUseCount == 0)) fileChangeListener.synchronized {
-    //println(s"start in use $inUseCount $this")
-    inUseCount += 1
-    if (inUseCount == 1) {
-      fileChangeListener.resumeIfSuspended()
-      inUse(true, executionContext)
-    }
-  }
-
-  override def endInUse(executionContext: ExecutionContext): Unit = if (!immutable) fileChangeListener.synchronized {
-    inUseCount -= 1
-    if (inUseCount == 0) inUse(false, executionContext)
-  }
-
-  override def makeCacheValid(executionContext: ExecutionContext, proactive: Boolean): Long =
-    if (immutable) 0L
-    else fileChangeListener.lastChangeNs
-
-}
-
-abstract class CommonClassPath[FileEntryType <: SingleClassRepresentation] extends UsageTrackedFileClassPath {
+abstract class CommonClassPath[FileEntryType <: SingleClassRepresentation] extends BasicClassPath{
   self: TypedClassPath[FileEntryType] =>
 
-  protected type ContentType <: ClassPathContent[FileEntryType]
+  protected type ContentType >: Null <: ClassPathContent[FileEntryType]
   protected var content: ContentType = _
 
   /** Allows to get entries for packages and classes merged with sources possibly in one pass. */
@@ -69,59 +40,64 @@ abstract class CommonClassPath[FileEntryType <: SingleClassRepresentation] exten
 
   private[nsc] def files(inPackage: String): Seq[FileEntryType] = self.content.data(inPackage).files
 
-  override protected def inUse(inUseNow: Boolean, executionContext: ExecutionContext): Unit = fileChangeListener.synchronized {
-    if (inUseNow) {
-      if (content eq null) {
-        content = newContent()
-      }
-      content.startScan(executionContext)
-    }
-    else {
-      if (content ne null) content.close()
-    }
+  //liveness checking and the forwarderes
+  protected val livenessChecker : LivenessChecker
+
+
+  final override def startInUse(executionContext: ExecutionContext, proactive: Boolean) =
+    livenessChecker.startInUse(proactive)
+
+  final override def endInUse(): Unit = livenessChecker.endInUse()
+
+  final override def makeCacheValid(executionContext: ExecutionContext, proactive: Boolean): Long =
+    livenessChecker.validateAndLastModificationTime()
+
+  //liveness checking callabcks
+  private[classpath] def hasContent = content ne null
+
+  private[classpath] def markInvalid() = {
+    content = null
   }
 
-  protected def newContent(): ContentType
+  private[classpath] def newContent(): ContentType
 
 }
 
-abstract class CommonZipClassPath[FileEntryType <: SingleClassRepresentation](override val rootFile: File) extends CommonClassPath[FileEntryType] {
+abstract class CommonZipClassPath[FileEntryType <: SingleClassRepresentation](
+               override val rootFile: File, policy:LivenessChecker.ForFile) extends CommonClassPath[FileEntryType] {
   self: TypedClassPath[FileEntryType] =>
   type ContentType = ZipArchiveContent[FileEntryType]
 
-  override object fileChangeListener extends FileChangeListener(rootFile.toPath) {
-    override protected def fileChanged(events: List[WatchEvent[Path]]) = {
-      content = null
-      true
-    }
-  }
+  val livenessChecker = policy(this)
 
-  override protected def newContent(): ZipArchiveContent[FileEntryType] = new ZipArchiveContent(rootFile, isValidFilename, toRepr)
+  override private[classpath] def newContent(): ZipArchiveContent[FileEntryType] = new ZipArchiveContent(rootFile, isValidFilename, toRepr)
 }
 
 
-abstract class CommonDirClassPath[FileEntryType <: SingleClassRepresentation](override val rootFile: File) extends CommonClassPath[FileEntryType] {
+abstract class CommonDirClassPath[FileEntryType <: SingleClassRepresentation](
+               override val rootFile: File, policy:LivenessChecker.ForDir)
+  extends CommonClassPath[FileEntryType] {
+
   self: TypedClassPath[FileEntryType] =>
   type ContentType = DirArchiveContent[FileEntryType]
 
-  override object fileChangeListener extends DirectoryChangeListener(rootFile.toPath) {
-    override protected def dirChanged(path: Path, events: List[WatchEvent[Path]]) = {
-      content = null
-      true
-    }
-  }
+  val livenessChecker:LivenessChecker = policy(this)
 
-  override protected def newContent(): DirArchiveContent[FileEntryType] =
-    new DirArchiveContent(rootFile, isValidFilename, toRepr, fileChangeListener)
+  override private[classpath] def newContent(): DirArchiveContent[FileEntryType] =
+    new DirArchiveContent(rootFile, isValidFilename, toRepr, livenessChecker)
 }
 
-class RawZipClassesPath(rootFile: File) extends CommonZipClassPath[ClassFileEntry](rootFile) with CommonNoSourcesClassPath
+class RawZipClassesPath(rootFile: File, policy:LivenessChecker.ForFile)
+  extends CommonZipClassPath[ClassFileEntry](rootFile, policy) with CommonNoSourcesClassPath
 
-class RawZipSourcesPath(rootFile: File) extends CommonZipClassPath[SourceFileEntry](rootFile) with CommonNoClassesClassPath
+class RawZipSourcesPath(rootFile: File, policy:LivenessChecker.ForFile)
+  extends CommonZipClassPath[SourceFileEntry](rootFile, policy) with CommonNoClassesClassPath
 
-class RawDirClassesPath(rootFile: File) extends CommonDirClassPath[ClassFileEntry](rootFile) with CommonNoSourcesClassPath
+class RawDirClassesPath(rootFile: File, policy:LivenessChecker.ForDir)
+  extends CommonDirClassPath[ClassFileEntry](rootFile, policy) with CommonNoSourcesClassPath
 
-class RawDirSourcesPath(rootFile: File) extends CommonDirClassPath[SourceFileEntry](rootFile) with CommonNoClassesClassPath
+class RawDirSourcesPath(rootFile: File, policy:LivenessChecker.ForDir)
+  extends CommonDirClassPath[SourceFileEntry](rootFile, policy) with CommonNoClassesClassPath
 
 abstract class ClassPathContent[FileEntryType <: SingleClassRepresentation](file: File,
                                                                             isValid: String => Boolean,
@@ -284,14 +260,14 @@ class ZipArchiveContent[FileEntryType <: SingleClassRepresentation](zipFile: Fil
 class DirArchiveContent[FileEntryType <: SingleClassRepresentation](rootDir: File,
                                                                     isValid: String => Boolean,
                                                                     toRepr: AbstractFile => FileEntryType,
-                                                                    dirListener: DirectoryChangeListener)
+                                                                    livenessChecker: LivenessChecker)
   extends ClassPathContent(rootDir, isValid, toRepr) {
   override def reOpen() = ()
 
   override def close() = ()
 
   protected def buildData(): Map[String, PackageInfo] = {
-    dirListener.removeAllWatches()
+    livenessChecker.removeAllWatches()
     //TODO use ser format
     class MutablePackageInfo(val packageName: String, val parent: MutablePackageInfo) {
       val packages = Vector.newBuilder[PackageEntryImpl]
@@ -320,7 +296,7 @@ class DirArchiveContent[FileEntryType <: SingleClassRepresentation](rootDir: Fil
             current.packages += PackageEntryImpl(current.packageName + "." + dir.getFileName.toString)
           resultsBuilder += ((result.packageName, result))
         }
-        dirListener.addDirWatch(dir)
+        livenessChecker.addDirWatch(dir)
         FileVisitResult.CONTINUE
       }
 

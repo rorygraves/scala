@@ -1165,7 +1165,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
       try {
         classPath.makeCacheValid(exec, false)
         definitions.init()
-      } finally classPath.endInUse(exec)
+      } finally classPath.endInUse()
 
       // the components to use, omitting those named by -Yskip and stopping at the -Ystop phase
       val components = {
@@ -1433,7 +1433,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
       try {
         classPath.makeCacheValid(exec,true)
         compileUnitsInternal(units,fromPhase)
-      } finally classPath.endInUse(exec)
+      } finally classPath.endInUse()
     }
     private def compileUnitsInternal(units: List[CompilationUnit], fromPhase: Phase) {
       def currentTime = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime())
