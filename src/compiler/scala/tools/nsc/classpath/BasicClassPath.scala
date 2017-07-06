@@ -29,7 +29,7 @@ abstract class BasicClassPath extends FileClassPath {
   override private[nsc] final def packages(inPackage: String) = list(inPackage).packages
 }
 
-abstract class CommonClassPath[FileEntryType <: SingleClassRepresentation] extends BasicClassPath{
+abstract class CommonClassPath[FileEntryType <: SingleClassRepresentation] extends BasicClassPath {
   self: TypedClassPath[FileEntryType] =>
 
   protected type ContentType >: Null <: ClassPathContent[FileEntryType]
@@ -52,14 +52,28 @@ abstract class CommonClassPath[FileEntryType <: SingleClassRepresentation] exten
   final override def makeCacheValid(executionContext: ExecutionContext, proactive: Boolean): Long =
     livenessChecker.validateAndLastModificationTime()
 
-  //liveness checking callabcks
-  private[classpath] def hasContent = content ne null
+  // liveness checking callabcks
+  // callback are only called with a lock managed by the livenessChecker
+  // and the livenessChecker ensure that content is not null when the classpath is in use
+  private[classpath] def contents:Option[ContentType] = Option(content)
 
   private[classpath] def markInvalid() = {
     content = null
   }
 
-  private[classpath] def newContent(): ContentType
+  private[classpath] def ensureContent(proactive: Boolean):ContentType = {
+    contents.getOrElse{
+      content = newContent()
+      if (proactive) {
+        content.reOpen()
+        //TODO - should we move the executors to the policy
+        //should be Ok as long as we can pick up the time in instrumentation
+        // TODO content.startScan()
+      }
+      content
+    }
+  }
+  protected def newContent():ContentType
 
 }
 
@@ -70,7 +84,7 @@ abstract class CommonZipClassPath[FileEntryType <: SingleClassRepresentation](
 
   val livenessChecker = policy(this)
 
-  override private[classpath] def newContent(): ZipArchiveContent[FileEntryType] = new ZipArchiveContent(rootFile, isValidFilename, toRepr)
+  override protected def newContent(): ZipArchiveContent[FileEntryType] = new ZipArchiveContent(rootFile, isValidFilename, toRepr)
 }
 
 
@@ -83,7 +97,7 @@ abstract class CommonDirClassPath[FileEntryType <: SingleClassRepresentation](
 
   val livenessChecker:LivenessChecker = policy(this)
 
-  override private[classpath] def newContent(): DirArchiveContent[FileEntryType] =
+  override protected def newContent(): DirArchiveContent[FileEntryType] =
     new DirArchiveContent(rootFile, isValidFilename, toRepr, livenessChecker)
 }
 
@@ -128,25 +142,23 @@ abstract class ClassPathContent[FileEntryType <: SingleClassRepresentation](file
 class ZipArchiveContent[FileEntryType <: SingleClassRepresentation](zipFile: File,
                                                                     isValid: String => Boolean,
                                                                     toRepr: AbstractFile => FileEntryType) extends ClassPathContent(zipFile, isValid, toRepr) {
-  override def reOpen() = ()
+  //TODO async
+  override def reOpen():Unit = withOpenZipFile
 
   def withOpenZipFile() :ZipFile = this.synchronized {
     zip.getOrElse {
       val newZip = new ZipFile(zipFile)
       zip = Some(newZip)
-      //println(s"open on demand ${zipFile}")
       newZip
     }
-
-
   }
 
   private var zip: Option[ZipFile] = Some(new ZipFile(zipFile))
 
+  //TODO async
   override def close() = this.synchronized {
     zip.foreach { z =>
       z.close()
-      //println(s"close ${zipFile}")
     }
     zip = None
   }

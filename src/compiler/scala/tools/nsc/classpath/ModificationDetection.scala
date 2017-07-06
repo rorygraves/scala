@@ -55,9 +55,11 @@ object LivenessChecker {
     override def apply(classPath: CommonDirClassPath[_]): LivenessChecker =
       new NotMonitoredLivenessChecker(classPath)
 
-    private class NotMonitoredLivenessChecker(classPath: CommonClassPath[_]) extends UsageTrackedLivenessChecker{
+    private class NotMonitoredLivenessChecker(classPath: CommonClassPath[_]) extends UsageTrackedLivenessChecker(classPath){
       var lastCacheTime = System.nanoTime()
-      override def doStartInUse(proactive: Boolean): Unit = ()
+      override def doStartInUse(proactive: Boolean): Unit = {
+        classPath.ensureContent(proactive)
+      }
 
       override def doEndInUse(): Unit = {
         classPath.markInvalid()
@@ -71,7 +73,7 @@ object LivenessChecker {
   case object SizeAndDateWatcher extends ForFile {
     override def apply(classPath: CommonZipClassPath[_]):LivenessChecker = new SizeAndDateLivenessChecker(classPath)
 
-    private class SizeAndDateLivenessChecker(classPath: CommonZipClassPath[_]) extends UsageTrackedLivenessChecker{
+    private class SizeAndDateLivenessChecker(classPath: CommonZipClassPath[_]) extends UsageTrackedLivenessChecker(classPath){
       val path = classPath.rootFile.toPath
 
       private var lastCacheTime = 0L
@@ -87,11 +89,9 @@ object LivenessChecker {
           lastCacheTime = System.nanoTime()
           fileInfo = Some(newAttributes)
           classPath.markInvalid()
-          classPath.newContent().reOpen()
+          classPath.ensureContent(proactive)
         }
       }
-
-      override def doEndInUse(): Unit = ()
 
       override def validateAndLastModificationTime(): Long = lastCacheTime
     }
@@ -101,24 +101,23 @@ object LivenessChecker {
 
     override def apply(classPath: CommonZipClassPath[_]):LivenessChecker = new FileWatcherFileLivenessChecker(classPath)
 
-    private abstract class FileWatcherLivenessChecker(classPath: CommonClassPath[_]) extends UsageTrackedLivenessChecker {
+    private abstract class FileWatcherLivenessChecker(classPath: CommonClassPath[_]) extends UsageTrackedLivenessChecker(classPath) {
 
       protected var lastCacheTime = 0L
 
       override def doStartInUse(proactive: Boolean): Unit = {
-        if (!classPath.hasContent) {
+        if (classPath.contents.isEmpty) {
           fileChangeListener.resumeIfSuspended()
           lastCacheTime = System.nanoTime()
-          classPath.newContent().reOpen()
+          classPath.ensureContent(proactive)
         }
       }
 
-      override def doEndInUse(): Unit = ()
+      override def validateAndLastModificationTime(): Long = lastCacheTime
 
-      override def validateAndLastModificationTime(): Long = ???
       protected val fileChangeListener : BaseChangeListener
     }
-    private class FileWatcherFileLivenessChecker(classPath: CommonZipClassPath[_]) extends FileWatcherLivenessChecker(classPath) {
+    private class FileWatcherFileLivenessChecker(override val classPath: CommonZipClassPath[_]) extends FileWatcherLivenessChecker(classPath) {
 
       protected override object fileChangeListener extends FileChangeListener(classPath.rootFile.toPath) {
         override protected def fileChanged(events: List[WatchEvent[Path]]) =
@@ -130,7 +129,7 @@ object LivenessChecker {
     }
     //similar to FileWatcherFileLivenessChecker, but has potential oppertunities to detect which directories have changed
     //with changes to the classpath
-    private class DirWatcherFileLivenessChecker(classPath: CommonDirClassPath[_]) extends FileWatcherLivenessChecker(classPath) {
+    private class DirWatcherFileLivenessChecker(override val classPath: CommonDirClassPath[_]) extends FileWatcherLivenessChecker(classPath) {
 
       protected override object fileChangeListener extends DirectoryChangeListener(classPath.rootFile.toPath) {
         override protected def dirChanged(path: Path, events: List[WatchEvent[Path]]) =
@@ -150,13 +149,13 @@ object LivenessChecker {
     }
   }
 
-  abstract class UsageTrackedLivenessChecker extends LivenessChecker {
+  abstract class UsageTrackedLivenessChecker(protected val classPath:CommonClassPath[_]) extends LivenessChecker {
 
     protected final var inUseCount = 0
     protected final val lock = new Object
 
     protected def doStartInUse(proactive: Boolean): Unit
-    protected def doEndInUse(): Unit
+    protected def doEndInUse(): Unit = ()
 
     final override def startInUse(proactive: Boolean): Unit = lock.synchronized {
       inUseCount += 1
@@ -166,7 +165,11 @@ object LivenessChecker {
 
     final override def endInUse(): Unit = lock.synchronized {
       inUseCount -= 1
-      if (inUseCount == 0) doEndInUse()
+      if (inUseCount == 0) {
+        classPath.contents.foreach (_.close())
+
+        doEndInUse()
+      }
     }
   }
 }
