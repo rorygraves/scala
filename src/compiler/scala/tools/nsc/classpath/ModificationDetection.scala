@@ -2,10 +2,8 @@ package scala.tools.nsc.classpath
 
 import java.nio.file.{Files, Path, WatchEvent}
 import java.nio.file.attribute.BasicFileAttributes
-import java.util.concurrent.atomic.AtomicInteger
+import scala.tools.nsc.classpath.ClassPathWatcher._
 
-import scala.concurrent.ExecutionContext
-import scala.tools.nsc.classpath.ClassPathWatcher.{BaseChangeListener, DirectoryChangeListener, FileChangeListener}
 
 
 trait LivenessChecker {
@@ -17,6 +15,7 @@ trait LivenessChecker {
   def validateAndLastModificationTime():Long
 
   def removeAllWatches(): Unit = ()
+
   def addDirWatch(dir:Path): Unit = ()
 
 }
@@ -32,9 +31,13 @@ object LivenessChecker {
    */
   case object Static extends ForDir with ForFile{
 
-    override def apply(classPath: CommonZipClassPath[_]): LivenessChecker = StaticLivenessChecker
+    override def apply(classPath: CommonZipClassPath[_]): LivenessChecker = init(classPath)
 
-    override def apply(classPath: CommonDirClassPath[_]): LivenessChecker = StaticLivenessChecker
+    override def apply(classPath: CommonDirClassPath[_]): LivenessChecker = init(classPath)
+    private def init(classPath: CommonClassPath[_]) = {
+      classPath.ensureContent(true)
+      StaticLivenessChecker
+    }
 
     private object StaticLivenessChecker extends LivenessChecker{
       override def startInUse(proactive: Boolean): Unit = ()
@@ -80,6 +83,12 @@ object LivenessChecker {
 
       private var fileInfo = Option.empty[BasicFileAttributes]
 
+      /**
+        * although [[doStartInUse]] is guaranteed to externally only be called once, the implementation is safe
+        * as masked with BasicAttributtes check, so we call that to encorage early opening of the file in background
+        */
+      doStartInUse(true)
+
       override def doStartInUse(proactive: Boolean): Unit = {
         val newAttributes = Files.readAttributes(path, classOf[BasicFileAttributes])
         val stillValid = fileInfo exists {
@@ -105,7 +114,11 @@ object LivenessChecker {
 
       protected var lastCacheTime = 0L
 
-      override def doStartInUse(proactive: Boolean): Unit = {
+      /**
+        * although [[doStartInUse]] is guaranteed to externally only be called once, the implementation is safe
+        * as masked with BasicAttributtes check, so we call that to encorage early opening of the file in background
+        */
+      override final def doStartInUse(proactive: Boolean): Unit = {
         if (classPath.contents.isEmpty) {
           fileChangeListener.resumeIfSuspended()
           lastCacheTime = System.nanoTime()
