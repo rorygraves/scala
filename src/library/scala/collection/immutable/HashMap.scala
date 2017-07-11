@@ -11,8 +11,9 @@ package collection
 package immutable
 
 import generic._
-import scala.annotation.unchecked.{ uncheckedVariance=> uV }
+import scala.annotation.unchecked.{uncheckedVariance => uV}
 import parallel.immutable.ParHashMap
+import scala.collection.immutable.Map.SmallImmutableMap
 
 /** This class implements immutable maps using a hash trie.
  *
@@ -32,6 +33,8 @@ import parallel.immutable.ParHashMap
  *  @define mayNotTerminateInf
  *  @define willNotTerminateInf
  */
+//TODO should this be abstract???
+//empty as base class is unsafe for pattern match
 @SerialVersionUID(2L)
 sealed class HashMap[A, +B] extends AbstractMap[A, B]
                         with Map[A, B]
@@ -52,7 +55,7 @@ sealed class HashMap[A, +B] extends AbstractMap[A, B]
   def get(key: A): Option[B] =
     get0(key, computeHash(key), 0)
 
-  override final def contains(key: A): Boolean =
+  override def contains(key: A): Boolean =
     contains0(key, computeHash(key), 0)
 
   override def updated [B1 >: B] (key: A, value: B1): HashMap[A, B1] =
@@ -61,8 +64,13 @@ sealed class HashMap[A, +B] extends AbstractMap[A, B]
   override def + [B1 >: B] (kv: (A, B1)): HashMap[A, B1] =
     updated0(kv._1, computeHash(kv._1), 0, kv._2, kv, null)
 
-  override def + [B1 >: B] (elem1: (A, B1), elem2: (A, B1), elems: (A, B1) *): HashMap[A, B1] =
-    this + elem1 + elem2 ++ elems
+  override def + [B1 >: B] (elem1: (A, B1), elem2: (A, B1), elems: (A, B1) *): HashMap[A, B1] = {
+    val builder = new HashMap.HashMapBuilder[A,B1]
+    builder += elem1
+    builder += elem2
+    builder ++= elems
+    builder.buildMap
+  }
 
   def - (key: A): HashMap[A, B] =
     removed0(key, computeHash(key), 0)
@@ -124,6 +132,37 @@ sealed class HashMap[A, +B] extends AbstractMap[A, B]
 
   override def par = ParHashMap.fromTrie(this)
 
+  override protected[this] def newBuilder: mutable.Builder[(A, B), HashMap[A, B]] = new HashMap.HashMapBuilder[A,B]
+
+  override def keySet = new HashMapKeySet
+
+  /**
+    * a marker class that allows more efficient --= from a HashMapBuilder
+    */
+  final class HashMapKeySet extends ImmutableDefaultKeySet {
+    def outer:HashMap[A,B] = HashMap.this
+  }
+
+  override def ++[V1 >: B](xs: GenTraversableOnce[(A, V1)]): Map[A, V1] = {
+    if (xs.isEmpty) this
+    else {
+      val builder = new HashMap.HashMapBuilder[A, V1]
+      builder addAll this
+      builder addAll xs
+      builder.result()
+    }
+  }
+
+  override def --(xs: GenTraversableOnce[A]): HashMap[A, B] = {
+    if (xs.isEmpty) this
+    else {
+      val builder = new HashMap.HashMapBuilder[A, B]
+      builder addAll this
+      builder removeAll xs
+      builder.result()
+    }
+  }
+
 }
 
 /** $factoryInfo
@@ -155,14 +194,462 @@ object HashMap extends ImmutableMapFactory[HashMap] with BitOperations.Int {
       def invert: Merger[A1, B1] = self
     }
   }
+  class TrieMapCanBuildFrom[A, B] extends CanBuildFrom[Coll, (A, B), HashMap[A, B]] {
+    def apply(from: Coll) = newBuilder[A, B]
+    def apply() = newBuilder[A,B]
+  }
+  override def newBuilder[A,B] = new HashMapBuilder[A,B]
+  /* Start - probably move this to a higher level concern - scala.Map, once the map semantics are agreed   */
+  private val javaLangPackage = classOf[java.lang.Integer].getPackage
+  private def isBoxedJavaPrimative(c: Class[_]): Boolean = {
+    (c.getPackage eq javaLangPackage) && (
+      classOf[java.lang.Number].isAssignableFrom(c) || (classOf[java.lang.Character] eq c)
+      )
+  }
+  /**
+    * Utility method to detect if the vale of a Map has changed during a += or update action.
+    * It is expensive to allocate attional data structures if the value has not changed, but not changed means the same
+    * identity, not just ==, so it must be the same JVM instance or be a primative value that matches
+    *
+    * there is a special case for Double.NaN and Float.NaN as they dont compare equal
+    *
+    * //TODO - consider AnyVal
+    *
+    * @param value1 the first value to compare
+    * @param value2 the second value to compare
+    * @return true if the values ar identical, false otherwise
+    */
+  private [collection] def identicalValues(value1:Any, value2:Any): Boolean = {
+    //    import java.lang.{Double => JDouble}
+    val null1 = null == value1
+    val null2 = null == value2
+
+    if (null1 || null2) null1 && null2
+    else {
+      val class1 = value1.getClass
+      val class2 = value2.getClass
+      if (class1 ne class2) false
+      else if (isBoxedJavaPrimative(class1))
+      //for boxed primatives NaN == NaN from the same class
+      //so we use .equals rather than ==
+        value1 equals value2
+      else value1.asInstanceOf[AnyRef] eq value2.asInstanceOf[AnyRef]
+    }
+  }
+  /* End - probably move this to a higher level concern - scala.Map, once the map semantics are agreed   */
+  private[immutable] final class HashMapBuilder[A,B] extends BuilderMutableNode[A,B]
+    with mutable.Builder[(A,B), HashMap[A,B]]
+    with Shrinkable[A]
+    with Map.BuilderOrImmutableMap[A,B] {
+    import java.util
+
+    var size = 0
+    val data = new Array[BuilderNode[A, B]](32)
+
+    def this(level: Int, newNode: BuilderCollisionNode[A, B]) {
+      this()
+      val idx = index(level, newNode.hash)
+      data(idx) = newNode
+      size = newNode.size
+    }
+
+    override private [HashMap] def removeBuilt(level: Int, hash: Int, key: A): this.type = {
+      val idx = index(level, hash)
+      val current = data(idx)
+      if (current ne null) {
+        val oldSize = current.size
+        val newValue = current match {
+          case n: BuilderMutableNode[A, B] => n.removeBuilt(level + 5, hash, key)
+          case h: HashMap1[A, B] =>
+            if (h.hash == hash && h.key == key) null else h
+          case t: HashTrieMap[A, B] =>
+            if (!t.contains(key)) t //miss
+            else if (t.size == 1) null //sole content
+            else {
+              val builder = new HashMapBuilder[A, B]()
+              builder.addHashTrieMap(level, t)
+              builder.removeBuilt(level + 5, hash, key)
+              builder
+            }
+          case c: HashMapCollision1[A,B] =>
+            if (c.hash != hash) c else {
+              val coll = new BuilderCollisionNode[A,B](hash)
+              coll.addColliding(c)
+              coll.removeBuilt(level + 5, hash, key)
+              coll
+            }
+        }
+
+        val newSize = if (newValue eq null) 0 else newValue.size
+        size = size + newSize - oldSize
+        data(idx) = newValue
+      }
+      if (level > 0 && size == 0) null else this
+    }
+
+    //the upper bound safety of V1 wrt B is maintained by SimpleMapBuilder
+    override private[immutable] def buildAdd[V1 >: B](x: (A, V1)):this.type = {
+      +=(x.asInstanceOf[(A, B)])
+    }
+
+    //the upper bound safety of V1 wrt B is maintained by SimpleMapBuilder
+    override private[immutable] def buildAddAll[V1 >: B](xs: TraversableOnce[(A, V1)]):this.type = {
+      ++=(xs.asInstanceOf[TraversableOnce[(A, B)]])
+    }
+
+    override def result(): HashMap[A, B] = toMap
+
+    //TODO optimise for empty, map1-4?
+    override private[immutable] def buildToMap:Map[A,B] = buildMap
+
+    override private[immutable] def buildMap:HashMap[A,B] = toMap
+
+    override def +=(elem: (A, B)): this.type = {
+      updateBuilt(0, empty.computeHash(elem._1), elem._1, elem._2, elem)
+      this
+    }
+    private [immutable] def addToBuilder(key:A, value:B): Unit = {
+      updateBuilt(0, empty.computeHash(key), key, value, null)
+    }
+    override def -=(key: A): this.type = {
+      removeBuilt(0, empty.computeHash(key), key)
+      this
+    }
+
+    override def --=(xs: TraversableOnce[A]): this.type = removeAll(xs)
+    override def ++=(xs: TraversableOnce[(A, B)]): this.type = addAll(xs)
+
+    def addAll(xs: GenTraversableOnce[(A, B)]): this.type = {
+      xs match {
+        case hashMap: NonEmptyHashMap[A, B] => addHashMap(0, hashMap)
+        case smallMap: SmallImmutableMap[A, B] =>
+          // optimised to avoid tuple creation
+          smallMap forEachKV addToBuilder
+        case _ => xs foreach +=
+      }
+      this
+    }
+    def removeAll(xs: GenTraversableOnce[A]): this.type = {
+      xs match {
+//        case hashMapKeys: HashMapKeySet => removeHashMap(0, hashMapKeys.outer)
+        case _ => xs foreach -=
+      }
+      this
+    }
+
+    private def removeHashMap(level:Int, hashMap:HashMap[A,B]) = {
+      ??? //TODO
+    }
+
+    @inline private def addHashMap(level:Int, hashMap:NonEmptyHashMap[A,B]): HashMapBuilder[A,B] = hashMap match {
+      case hashMap: HashTrieMap[A, B] => addHashTrieMap(level, hashMap)
+      case hashMap: NonEmptyLeafHashMap[A, B] => addNonEmpty(level, index(level, hashMap.hash), hashMap)
+    }
+
+
+    private def addHashTrieMap(level:Int, hashMap : HashTrieMap[A,B]) :HashMapBuilder[A,B] = {
+      val bitmap = hashMap.bitmap
+      var realIdx = 0
+      var packedIdx = 0
+      while (realIdx < 32) {
+        val mask = 1 << realIdx
+        if ((bitmap & mask ) != 0)
+          addNonEmpty2(level, realIdx, hashMap.elems(packedIdx))
+        realIdx += 1
+      }
+      this
+    }
+    private def addNonEmpty2(level: Int, idx: Int, newNode: HashMap[A, B]) : HashMapBuilder[A,B] = {
+      newNode match {
+        case bn: NonEmptyHashMap[A, B] => addNonEmpty(level, idx, bn)
+        case _ => ???  //todo
+      }
+    }
+    private def addNonEmpty(level: Int, idx: Int, newNode: NonEmptyHashMap[A, B]) : HashMapBuilder[A,B] = {
+      val old = data(idx)
+      if (old eq null) {
+        data(idx) = newNode
+        size += newNode.size
+      } else if (old eq newNode) {
+        // it may look weird to check this, but due to structural sharing
+        // adding 2 maps together may have come from a common base and may share structure
+        // and its a very quick no-op, and can save a whole tree of comparisons
+      } else {
+        val oldSize = old.size
+        val nextLevel = level + 5
+        val newValue = (old, newNode) match {
+          case (mutable: HashMapBuilder[A, B], _) =>
+            mutable.addHashMap(nextLevel, newNode)
+          case (oldMap: HashTrieMap[A, B], _) =>
+            new HashMapBuilder[A, B]().addHashTrieMap(nextLevel, oldMap).addHashMap(nextLevel, newNode)
+          case (oldLeaf: HashMap1[A, B], newLeaf: HashMap1[A, B]) if oldLeaf.key == newLeaf.key =>
+            //special case if the keys of a hashMap1 match
+            newLeaf
+          case (oldLeaf: NonEmptyLeafHashMap[A, B], newLeaf: NonEmptyLeafHashMap[A, B]) =>
+            if (oldLeaf.hash == newLeaf.hash) {
+              //hashes are the same but the keys are different, or not HashMap1 so we have a collision
+              new BuilderCollisionNode[A, B](oldLeaf.hash).addColliding(oldLeaf).addColliding(newLeaf)
+            } else {
+              //is the hashes are not equal, then we need more tree
+              //add a new level and let that level sort it out
+              new HashMapBuilder[A, B]().addHashMap(nextLevel, oldLeaf).addHashMap(nextLevel, newNode)
+            }
+          case (oldLeaf: BuilderCollisionNode[A, B], newLeaf: NonEmptyLeafHashMap[A, B]) =>
+            if (oldLeaf.hash == newLeaf.hash) {
+              //hashes are the same but the keys are different, so we have a collision
+              oldLeaf.addColliding(newLeaf)
+            } else {
+              //is the hashes are not equal, then we need more tree
+              //add a new level and let that level sort it out
+              new HashMapBuilder[A, B](nextLevel, oldLeaf).addHashMap(nextLevel, newNode)
+            }
+        }
+        data(idx) = newValue
+        size += newValue.size - oldSize
+      }
+      this
+    }
+
+    override def clear(): Unit = if (size > 0) {
+      util.Arrays.fill(data.asInstanceOf[Array[AnyRef]], null)
+      size = 0
+    }
+    private def index(level: Int, hash: Int) = (hash >>> level) & 31
+
+    override def updateBuilt(level: Int, hash: Int, key:A, value:B, elemOrNull: (A, B)): HashMapBuilder[A,B] = {
+      val idx = index(level, hash)
+      val old = data(idx)
+
+      if (old eq null) {
+        data(idx) = new HashMap1[A, B](key, hash, value, elemOrNull)
+        size += 1
+      } else {
+        val oldSize = old.size
+        val nextLevel = level + 5
+        val newValue:BuilderNode[A,B] = old match {
+          case mutable: BuilderMutableNode[A, B] =>
+            mutable.updateBuilt(nextLevel, hash, key, value, elemOrNull)
+          case map1: NonEmptyLeafHashMap[A, B] if (map1.hash != hash) =>
+            //add a new level and let that level sort it out
+            new HashMapBuilder[A, B].addHashMap(nextLevel, map1).updateBuilt(nextLevel, hash, key, value, elemOrNull)
+
+          case map1: HashMap1[A, B] =>
+            if (map1.key == key) {
+              //retain the old map1 to reduce garbage where possible
+              if (identicalValues(value, map1.value)) map1
+              else new HashMap1[A, B](key, hash, value, elemOrNull)
+            } else {
+              val elem = if (elemOrNull eq null) (key, value) else elemOrNull
+              val newNode = BuilderCollisionNode[A, B](hash, ListMap.empty)
+              newNode.addColliding(map1.ensurePair)
+              newNode.addColliding(elem)
+              newNode
+            }
+          case collision: HashMapCollision1[A,B] =>
+            val res = BuilderCollisionNode[A,B](hash, collision.kvs)
+            res.addColliding(if (elemOrNull eq null) (key, value) else elemOrNull)
+            res
+        }
+        data(idx) = newValue
+        size += newValue.size - oldSize
+      }
+      this
+    }
+
+
+    def toMap: HashMap[A, B] = {
+      var readIndex = 0
+      var lastReadIndex: Int = -1
+      var slotsUsed = 0
+      while (readIndex < 32) {
+        val current = data(readIndex)
+        if ((current ne null) && current.size > 0) {
+          lastReadIndex = readIndex
+          slotsUsed += 1
+        }
+        readIndex += 1
+      }
+      if (slotsUsed < 2) {
+        //no slots used
+        if (lastReadIndex == -1) empty[A,B]
+        else data(lastReadIndex).buildMap match {
+          case m1:HashMap1[A,B] => m1
+          case c1:HashMapCollision1[A,B] => c1
+          case t:HashTrieMap[A,B] =>
+            //we can't collapse multiple levels of TrieMaps
+            // TODO consider a more optimal structure without the array
+            // a sort of 'single node TrieMap'
+            new HashTrieMap[A, B](1 << lastReadIndex, Array(t), t.size)
+            // only empty is left
+          case _: HashMap.EmptyHashMap.type => empty[A,B]
+          case _: HashMap[_,_] => ??? //TODO HashMap should be abstract
+
+        }
+      } else {
+        val newData = new Array[HashMap[A, B]](slotsUsed)
+        var readIndex = 0
+        var writeIndex = 0
+        var bitmap = 0
+        while (readIndex < 32) {
+          val read = data(readIndex)
+          if ((read ne null) && read.size > 0) {
+            newData(writeIndex) = read.buildMap
+            writeIndex += 1
+            bitmap |= 1 << readIndex
+          }
+          readIndex += 1
+        }
+        assert(writeIndex == newData.length)
+        new HashTrieMap[A, B](bitmap, newData, size)
+      }
+    }
+  }
+  //a mutable collision node
+  private[HashMap] object BuilderCollisionNode{
+    def apply[A,B] (hash:Int, initialValues: ListMap[A,B]): BuilderCollisionNode[A,B] ={
+      val res = new BuilderCollisionNode[A,B](hash)
+      res.data ++= initialValues
+      //TODO consider reuseIndex and reusedBuiltTail
+      res
+    }
+  }
+  private[HashMap] final class BuilderCollisionNode[A,B] private (private[HashMap] val hash:Int) extends BuilderMutableNode[A,B] with BuilderLeafNode[A,B]{
+    private val data = new scala.collection.mutable.ArrayBuffer[(A,B)]
+    /**
+      * the [[reusedBuiltTail]].size -1. elements <= this index in [[data]] are shared to [[reusedBuiltTail]]
+      */
+    private var reuseIndex:Int = -1
+    /**
+      * a prebuild map of the head [[reuseIndex]] elements from data
+      * this is maintained to promote reuse
+      */
+    private var reusedBuiltTail: ListMap[A,B] = ListMap.empty
+
+    def makeMap = {
+//      for (idx <- reuseIndex + 1 until data.size ) {
+      // for the moment we will ignore reuse index and reusedBuiltTail
+      // and rebuild from scratch
+      //TODO re-enable use of reusedBuiltTail when we have more test coverage
+      reusedBuiltTail = ListMap.empty
+      for (idx <- 0 until data.size ) {
+        val kv = data(idx)
+        reusedBuiltTail = reusedBuiltTail.addNoCheck(kv._1, kv._2)
+      }
+      reuseIndex = data.size -1
+      reusedBuiltTail
+    }
+
+    override private[HashMap] def removeBuilt(level: Int, hash: Int, key: A) = {
+      if (hash == this.hash) {
+        var idx = 0
+        val max = data.size
+        var found = false
+        while (idx < max && !found) {
+          val value = data(idx)
+          if (value._1 == key) {
+            data.remove(idx)
+            found = true
+          } else idx += 1
+        }
+        if (found) {
+          reusedBuiltTail = reusedBuiltTail.dropLast(reuseIndex - idx)
+          reuseIndex = reuseIndex - idx
+        }
+      }
+      this
+    }
+
+    override def buildMap: HashMap[A, B] = new HashMapCollision1[A,B](hash, makeMap)
+    override def updateBuilt(level: Int, hash: Int, key:A, value:B, elemOrNull: (A, B)): BuilderNode[A,B] = {
+      if (this.hash == hash)
+        addColliding( if (elemOrNull eq null) (key, value) else elemOrNull)
+      else
+        new HashMapBuilder[A,B](level, this).updateBuilt(level, hash, key, value, elemOrNull)
+    }
+    def addColliding(nonEmptyLeafHashMap: NonEmptyLeafHashMap[A,B]): BuilderCollisionNode[A, B] = {
+      addCollidingImpl(nonEmptyLeafHashMap, data.isEmpty)
+    }
+    private def addCollidingImpl(nonEmptyLeafHashMap: NonEmptyLeafHashMap[A,B], isDistinct:Boolean): BuilderCollisionNode[A, B] = {
+      nonEmptyLeafHashMap match {
+        case collision: HashMapCollision1[A, B] =>
+          reusedBuiltTail = collision.kvs
+          data ++= reusedBuiltTail
+          // reverse the order - we want to have index 0 as the head of the list
+          // for reuse
+          var start = 0
+          var end = data.size -1
+          while (start < end ) {
+            val temp = data(start)
+            data(start) = data(end)
+            data(end) = temp
+            start += 1
+            end -= 1
+          }
+        case _ => nonEmptyLeafHashMap foreach (addCollidingImpl(_, isDistinct))
+      }
+      this
+    }
+    def addColliding(kv:(A,B)): BuilderCollisionNode[A, B] = {
+      addCollidingImpl(kv, data.isEmpty)
+    }
+    private def addCollidingImpl(kv:(A,B) , isDistinct:Boolean): BuilderCollisionNode[A, B] = {
+      if (isDistinct) {
+        data += kv
+      } else {
+        var idx = 0
+        var found = false
+        val max = data.size
+        while (idx < max && !found) {
+          val value = data(idx)
+          if (value._1 == kv._1) {
+            found = true
+            if (!identicalValues(value._2, kv._2)) {
+              data(idx) = kv
+            }
+          } else idx += 1
+          if (idx == max)
+            data += kv
+        }
+//          while (idx < reuseIndex) {
+//            reuseIndex -= 1
+//            reusedBuiltTail = reusedBuiltTail.init
+//          }
+//        }
+      }
+      this
+    }
+
+    override def size = data.size
+  }
+  sealed trait BuilderNode[A,+B] {
+    private[HashMap] def buildMap : HashMap[A, B]
+    //for the BuilderImmutableLeafNode size is already inherited, so we can use this global scope
+    def size:Int
+  }
+  sealed trait BuilderLeafNode[A,+B] extends BuilderNode[A,B] {
+    private[HashMap] val hash:Int
+  }
+  sealed abstract class NonEmptyHashMap[A,+B] extends HashMap[A,B] with BuilderNode[A,B] {
+    self : HashMap[A,B] =>
+    final private[HashMap] def buildMap = self
+  }
+  sealed trait NonEmptyLeafHashMap[A,+B] extends NonEmptyHashMap[A,B] with BuilderLeafNode[A,B]
+
+  sealed trait BuilderMutableNode[A,B] extends BuilderNode[A,B] {
+    private [HashMap] def updateBuilt(level: Int, hash: Int, key:A, value:B, elemOrNull: (A, B)): BuilderNode[A, B]
+    private [HashMap] def removeBuilt(level: Int, hash: Int, key:A): BuilderNode[A, B]
+  }
 
   /** $mapCanBuildFromInfo */
-  implicit def canBuildFrom[A, B]: CanBuildFrom[Coll, (A, B), HashMap[A, B]] = new MapCanBuildFrom[A, B]
+  implicit def canBuildFrom[A, B]: CanBuildFrom[Coll, (A, B), HashMap[A, B]] = new TrieMapCanBuildFrom[A, B]
   def empty[A, B]: HashMap[A, B] = EmptyHashMap.asInstanceOf[HashMap[A, B]]
 
   private object EmptyHashMap extends HashMap[Any, Nothing] { 
     override def head: (Any, Nothing) = throw new NoSuchElementException("Empty Map")
     override def tail: HashMap[Any, Nothing] = throw new NoSuchElementException("Empty Map")
+    //override to avoid hashcode calculation
+    override def get(key: Any): Option[Nothing] = None
+    override def contains(key: Any): Boolean = false
   }
 
   // utility method to create a HashTrieMap from two leaf HashMaps (HashMap1 or HashMapCollision1) with non-colliding hash code)
@@ -189,7 +676,7 @@ object HashMap extends ImmutableMapFactory[HashMap] with BitOperations.Int {
   }
 
   @deprecatedInheritance("This class will be made final in a future release.", "2.12.2")
-  class HashMap1[A,+B](private[collection] val key: A, private[collection] val hash: Int, private[collection] val value: (B @uV), private[collection] var kv: (A,B @uV)) extends HashMap[A,B] {
+  class HashMap1[A,+B](private[collection] val key: A, private[collection] val hash: Int, private[collection] val value: (B @uV), private[collection] var kv: (A,B @uV)) extends NonEmptyLeafHashMap[A,B] {
     override def size = 1
 
     private[collection] def getKey = key
@@ -237,7 +724,7 @@ object HashMap extends ImmutableMapFactory[HashMap] with BitOperations.Int {
   }
 
   private[collection] class HashMapCollision1[A, +B](private[collection] val hash: Int, val kvs: ListMap[A, B @uV])
-          extends HashMap[A, B @uV] {
+          extends NonEmptyLeafHashMap[A,B] {
     // assert(kvs.size > 1)
 
     override def size = kvs.size
@@ -308,7 +795,7 @@ object HashMap extends ImmutableMapFactory[HashMap] with BitOperations.Int {
     private[collection] val bitmap: Int,
     private[collection] val elems: Array[HashMap[A, B @uV]],
     private[collection] val size0: Int
-  ) extends HashMap[A, B @uV] {
+  ) extends NonEmptyHashMap[A, B @uV] {
 
     // assert(Integer.bitCount(bitmap) == elems.length)
     // assert(elems.length > 1 || (elems.length == 1 && elems(0).isInstanceOf[HashTrieMap[_,_]]))
