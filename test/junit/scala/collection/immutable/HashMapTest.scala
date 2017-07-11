@@ -1,6 +1,6 @@
 package scala.collection.immutable
 
-import org.junit.Assert.assertEquals
+import org.junit.Assert._
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
@@ -44,5 +44,35 @@ class HashMapTest {
       throw new RuntimeException("Should not be reached.")
     }
     assertEquals(expected, mergedWithMergeFunction)
+  }
+
+  def checkBuild[K,V](distinct:Boolean, values:(K,V) * ) :Unit = {
+    var map = new HashMap[K,V]
+    values foreach {kv => map = map + kv}
+    if (distinct) assertEquals("Test setup failure", values.size, map.size)
+
+    val builder = HashMap.newBuilder[K,V]
+    values foreach {builder += _}
+    val m2 = builder.result()
+    assertEquals(map.size,m2.size)
+
+    values foreach {
+      case (k, v) =>
+        assertTrue(s"failed for $k $v", m2.contains(k))
+        assertEquals(s"failed for $k $v", map(k), m2(k))
+        assertEquals(s"failed for $k $v", map.get(k), m2.get(k))
+    }
+    assertEquals(map.toString,m2.toString)
+    assertEquals(map,m2)
+
+  }
+  @Test
+  def checkAdd(): Unit = {
+    val values = (1 to 1000) map (v => (v -> s"xx $v"))
+    checkBuild(true, values : _*)
+  }
+  @Test
+  def checkSimpleAdd(): Unit = {
+    checkBuild(true, (25,1), (42,"42"))
   }
 }

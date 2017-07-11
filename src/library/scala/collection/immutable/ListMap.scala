@@ -98,12 +98,20 @@ sealed class ListMap[A, +B] extends AbstractMap[A, B]
     }
     reverseList.iterator
   }
+  private[immutable] def dropLast(n :Int) = this
 
   protected def key: A = throw new NoSuchElementException("key of empty map")
   protected def value: B = throw new NoSuchElementException("value of empty map")
   protected def next: ListMap[A, B] = throw new NoSuchElementException("next of empty map")
 
   override def stringPrefix = "ListMap"
+
+  /**
+    * essentially the same as += but does not check to see of the key is already in the map
+    * so is not safe to call if that cannot be guaranteed
+    * @return a new ListMap with the key/value at the start
+    */
+  private[immutable] def addNoCheck[B1 >: B](key: A, value:B1) : ListMap[A,B1] = new this.Node(key, value)
 
   /**
     * Represents an entry in the `ListMap`.
@@ -120,35 +128,43 @@ sealed class ListMap[A, +B] extends AbstractMap[A, B]
 
     override def isEmpty: Boolean = false
 
-    override def apply(k: A): B1 = applyInternal(this, k)
+    override def apply(k: A): B1 = {
+      val node = findInternal(this,k)
+      if (node.isEmpty) throw new NoSuchElementException("key not found: " + k)
+      else node.value
+    }
 
-    @tailrec private[this] def applyInternal(cur: ListMap[A, B1], k: A): B1 =
-      if (cur.isEmpty) throw new NoSuchElementException("key not found: " + k)
-      else if (k == cur.key) cur.value
-      else applyInternal(cur.next, k)
+    override def get(k: A): Option[B1] = {
+      val node = findInternal(this,k)
+      if (node.isEmpty) None
+      else Some(node.value)
+    }
 
-    override def get(k: A): Option[B1] = getInternal(this, k)
+    override def contains(k: A): Boolean = !findInternal(this, k).isEmpty
 
-    @tailrec private[this] def getInternal(cur: ListMap[A, B1], k: A): Option[B1] =
-      if (cur.isEmpty) None
-      else if (k == cur.key) Some(cur.value)
-      else getInternal(cur.next, k)
+    @tailrec private[this] def findInternal(cur: ListMap[A, B1], k: A): ListMap[A,B1] =
+      if (cur.isEmpty || k == cur.key) cur
+      else findInternal(cur.next, k)
 
-    override def contains(k: A): Boolean = containsInternal(this, k)
-
-    @tailrec private[this] def containsInternal(cur: ListMap[A, B1], k: A): Boolean =
-      if(cur.isEmpty) false
-      else if (k == cur.key) true
-      else containsInternal(cur.next, k)
 
     override def updated[B2 >: B1](k: A, v: B2): ListMap[A, B2] = {
-      val m = this - k
-      new m.Node[B2](k, v)
+      val node = findInternal(this,k)
+      if (node.isEmpty) new Node(k,v)
+      else if (node.value == v) this
+      else {
+        val m = this - k
+        new m.Node[B2](k, v)
+      }
     }
 
     override def +[B2 >: B1](kv: (A, B2)): ListMap[A, B2] = {
-      val m = this - kv._1
-      new m.Node[B2](kv._1, kv._2)
+      val node = findInternal(this,kv._1)
+      if (node.isEmpty) new Node(kv._1,kv._2)
+      else if (node.value == kv._2) this
+      else {
+        val m = this - kv._1
+        new m.Node[B2](kv._1, kv._2)
+      }
     }
 
     override def -(k: A): ListMap[A, B1] = removeInternal(k, this, Nil)
@@ -162,5 +178,14 @@ sealed class ListMap[A, +B] extends AbstractMap[A, B]
 
     override def last: (A, B1) = (key, value)
     override def init: ListMap[A, B1] = next
+
+    private[immutable] override def dropLast(n :Int): ListMap[A, B1] = {
+      dropLastInternal(this, n)
+    }
+    @tailrec private def dropLastInternal(cur:ListMap[A,B1], n :Int): ListMap[A, B1] = {
+      if(cur.isEmpty || n <= 0) cur
+      else dropLastInternal(cur.init, n-1)
+    }
+
   }
 }
