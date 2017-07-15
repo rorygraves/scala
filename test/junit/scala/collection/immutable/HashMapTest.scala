@@ -46,7 +46,7 @@ class HashMapTest {
     assertEquals(expected, mergedWithMergeFunction)
   }
 
-  def checkBuild[K,V](expected :Map[K,V], underTest :HashMap.HashMapBuilder[K,V]) :Unit = {
+  def checkBuild[K,V](range: Seq[K], expected :Map[K,V], underTest :HashMap.HashMapBuilder[K,V]) :Unit = {
 
     val m2 = underTest.result()
     assertEquals(expected.size,m2.size)
@@ -59,6 +59,12 @@ class HashMapTest {
     }
     assertEquals(expected.toString,m2.toString)
     assertEquals(expected,m2)
+
+    range.filterNot(expected.keySet) foreach{
+      absent =>
+        assertFalse(s"contains failed at (expected missed) key $absent",  m2.contains(absent))
+        assertEquals(s"get failed at (expected missed) key $absent", None, m2.get(absent))
+  }
 
   }
   def `both+=` [K,V](expected:Map[K,V], underTest:HashMap.HashMapBuilder[K,V], key:K, value:V) : Map[K,V] = {
@@ -95,16 +101,17 @@ def checkBuildAddBasic(): Unit = checkBuildAdd(true)
   def checkBuildAdd(intermediate: Boolean): Unit = {
     var expected = Map.empty[Int,String]
     val underTest = HashMap.newBuilder[Int,String]
+    val range = 1 to 2000
 
     (1 to 1000) foreach{ value =>
       expected = `both+=`(expected, underTest, value, s"xx $value")
     }
-    if (intermediate) checkBuild(expected,underTest)
+    if (intermediate) checkBuild(range, expected,underTest)
 
     (1000 to 2000) foreach{ value =>
       expected = `both+=`(expected, underTest, value, s"xx $value")
     }
-    checkBuild(expected,underTest)
+    checkBuild(range, expected,underTest)
 
   }
   @Test
@@ -115,21 +122,22 @@ def checkBuildAddBasic(): Unit = checkBuildAdd(true)
   def checkBuildAddS(intermediate: Boolean): Unit = {
     var expected = Map.empty[Int,String]
     val underTest = HashMap.newBuilder[Int,String]
+    val range = 1 to 2000
 
     (1 to 1000) foreach{ value =>
       expected = `both+=`(expected, underTest, value, s"xx $value")
     }
-    if (intermediate) checkBuild(expected,underTest)
+    if (intermediate) checkBuild(range, expected,underTest)
 
     (1000 to 2000) foreach{ value =>
       expected = `both+=`(expected, underTest, value, s"xx $value")
     }
-    if (intermediate) checkBuild(expected,underTest)
+    if (intermediate) checkBuild(range, expected,underTest)
 
     (500 to 1500) foreach{ value =>
       expected = `both-=`(expected, underTest, value)
     }
-    checkBuild(expected,underTest)
+    checkBuild(range, expected,underTest)
   }
 
 

@@ -228,7 +228,7 @@ object HashMap extends ImmutableMapFactory[HashMap] with BitOperations.Int {
         }
 
         val newSize = if (newValue eq null) 0 else newValue.size
-        size = size - newSize + oldSize
+        size = size + newSize - oldSize
         data(idx) = newValue
       }
       if (level > 0 && size == 0) null else this
