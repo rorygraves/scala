@@ -87,12 +87,32 @@ class HashMapTest {
 //    underTest --= values
 //    exp
 //  }
+@Test
+def checkBuildAddBasic(): Unit = checkBuildAdd(true)
   @Test
-  def checkBuidBasic(): Unit = checkBuid(true)
-  @Test
-  def checkBuidReuse(): Unit = checkBuid(false)
+  def checkBuildAddReuse(): Unit = checkBuildAdd(false)
 
-  def checkBuid(intermediate: Boolean): Unit = {
+  def checkBuildAdd(intermediate: Boolean): Unit = {
+    var expected = Map.empty[Int,String]
+    val underTest = HashMap.newBuilder[Int,String]
+
+    (1 to 1000) foreach{ value =>
+      expected = `both+=`(expected, underTest, value, s"xx $value")
+    }
+    if (intermediate) checkBuild(expected,underTest)
+
+    (1000 to 2000) foreach{ value =>
+      expected = `both+=`(expected, underTest, value, s"xx $value")
+    }
+    checkBuild(expected,underTest)
+
+  }
+  @Test
+  def checkBuildAddSBasic(): Unit = checkBuildAddS(true)
+  @Test
+  def checkBuildAddSReuse(): Unit = checkBuildAddS(false)
+
+  def checkBuildAddS(intermediate: Boolean): Unit = {
     var expected = Map.empty[Int,String]
     val underTest = HashMap.newBuilder[Int,String]
 
