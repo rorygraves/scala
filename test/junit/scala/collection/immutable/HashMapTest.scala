@@ -46,33 +46,71 @@ class HashMapTest {
     assertEquals(expected, mergedWithMergeFunction)
   }
 
-  def checkBuild[K,V](distinct:Boolean, values:(K,V) * ) :Unit = {
-    var map = new HashMap[K,V]
-    values foreach {kv => map = map + kv}
-    if (distinct) assertEquals("Test setup failure", values.size, map.size)
+  def checkBuild[K,V](expected :Map[K,V], underTest :HashMap.HashMapBuilder[K,V]) :Unit = {
 
-    val builder = HashMap.newBuilder[K,V]
-    values foreach {builder += _}
-    val m2 = builder.result()
-    assertEquals(map.size,m2.size)
+    val m2 = underTest.result()
+    assertEquals(expected.size,m2.size)
 
-    values foreach {
+    expected foreach {
       case (k, v) =>
         assertTrue(s"failed for $k $v", m2.contains(k))
-        assertEquals(s"failed for $k $v", map(k), m2(k))
-        assertEquals(s"failed for $k $v", map.get(k), m2.get(k))
+        assertEquals(s"failed for $k $v", expected(k), m2(k))
+        assertEquals(s"failed for $k $v", expected.get(k), m2.get(k))
     }
-    assertEquals(map.toString,m2.toString)
-    assertEquals(map,m2)
+    assertEquals(expected.toString,m2.toString)
+    assertEquals(expected,m2)
 
   }
-  @Test
-  def checkAdd(): Unit = {
-    val values = (1 to 1000) map (v => (v -> s"xx $v"))
-    checkBuild(true, values : _*)
+  def `both+=` [K,V](expected:Map[K,V], underTest:HashMap.HashMapBuilder[K,V], key:K, value:V) : Map[K,V] = {
+    var exp = expected
+    exp = exp + (key -> value)
+    underTest += (key -> value)
+    exp
   }
-  @Test
-  def checkSimpleAdd(): Unit = {
-    checkBuild(true, (25,1), (42,"42"))
+  def `both++=` [K,V](expected:Map[K,V], underTest:HashMap.HashMapBuilder[K,V], values: Traversable[(K,V)]) : Map[K,V] = {
+    var exp = expected
+    //we dont use ++ on expected as that uses a builder internally
+    values foreach{ kv => exp = exp + kv}
+    underTest ++= values
+    exp
   }
+  def `both-=` [K,V](expected:Map[K,V], underTest:HashMap.HashMapBuilder[K,V], key:K) : Map[K,V] = {
+    var exp = expected
+    exp = exp - key
+    underTest -= key
+    exp
+  }
+//  def `both--=` [K,V](expected:Map[K,V], underTest:HashMap.HashMapBuilder[K,V], values: Traversable[K]) : Map[K,V] = {
+//    var exp = expected
+//    //we dont use ++ on expected as that uses a builder internally
+//    values foreach{ k => exp = exp - k}
+//    underTest --= values
+//    exp
+//  }
+  @Test
+  def checkBuidBasic(): Unit = checkBuid(true)
+  @Test
+  def checkBuidReuse(): Unit = checkBuid(false)
+
+  def checkBuid(intermediate: Boolean): Unit = {
+    var expected = Map.empty[Int,String]
+    val underTest = HashMap.newBuilder[Int,String]
+
+    (1 to 1000) foreach{ value =>
+      expected = `both+=`(expected, underTest, value, s"xx $value")
+    }
+    if (intermediate) checkBuild(expected,underTest)
+
+    (1000 to 2000) foreach{ value =>
+      expected = `both+=`(expected, underTest, value, s"xx $value")
+    }
+    if (intermediate) checkBuild(expected,underTest)
+
+    (500 to 1500) foreach{ value =>
+      expected = `both-=`(expected, underTest, value)
+    }
+    checkBuild(expected,underTest)
+  }
+
+
 }

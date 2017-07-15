@@ -410,6 +410,7 @@ object HashMap extends ImmutableMapFactory[HashMap] with BitOperations.Int {
         else data(lastReadIndex).buildMap match {
           case m1:HashMap1[A,B] => m1
           case c1:HashMapCollision1[A,B] => c1
+          case _: EmptyHashMap.type => empty[A,B]
           case t:HashTrieMap[A,B] =>
             //we can't collapse multiple levels of TrieMaps
             // TODO consider a more optimal structure without the array
