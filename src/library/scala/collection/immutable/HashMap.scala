@@ -33,6 +33,8 @@ import scala.collection.immutable.Map.SmallImmutableMap
  *  @define mayNotTerminateInf
  *  @define willNotTerminateInf
  */
+//TODO should this be abstract???
+//empty as base class is unsafe for pattern match
 @SerialVersionUID(2L)
 sealed class HashMap[A, +B] extends AbstractMap[A, B]
                         with Map[A, B]
@@ -69,6 +71,7 @@ sealed class HashMap[A, +B] extends AbstractMap[A, B]
     builder ++= elems
     builder.buildMap
   }
+
   def - (key: A): HashMap[A, B] =
     removed0(key, computeHash(key), 0)
 
@@ -131,6 +134,15 @@ sealed class HashMap[A, +B] extends AbstractMap[A, B]
 
   override protected[this] def newBuilder: mutable.Builder[(A, B), HashMap[A, B]] = new HashMap.HashMapBuilder[A,B]
 
+  override def keySet = new HashMapKeySet
+
+  /**
+    * a marker class that allows more efficient --= from a HashMapBuilder
+    */
+  final class HashMapKeySet extends ImmutableDefaultKeySet {
+    def outer:HashMap[A,B] = HashMap.this
+  }
+
   override def ++[V1 >: B](xs: GenTraversableOnce[(A, V1)]): Map[A, V1] = {
     if (xs.isEmpty) this
     else {
@@ -187,7 +199,10 @@ object HashMap extends ImmutableMapFactory[HashMap] with BitOperations.Int {
     def apply() = newBuilder[A,B]
   }
   override def newBuilder[A,B] = new HashMapBuilder[A,B]
-  private[immutable] final class HashMapBuilder[A,B] extends BuilderMutableNode[A,B] with mutable.Builder[(A,B), HashMap[A,B]] with Map.BuilderOrImmutableMap[A,B] {
+  private[immutable] final class HashMapBuilder[A,B] extends BuilderMutableNode[A,B]
+    with mutable.Builder[(A,B), HashMap[A,B]]
+    with Shrinkable[A]
+    with Map.BuilderOrImmutableMap[A,B] {
     import java.util
 
     var size = 0
@@ -258,12 +273,14 @@ object HashMap extends ImmutableMapFactory[HashMap] with BitOperations.Int {
     private [immutable] def addToBuilder(key:A, value:B): Unit = {
       updateBuilt(0, empty.computeHash(key), key, value, null)
     }
-    def -=(key: A): this.type = {
+    override def -=(key: A): this.type = {
       removeBuilt(0, empty.computeHash(key), key)
       this
     }
 
+    override def --=(xs: TraversableOnce[A]): this.type = removeAll(xs)
     override def ++=(xs: TraversableOnce[(A, B)]): this.type = addAll(xs)
+
     def addAll(xs: GenTraversableOnce[(A, B)]): this.type = {
       xs match {
         case hashMap: NonEmptyHashMap[A, B] => addHashMap(0, hashMap)
@@ -275,9 +292,17 @@ object HashMap extends ImmutableMapFactory[HashMap] with BitOperations.Int {
       this
     }
     def removeAll(xs: GenTraversableOnce[A]): this.type = {
-      xs foreach -=
+      xs match {
+//        case hashMapKeys: HashMapKeySet => removeHashMap(0, hashMapKeys.outer)
+        case _ => xs foreach -=
+      }
       this
     }
+
+    private def removeHashMap(level:Int, hashMap:HashMap[A,B]) = {
+      ??? //TODO
+    }
+
     @inline private def addHashMap(level:Int, hashMap:NonEmptyHashMap[A,B]): HashMapBuilder[A,B] = hashMap match {
       case hashMap: HashTrieMap[A, B] => addHashTrieMap(level, hashMap)
       case hashMap: NonEmptyLeafHashMap[A, B] => addNonEmpty(level, index(level, hashMap.hash), hashMap)
@@ -410,12 +435,14 @@ object HashMap extends ImmutableMapFactory[HashMap] with BitOperations.Int {
         else data(lastReadIndex).buildMap match {
           case m1:HashMap1[A,B] => m1
           case c1:HashMapCollision1[A,B] => c1
-          case _: EmptyHashMap.type => empty[A,B]
           case t:HashTrieMap[A,B] =>
             //we can't collapse multiple levels of TrieMaps
             // TODO consider a more optimal structure without the array
             // a sort of 'single node TrieMap'
             new HashTrieMap[A, B](1 << lastReadIndex, Array(t), t.size)
+            // only empty is left
+          case _: HashMap.EmptyHashMap.type => empty[A,B]
+          case _: HashMap[_,_] => ??? //TODO HashMap should be abstract
 
         }
       } else {
