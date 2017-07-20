@@ -199,6 +199,44 @@ object HashMap extends ImmutableMapFactory[HashMap] with BitOperations.Int {
     def apply() = newBuilder[A,B]
   }
   override def newBuilder[A,B] = new HashMapBuilder[A,B]
+  /* Start - probably move this to a higher level concern - scala.Map, once the map semantics are agreed   */
+  private val javaLangPackage = classOf[java.lang.Integer].getPackage
+  private def isBoxedJavaPrimative(c: Class[_]): Boolean = {
+    (c.getPackage eq javaLangPackage) && (
+      classOf[java.lang.Number].isAssignableFrom(c) || (classOf[java.lang.Character] eq c)
+      )
+  }
+  /**
+    * Utility method to detect if the vale of a Map has changed during a += or update action.
+    * It is expensive to allocate attional data structures if the value has not changed, but not changed means the same
+    * identity, not just ==, so it must be the same JVM instance or be a primative value that matches
+    *
+    * there is a special case for Double.NaN and Float.NaN as they dont compare equal
+    *
+    * //TODO - consider AnyVal
+    *
+    * @param value1 the first value to compare
+    * @param value2 the second value to compare
+    * @return true if the values ar identical, false otherwise
+    */
+  private [collection] def identicalValues(value1:Any, value2:Any): Boolean = {
+    //    import java.lang.{Double => JDouble}
+    val null1 = null == value1
+    val null2 = null == value2
+
+    if (null1 || null2) null1 && null2
+    else {
+      val class1 = value1.getClass
+      val class2 = value2.getClass
+      if (class1 ne class2) false
+      else if (isBoxedJavaPrimative(class1))
+      //for boxed primatives NaN == NaN from the same class
+      //so we use .equals rather than ==
+        value1 equals value2
+      else value1.asInstanceOf[AnyRef] eq value2.asInstanceOf[AnyRef]
+    }
+  }
+  /* End - probably move this to a higher level concern - scala.Map, once the map semantics are agreed   */
   private[immutable] final class HashMapBuilder[A,B] extends BuilderMutableNode[A,B]
     with mutable.Builder[(A,B), HashMap[A,B]]
     with Shrinkable[A]
@@ -378,7 +416,6 @@ object HashMap extends ImmutableMapFactory[HashMap] with BitOperations.Int {
     }
     private def index(level: Int, hash: Int) = (hash >>> level) & 31
 
-
     override def updateBuilt(level: Int, hash: Int, key:A, value:B, elemOrNull: (A, B)): HashMapBuilder[A,B] = {
       val idx = index(level, hash)
       val old = data(idx)
@@ -391,7 +428,6 @@ object HashMap extends ImmutableMapFactory[HashMap] with BitOperations.Int {
         val nextLevel = level + 5
         val newValue:BuilderNode[A,B] = old match {
           case mutable: BuilderMutableNode[A, B] =>
-            val prevSize = mutable.size
             mutable.updateBuilt(nextLevel, hash, key, value, elemOrNull)
           case map1: NonEmptyLeafHashMap[A, B] if (map1.hash != hash) =>
             //add a new level and let that level sort it out
@@ -399,16 +435,20 @@ object HashMap extends ImmutableMapFactory[HashMap] with BitOperations.Int {
 
           case map1: HashMap1[A, B] =>
             if (map1.key == key) {
-              //retain the old map1 to reduce garbage
-              if (value == map1.value) map1 else new HashMap1[A, B](key, hash, value, elemOrNull)
-              //no size change
+              //retain the old map1 to reduce garbage where possible
+              if (identicalValues(value, map1.value)) map1
+              else new HashMap1[A, B](key, hash, value, elemOrNull)
             } else {
               val elem = if (elemOrNull eq null) (key, value) else elemOrNull
-              val newNode = new BuilderCollisionNode[A, B](hash)
-              newNode.data += map1.ensurePair
-              newNode.data += elem
+              val newNode = BuilderCollisionNode[A, B](hash, ListMap.empty)
+              newNode.addColliding(map1.ensurePair)
+              newNode.addColliding(elem)
               newNode
             }
+          case collision: HashMapCollision1[A,B] =>
+            val res = BuilderCollisionNode[A,B](hash, collision.kvs)
+            res.addColliding(if (elemOrNull eq null) (key, value) else elemOrNull)
+            res
         }
         data(idx) = newValue
         size += newValue.size - oldSize
@@ -465,20 +505,33 @@ object HashMap extends ImmutableMapFactory[HashMap] with BitOperations.Int {
     }
   }
   //a mutable collision node
-  private[HashMap] final class BuilderCollisionNode[A,B](private[HashMap] val hash:Int) extends BuilderMutableNode[A,B] with BuilderLeafNode[A,B]{
-    val data = new scala.collection.mutable.ArrayBuffer[(A,B)]
+  private[HashMap] object BuilderCollisionNode{
+    def apply[A,B] (hash:Int, initialValues: ListMap[A,B]): BuilderCollisionNode[A,B] ={
+      val res = new BuilderCollisionNode[A,B](hash)
+      res.data ++= initialValues
+      //TODO consider reuseIndex and reusedBuiltTail
+      res
+    }
+  }
+  private[HashMap] final class BuilderCollisionNode[A,B] private (private[HashMap] val hash:Int) extends BuilderMutableNode[A,B] with BuilderLeafNode[A,B]{
+    private val data = new scala.collection.mutable.ArrayBuffer[(A,B)]
     /**
       * the [[reusedBuiltTail]].size -1. elements <= this index in [[data]] are shared to [[reusedBuiltTail]]
       */
-    var reuseIndex:Int = -1
+    private var reuseIndex:Int = -1
     /**
       * a prebuild map of the head [[reuseIndex]] elements from data
       * this is maintained to promote reuse
       */
-    var reusedBuiltTail: ListMap[A,B] = ListMap.empty
+    private var reusedBuiltTail: ListMap[A,B] = ListMap.empty
 
     def makeMap = {
-      for (idx <- reuseIndex + 1 until data.size ) {
+//      for (idx <- reuseIndex + 1 until data.size ) {
+      // for the moment we will ignore reuse index and reusedBuiltTail
+      // and rebuild from scratch
+      //TODO re-enable use of reusedBuiltTail when we have more test coverage
+      reusedBuiltTail = ListMap.empty
+      for (idx <- 0 until data.size ) {
         val kv = data(idx)
         reusedBuiltTail = reusedBuiltTail.addNoCheck(kv._1, kv._2)
       }
@@ -544,20 +597,24 @@ object HashMap extends ImmutableMapFactory[HashMap] with BitOperations.Int {
         data += kv
       } else {
         var idx = 0
+        var found = false
         val max = data.size
-        while (idx < max) {
+        while (idx < max && !found) {
           val value = data(idx)
           if (value._1 == kv._1) {
-            data(idx) = kv
-            idx = Integer.MAX_VALUE
+            found = true
+            if (!identicalValues(value._2, kv._2)) {
+              data(idx) = kv
+            }
           } else idx += 1
           if (idx == max)
             data += kv
-          while (idx < reuseIndex) {
-            reuseIndex -= 1
-            reusedBuiltTail = reusedBuiltTail.init
-          }
         }
+//          while (idx < reuseIndex) {
+//            reuseIndex -= 1
+//            reusedBuiltTail = reusedBuiltTail.init
+//          }
+//        }
       }
       this
     }
@@ -667,7 +724,7 @@ object HashMap extends ImmutableMapFactory[HashMap] with BitOperations.Int {
   }
 
   private[collection] class HashMapCollision1[A, +B](private[collection] val hash: Int, val kvs: ListMap[A, B @uV])
-          extends NonEmptyLeafHashMap[A,B]  {
+          extends NonEmptyLeafHashMap[A,B] {
     // assert(kvs.size > 1)
 
     override def size = kvs.size

@@ -157,15 +157,7 @@ sealed class ListMap[A, +B] extends AbstractMap[A, B]
       }
     }
 
-    override def +[B2 >: B1](kv: (A, B2)): ListMap[A, B2] = {
-      val node = findInternal(this,kv._1)
-      if (node.isEmpty) new Node(kv._1,kv._2)
-      else if (node.value == kv._2) this
-      else {
-        val m = this - kv._1
-        new m.Node[B2](kv._1, kv._2)
-      }
-    }
+    override def +[B2 >: B1](kv: (A, B2)): ListMap[A, B2] = updated(kv._1, kv._2)
 
     override def -(k: A): ListMap[A, B1] = removeInternal(k, this, Nil)
 

@@ -48,6 +48,7 @@ class HashMapTest {
     assertEquals(expected, mergedWithMergeFunction)
   }
 
+  // eventually the rest of this file will be replaced with HashMapCombinationsTest
   def checkBuild[K, V](range: Seq[K], expected: Map[K, V], underTest: HashMap.HashMapBuilder[K, V]): Unit = {
 
     val m2 = underTest.result()
