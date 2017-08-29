@@ -503,7 +503,7 @@ trait SeqLike[+A, +Repr] extends Any with IterableLike[A, Repr] with GenSeqLike[
    *
    *  @return  A new $coll which contains the first occurrence of every element of this $coll.
    */
-  def distinct: Repr = {
+  def distinctOrig: Repr = {
     val b = newBuilder
     val seen = mutable.HashSet[A]()
     for (x <- this) {
@@ -513,6 +513,190 @@ trait SeqLike[+A, +Repr] extends Any with IterableLike[A, Repr] with GenSeqLike[
       }
     }
     b.result()
+  }
+  //simple optimisations
+//  def distinctSimple: Repr = {
+  def distinct: Repr = {
+    val size = this.sizeHintIfCheap
+    if (size == 0 || size == 1 || (size == -1 && isEmpty)) this.asInstanceOf[Repr]
+    else {
+      val b = newBuilder
+      val seen = new mutable.HashSet[A]()
+      for (x <- this) {
+        if (seen.add(x)) b += x
+      }
+      b.result()
+    }
+  }
+
+  def distinct1: Repr = {
+    var b: mutable.Builder[A,Repr] = null
+    val size = this.sizeHintIfCheap
+    if ((size < 0 && nonEmpty) || size > 1 ) {
+      val seen = new mutable.LinkedHashSet[A]()
+      for (x <- this) {
+        if (seen.add(x)) {
+          if (b != null) b += x
+        } else b = newBuilder ++= seen
+      }
+    }
+    if (b == null) repr else b.result()
+  }
+  def distinct2: Repr = {
+    var actualSize = 0
+    val size = this.sizeHintIfCheap
+    if (size == 0 || size == 1 || (size == -1 && isEmpty)) this.asInstanceOf[Repr]
+    else {
+      val seen = new mutable.LinkedHashSet[A]()
+      for (x <- this) {
+        actualSize += 1
+        seen.add(x)
+      }
+      if (actualSize == seen.size) this.asInstanceOf[Repr]
+      else (newBuilder ++= seen).result
+    }
+  }
+  def distinctSmall: Repr = {
+    var distinctSize = 0
+    var actualSize = 0
+    var current = thisCollection
+
+    var e0: A = null.asInstanceOf[A]
+    var e1: A = null.asInstanceOf[A]
+    var e2: A = null.asInstanceOf[A]
+    var e3: A = null.asInstanceOf[A]
+    var e4: A = null.asInstanceOf[A]
+    var e5: A = null.asInstanceOf[A]
+    var e6: A = null.asInstanceOf[A]
+    var e7: A = null.asInstanceOf[A]
+    var e8: A = null.asInstanceOf[A]
+    var e9: A = null.asInstanceOf[A]
+    var e10: A = null.asInstanceOf[A]
+
+    while (distinctSize <= 10 && !current.isEmpty) {
+      val next = current.head
+      current = current.tail
+      actualSize += 1
+
+      distinctSize match {
+        case 0 =>
+          e0 = next
+          distinctSize = 1
+        case 1 => if (e0 != next) {
+          e1 = next
+          distinctSize = 2
+        }
+        case 2 => if (e0 != next && e1 != next) {
+          e2 = next
+          distinctSize = 3
+        }
+        case 3 => if (e0 != next && e1 != next && e2 != next) {
+          e3 = next
+          distinctSize = 4
+        }
+        case 4 => if (e0 != next && e1 != next && e2 != next && e3 != next) {
+          e4 = next
+          distinctSize = 5
+        }
+        case 5 => if (e0 != next && e1 != next && e2 != next && e3 != next && e4 != next) {
+          e5 = next
+          distinctSize = 6
+        }
+        case 6 => if (e0 != next && e1 != next && e2 != next && e3 != next && e4 != next && e5 != next) {
+          e6 = next
+          distinctSize = 7
+        }
+        case 7 => if (e0 != next && e1 != next && e2 != next && e3 != next && e4 != next && e5 != next && e6 != next) {
+          e7 = next
+          distinctSize = 8
+        }
+        case 8 => if (e0 != next && e1 != next && e2 != next && e3 != next && e4 != next && e5 != next && e6 != next && e7 != next) {
+          e8 = next
+          distinctSize = 9
+        }
+        case 9 => if (e0 != next && e1 != next && e2 != next && e3 != next && e4 != next && e5 != next && e6 != next && e7 != next && e8 != next) {
+          e9 = next
+          distinctSize = 10
+        }
+        case 10 => if (e0 != next && e1 != next && e2 != next && e3 != next && e4 != next && e5 != next && e6 != next && e7 != next && e8 != next && e9 != next) {
+          e10 = next
+          distinctSize = 11
+        }
+      }
+    }
+    if (current.isEmpty && distinctSize == actualSize) this.asInstanceOf[Repr]
+    else {
+      val b = newBuilder
+      b += e0
+      if (distinctSize > 1) {
+        b += e1
+        if (distinctSize > 2) {
+          b += e2
+          if (distinctSize > 3) {
+            b += e3
+            if (distinctSize > 4) {
+              b += e4
+              if (distinctSize > 5) {
+                b += e5
+                if (distinctSize > 6) {
+                  b += e6
+                  if (distinctSize > 7) {
+                    b += e7
+                    if (distinctSize > 8) {
+                      b += e8
+                      if (distinctSize > 9) {
+                        b += e9
+                        if (distinctSize > 10) {
+                          b += e10
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      if (!current.isEmpty) {
+        val seen = new mutable.HashSet[A]()
+        seen += e0
+        if (distinctSize > 1) {
+          seen += e1
+          if (distinctSize > 2) {
+            seen += e2
+            if (distinctSize > 3) {
+              seen += e3
+              if (distinctSize > 4) {
+                seen += e4
+                if (distinctSize > 5) {
+                  seen += e5
+                  if (distinctSize > 6) {
+                    seen += e6
+                    if (distinctSize > 7) {
+                      seen += e7
+                      if (distinctSize > 8) {
+                        seen += e8
+                        if (distinctSize > 9) {
+                          seen += e9
+                          if (distinctSize > 10) {
+                            seen += e10
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+        for (x <- current) {
+          if (seen.add(x)) b += x
+        }
+      }
+      b.result()
+    }
   }
 
   def patch[B >: A, That](from: Int, patch: GenSeq[B], replaced: Int)(implicit bf: CanBuildFrom[Repr, B, That]): That = {
