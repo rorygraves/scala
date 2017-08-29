@@ -9,7 +9,7 @@
 package scala
 package collection
 
-import immutable.{ List, Range }
+import immutable.{List, Range}
 import generic._
 import parallel.ParSeq
 import scala.math.Ordering
@@ -513,6 +513,328 @@ trait SeqLike[+A, +Repr] extends Any with IterableLike[A, Repr] with GenSeqLike[
       }
     }
     b.result()
+  }
+  //simple optimisations
+  def distinctTrivial: Repr = {
+    if (isEmpty) repr
+    else {
+      val b = newBuilder
+      val seen = mutable.HashSet[A]()
+      for (x <- this) {
+        if (!seen(x)) {
+          b += x
+          seen += x
+        }
+      }
+      b.result()
+    }
+  }
+  def distinctSimple: Repr = {
+    val size = this.sizeHintIfCheap
+    if (size == 0 || size == 1 || (size == -1 && isEmpty)) repr
+    else {
+      val b = newBuilder
+      val seen = new mutable.HashSet[A]()
+      var different = false
+      for (x <- this) {
+        if (seen.add(x)) b += x else different = true
+      }
+      if (different) b.result() else repr
+    }
+  }
+  def distinctSimpleWhile: Repr = {
+    val size = this.sizeHintIfCheap
+    if (size == 0 || size == 1 || (size == -1 && isEmpty)) repr
+    else {
+      val b = newBuilder
+      val seen = new mutable.HashSet[A]()
+      var current = thisCollection
+      var different = false
+      do {
+        val next = current.head
+        if (seen.add(next)) b += next else different = true
+        current = current.tail
+      } while (!current.isEmpty)
+      if (different) b.result() else repr
+    }
+  }
+
+  def distinct1: Repr = {
+    var b: mutable.Builder[A,Repr] = null
+    val size = this.sizeHintIfCheap
+    if ((size < 0 && nonEmpty) || size > 1 ) {
+      val seen = new mutable.LinkedHashSet[A]()
+      for (x <- this) {
+        if (seen.add(x)) {
+          if (b != null) b += x
+        } else b = newBuilder ++= seen
+      }
+    }
+    if (b == null) repr else b.result()
+  }
+  def distinctWhile: Repr = {
+    var b: mutable.Builder[A,Repr] = null
+    val size = this.sizeHintIfCheap
+    if ((size < 0 && nonEmpty) || size > 1 ) {
+      val seen = new mutable.LinkedHashSet[A]()
+      var current = thisCollection
+      do {
+        val next = current.head
+        if (seen.add(next)) {
+          if (b != null) b += next
+        } else b = newBuilder ++= seen
+        current = current.tail
+      } while (!current.isEmpty)
+    }
+    if (b == null) repr else b.result()
+  }
+  def distinct2: Repr = {
+    val size = this.sizeHintIfCheap
+    if (size == 0 || size == 1 || (size == -1 && isEmpty)) repr
+    else {
+      var actualSize = 0
+      val seen = new mutable.LinkedHashSet[A]()
+      for (x <- this) {
+        actualSize += 1
+        seen.add(x)
+      }
+      if (actualSize == seen.size) repr
+      else (newBuilder ++= seen).result
+    }
+  }
+  def distinct2While: Repr = {
+    val size = this.sizeHintIfCheap
+    if (size == 0 || size == 1 || (size == -1 && isEmpty)) repr
+    else {
+      var actualSize = 0
+      val seen = new mutable.LinkedHashSet[A]()
+      seen.sizeHint(size)
+      var current = thisCollection
+      do {
+        actualSize += 1
+        seen.add(current.head)
+        current = current.tail
+      } while (!current.isEmpty)
+      if (actualSize == seen.size) repr
+      else (newBuilder ++= seen).result
+    }
+  }
+
+  //could also try HAshSet and eager builder
+  //could also use java hashSet or LinkedHashSet
+  def distinctSmall: Repr = {
+    var distinctSize = 0
+    var actualSize = 0
+    var current = thisCollection
+
+    var e0: A = null.asInstanceOf[A]
+    var e1: A = null.asInstanceOf[A]
+    var e2: A = null.asInstanceOf[A]
+    var e3: A = null.asInstanceOf[A]
+    var e4: A = null.asInstanceOf[A]
+    var e5: A = null.asInstanceOf[A]
+    var e6: A = null.asInstanceOf[A]
+    var e7: A = null.asInstanceOf[A]
+    var e8: A = null.asInstanceOf[A]
+    var e9: A = null.asInstanceOf[A]
+    var e10: A = null.asInstanceOf[A]
+
+    while (distinctSize <= 10 && !current.isEmpty) {
+      val next = current.head
+      current = current.tail
+      actualSize += 1
+
+      distinctSize match {
+        case 0 =>
+          e0 = next
+          distinctSize = 1
+        case 1 => if (e0 != next) {
+          e1 = next
+          distinctSize = 2
+        }
+        case 2 => if (e0 != next && e1 != next) {
+          e2 = next
+          distinctSize = 3
+        }
+        case 3 => if (e0 != next && e1 != next && e2 != next) {
+          e3 = next
+          distinctSize = 4
+        }
+        case 4 => if (e0 != next && e1 != next && e2 != next && e3 != next) {
+          e4 = next
+          distinctSize = 5
+        }
+        case 5 => if (e0 != next && e1 != next && e2 != next && e3 != next && e4 != next) {
+          e5 = next
+          distinctSize = 6
+        }
+        case 6 => if (e0 != next && e1 != next && e2 != next && e3 != next && e4 != next && e5 != next) {
+          e6 = next
+          distinctSize = 7
+        }
+        case 7 => if (e0 != next && e1 != next && e2 != next && e3 != next && e4 != next && e5 != next && e6 != next) {
+          e7 = next
+          distinctSize = 8
+        }
+        case 8 => if (e0 != next && e1 != next && e2 != next && e3 != next && e4 != next && e5 != next && e6 != next && e7 != next) {
+          e8 = next
+          distinctSize = 9
+        }
+        case 9 => if (e0 != next && e1 != next && e2 != next && e3 != next && e4 != next && e5 != next && e6 != next && e7 != next && e8 != next) {
+          e9 = next
+          distinctSize = 10
+        }
+        case 10 => if (e0 != next && e1 != next && e2 != next && e3 != next && e4 != next && e5 != next && e6 != next && e7 != next && e8 != next && e9 != next) {
+          e10 = next
+          distinctSize = 11
+        }
+      }
+    }
+    if (current.isEmpty && distinctSize == actualSize) repr
+    else {
+      val b = newBuilder
+      b += e0
+      if (distinctSize > 1) {
+        b += e1
+        if (distinctSize > 2) {
+          b += e2
+          if (distinctSize > 3) {
+            b += e3
+            if (distinctSize > 4) {
+              b += e4
+              if (distinctSize > 5) {
+                b += e5
+                if (distinctSize > 6) {
+                  b += e6
+                  if (distinctSize > 7) {
+                    b += e7
+                    if (distinctSize > 8) {
+                      b += e8
+                      if (distinctSize > 9) {
+                        b += e9
+                        if (distinctSize > 10) {
+                          b += e10
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      if (!current.isEmpty) {
+        val seen = new mutable.HashSet[A]()
+        seen += e0
+        if (distinctSize > 1) {
+          seen += e1
+          if (distinctSize > 2) {
+            seen += e2
+            if (distinctSize > 3) {
+              seen += e3
+              if (distinctSize > 4) {
+                seen += e4
+                if (distinctSize > 5) {
+                  seen += e5
+                  if (distinctSize > 6) {
+                    seen += e6
+                    if (distinctSize > 7) {
+                      seen += e7
+                      if (distinctSize > 8) {
+                        seen += e8
+                        if (distinctSize > 9) {
+                          seen += e9
+                          if (distinctSize > 10) {
+                            seen += e10
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+        for (x <- current) {
+          if (seen.add(x)) b += x
+        }
+      }
+      b.result()
+    }
+  }
+
+  def distinctHelper = {
+    val size = this.sizeHintIfCheap
+    if (size == 0 || size == 1 || (size == -1 && isEmpty)) repr
+    else {
+
+      val hashes = new Array[Int](8)
+      val values = new Array[AnyRef](8)
+      var fallback: java.util.LinkedHashSet[A] = null
+
+      var distinctSize = 0
+      var actualSize = 0
+      var current = thisCollection
+
+      var next: A = null.asInstanceOf[A]
+
+      while (!current.isEmpty && distinctSize < 8) {
+        next = current.head
+        current = current.tail
+        actualSize += 1
+
+        val hash = current.##
+        var i = 0
+        var found = false
+        while (i < distinctSize && !found) {
+          found = hashes(i) == hash && values(i) == current
+          if (!found) i += 1
+        }
+        if (!found) {
+          distinctSize = i
+          if (i < 8) {
+            hashes(i) = hash
+            values(i) = next.asInstanceOf[AnyRef]
+          }
+        }
+      }
+      if (!current.isEmpty) {
+        fallback = new java.util.LinkedHashSet[A]
+        fallback.add(values(0).asInstanceOf[A])
+        fallback.add(values(1).asInstanceOf[A])
+        fallback.add(values(2).asInstanceOf[A])
+        fallback.add(values(3).asInstanceOf[A])
+        fallback.add(values(4).asInstanceOf[A])
+        fallback.add(values(5).asInstanceOf[A])
+        fallback.add(values(6).asInstanceOf[A])
+        fallback.add(values(7).asInstanceOf[A])
+        fallback.add(next)
+
+        while (!current.isEmpty) {
+          fallback.add(current.head)
+          current = current.tail
+          actualSize += 1
+        }
+        distinctSize = fallback.size()
+      }
+      if (actualSize == distinctSize) repr else {
+        val b = newBuilder
+        b.sizeHint(distinctSize)
+        if (fallback eq null) {
+          var i = 0
+          while (i < distinctSize) {
+            b += values(i).asInstanceOf[A]
+            i += 1
+          }
+        } else {
+          val it = fallback.iterator()
+          while (it.hasNext) b += it.next()
+        }
+        b.result()
+      }
+    }
   }
 
   def patch[B >: A, That](from: Int, patch: GenSeq[B], replaced: Int)(implicit bf: CanBuildFrom[Repr, B, That]): That = {

@@ -433,6 +433,10 @@ case object Nil extends List[Nothing] {
     case that1: scala.collection.GenSeq[_] => that1.isEmpty
     case _ => false
   }
+
+  override def length = 0
+  override def size = 0
+  override protected[collection] def sizeHintIfCheap = 0
 }
 
 /** A non empty list characterized by a head and a tail.
@@ -447,6 +451,8 @@ case object Nil extends List[Nothing] {
 final case class ::[B](override val head: B, private[scala] var tl: List[B]) extends List[B] {
   override def tail : List[B] = tl
   override def isEmpty: Boolean = false
+
+  override protected[collection] def sizeHintIfCheap = if (tl.isEmpty) 1 else -1
 }
 
 /** $factoryInfo
