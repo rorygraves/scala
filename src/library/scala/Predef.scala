@@ -628,6 +628,20 @@ private[scala] abstract class LowPriorityImplicits {
   /** @group conversions-array-to-wrapped-array */
   implicit def wrapUnitArray(xs: Array[Unit]): WrappedArray[Unit] = if (xs ne null) new WrappedArray.ofUnit(xs) else null
 
+  def genericWrapArray1[T](xs: T): WrappedArray[T] = (xs match {
+    case null => null
+    case x: AnyRef => new forCompiler.ofRef1[AnyRef](x)
+    case x: Int => new forCompiler.ofInt1(x)
+    case x: Double => new forCompiler.ofDouble1(x)
+    case x: Long => new forCompiler.ofLong1(x)
+    case x: Float => new forCompiler.ofFloat1(x)
+    case x: Char => new forCompiler.ofChar1(x)
+    case x: Byte => new forCompiler.ofByte1(x)
+    case x: Short => new forCompiler.ofShort1(x)
+    case x: Boolean => new forCompiler.ofBoolean1(x)
+    case x: Unit => new forCompiler.ofUnit1(x)
+  }).asInstanceOf[WrappedArray[T]]
+  def wrapRefArray1[T <: AnyRef](xs: T): WrappedArray[T] = new forCompiler.ofRef1[T](xs)
   def wrapIntArray1(xs: Int): WrappedArray[Int] = new forCompiler.ofInt1(xs)
   def wrapDoubleArray1(xs: Double): WrappedArray[Double] = new forCompiler.ofDouble1(xs)
   def wrapLongArray1(xs: Long): WrappedArray[Long] = new forCompiler.ofLong1(xs)

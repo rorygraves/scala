@@ -317,9 +317,10 @@ abstract class UnCurry extends InfoTransform
             def mkArray = mkArrayValue(args drop (formals.length - 1), varargsElemType)
             if (javaStyleVarArgs) mkArray
             else {
-              args.length match {
+              val varargs = args drop (formals.length - 1)
+              varargs.length match {
                 case 0 => gen.mkNil  // avoid needlessly double-wrapping an empty argument list
-                case 1 => argsToSequence (args drop (formals.length - 1), varargsElemType)
+                case 1 => argsToSequence (varargs, varargsElemType)
                 case _ => arrayToSequence (mkArray, varargsElemType)
               }
             }
