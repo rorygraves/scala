@@ -9,12 +9,11 @@
 package scala
 
 import scala.language.implicitConversions
-
-import scala.collection.{ mutable, immutable, generic }
+import scala.collection.{generic, immutable, mutable}
 import immutable.StringOps
-import mutable.ArrayOps
+import mutable.{ArrayOps, forCompiler}
 import generic.CanBuildFrom
-import scala.annotation.{ elidable, implicitNotFound }
+import scala.annotation.{elidable, implicitNotFound}
 import scala.annotation.elidable.ASSERTION
 import scala.io.StdIn
 
@@ -628,6 +627,16 @@ private[scala] abstract class LowPriorityImplicits {
   implicit def wrapBooleanArray(xs: Array[Boolean]): WrappedArray[Boolean] = if (xs ne null) new WrappedArray.ofBoolean(xs) else null
   /** @group conversions-array-to-wrapped-array */
   implicit def wrapUnitArray(xs: Array[Unit]): WrappedArray[Unit] = if (xs ne null) new WrappedArray.ofUnit(xs) else null
+
+  def wrapIntArray1(xs: Int): WrappedArray[Int] = new forCompiler.ofInt1(xs)
+  def wrapDoubleArray1(xs: Double): WrappedArray[Double] = new forCompiler.ofDouble1(xs)
+  def wrapLongArray1(xs: Long): WrappedArray[Long] = new forCompiler.ofLong1(xs)
+  def wrapFloatArray1(xs: Float): WrappedArray[Float] = new forCompiler.ofFloat1(xs)
+  def wrapCharArray1(xs: Char): WrappedArray[Char] = new forCompiler.ofChar1(xs)
+  def wrapByteArray1(xs: Byte): WrappedArray[Byte] = new forCompiler.ofByte1(xs)
+  def wrapShortArray1(xs: Short): WrappedArray[Short] = new forCompiler.ofShort1(xs)
+  def wrapBooleanArray1(xs: Boolean): WrappedArray[Boolean] = new forCompiler.ofBoolean1(xs)
+  def wrapUnitArray1(xs: Unit): WrappedArray[Unit] = new forCompiler.ofUnit1(xs)
 
   /** @group conversions-string */
   implicit def wrapString(s: String): WrappedString = if (s ne null) new WrappedString(s) else null

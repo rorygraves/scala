@@ -244,3 +244,135 @@ object WrappedArray {
     }
   }
 }
+
+package forCompiler {
+  final class ofRef1[T <: AnyRef](private val value: T) extends WrappedArray[T] with Serializable {
+    lazy val elemTag = ClassTag[T](value.getClass)
+    def length: Int = 1
+    def apply(index: Int): T = if (index == 0) value else throw new ArrayIndexOutOfBoundsException(s"only have one element, but access ${index}")
+    def update(index: Int, elem: T) { throw new UnsupportedOperationException("ofRef1 doesn't support update") }
+    override def hashCode = value.hashCode()
+    override def equals(that: Any) = that match {
+      case that: ofRef1[_] => value.equals(that.value)
+      case _ => super.equals(that)
+    }
+    override lazy val array = Array[T] { value } (elemTag)
+  }
+
+  final class ofByte1(private val value: Byte) extends WrappedArray[Byte] with Serializable {
+    def elemTag = ClassTag.Byte
+    def length: Int = 1
+    def apply(index: Int): Byte = if (index == 0) value else throw new ArrayIndexOutOfBoundsException(s"only have one element, but access ${index}")
+    def update(index: Int, elem: Byte) { throw new UnsupportedOperationException("ofRef1 doesn't support update") }
+    override def hashCode = value.hashCode()
+    override def equals(that: Any) = that match {
+      case that: ofByte1 => value == that.value
+      case _ => super.equals(that)
+    }
+    override lazy val array = Array[Byte] { value } (ClassTag.Byte)
+  }
+
+  final class ofShort1(private val value: Short) extends WrappedArray[Short] with Serializable {
+    def elemTag = ClassTag.Short
+    def length: Int = 1
+    def apply(index: Int): Short = if (index == 0) value else throw new ArrayIndexOutOfBoundsException(s"only have one element, but access ${index}")
+    def update(index: Int, elem: Short) { throw new UnsupportedOperationException("ofRef1 doesn't support update") }
+    override def hashCode = value.hashCode()
+    override def equals(that: Any) = that match {
+      case that: ofShort1 => value == that.value
+      case _ => super.equals(that)
+    }
+    override lazy val array = Array[Short] { value } (ClassTag.Short)
+  }
+
+  final class ofChar1(private val value: Char) extends WrappedArray[Char] with Serializable {
+    def elemTag = ClassTag.Char
+    def length: Int = 1
+    def apply(index: Int): Char = if (index == 0) value else throw new ArrayIndexOutOfBoundsException(s"only have one element, but access ${index}")
+    def update(index: Int, elem: Char) { throw new UnsupportedOperationException("ofRef1 doesn't support update") }
+    override def hashCode = value.hashCode()
+    override def equals(that: Any) = that match {
+      case that: ofChar1 => value == that.value
+      case _ => super.equals(that)
+    }
+    override lazy val array = Array[Char] { value } (ClassTag.Char)
+  }
+
+  final class ofInt1(private val value: Int) extends WrappedArray[Int] with Serializable {
+    def elemTag = ClassTag.Int
+    def length: Int = 1
+    def apply(index: Int): Int = if (index == 0) value else throw new ArrayIndexOutOfBoundsException(s"only have one element, but access ${index}")
+    def update(index: Int, elem: Int) { throw new UnsupportedOperationException("ofRef1 doesn't support update") }
+    override def hashCode = value.hashCode()
+    override def equals(that: Any) = that match {
+      case that: ofInt1 => value == that.value
+      case _ => super.equals(that)
+    }
+    override lazy val array = Array[Int] { value } (ClassTag.Int)
+  }
+
+  final class ofLong1(private val value: Long) extends WrappedArray[Long] with Serializable {
+    def elemTag = ClassTag.Long
+    def length: Int = 1
+    def apply(index: Int): Long = if (index == 0) value else throw new ArrayIndexOutOfBoundsException(s"only have one element, but access ${index}")
+    def update(index: Int, elem: Long) { throw new UnsupportedOperationException("ofRef1 doesn't support update") }
+    override def hashCode = value.hashCode()
+    override def equals(that: Any) = that match {
+      case that: ofLong1 => value == that.value
+      case _ => super.equals(that)
+    }
+    override lazy val array = Array[Long] { value } (ClassTag.Long)
+  }
+
+  final class ofFloat1(private val value: Float) extends WrappedArray[Float] with Serializable {
+    def elemTag = ClassTag.Float
+    def length: Int = 1
+    def apply(index: Int): Float = if (index == 0) value else throw new ArrayIndexOutOfBoundsException(s"only have one element, but access ${index}")
+    def update(index: Int, elem: Float) { throw new UnsupportedOperationException("ofRef1 doesn't support update") }
+    override def hashCode = value.hashCode()
+    override def equals(that: Any) = that match {
+      case that: ofFloat1 => value == that.value
+      case _ => super.equals(that)
+    }
+    override lazy val array = Array[Float] { value } (ClassTag.Float)
+  }
+
+  final class ofDouble1(private val value: Double) extends WrappedArray[Double] with Serializable {
+    def elemTag = ClassTag.Double
+    def length: Int = 1
+    def apply(index: Int): Double = if (index == 0) value else throw new ArrayIndexOutOfBoundsException(s"only have one element, but access ${index}")
+    def update(index: Int, elem: Double) { throw new UnsupportedOperationException("ofRef1 doesn't support update") }
+    override def hashCode = value.hashCode()
+    override def equals(that: Any) = that match {
+      case that: ofDouble1 => value == that.value
+      case _ => super.equals(that)
+    }
+    override lazy val array = Array[Double] { value } (ClassTag.Double)
+  }
+
+  final class ofBoolean1(private val value: Boolean) extends WrappedArray[Boolean] with Serializable {
+    def elemTag = ClassTag.Boolean
+    def length: Int = 1
+    def apply(index: Int): Boolean = if (index == 0) value else throw new ArrayIndexOutOfBoundsException(s"only have one element, but access ${index}")
+    def update(index: Int, elem: Boolean) { throw new UnsupportedOperationException("ofRef1 doesn't support update") }
+    override def hashCode = value.hashCode()
+    override def equals(that: Any) = that match {
+      case that: ofBoolean1 => value == that.value
+      case _ => super.equals(that)
+    }
+    override lazy val array = Array[Boolean] { value } (ClassTag.Boolean)
+  }
+
+  final class ofUnit1(private val value: Unit) extends WrappedArray[Unit] with Serializable {
+    def elemTag = ClassTag.Unit
+    def length: Int = 1
+    def apply(index: Int): Unit = if (index == 0) value else throw new ArrayIndexOutOfBoundsException(s"only have one element, but access ${index}")
+    def update(index: Int, elem: Unit) { throw new UnsupportedOperationException("ofRef1 doesn't support update") }
+    override def hashCode = value.hashCode()
+    override def equals(that: Any) = that match {
+      case that: ofUnit1 => true
+      case _ => super.equals(that)
+    }
+    override lazy val array = Array[Unit] { value } (ClassTag.Unit)
+  }
+}

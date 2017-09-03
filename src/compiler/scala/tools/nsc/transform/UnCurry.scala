@@ -260,6 +260,19 @@ abstract class UnCurry extends InfoTransform
           }
         }
 
+        def argsToSequence(args: List[Tree], elemtp: Type) = {
+          exitingUncurry {
+            localTyper.typedPos(pos) {
+              gen.mkMethodCall(
+                PredefModule,
+                TermName(wrapArrayMethodName(elemtp) + args.length.toString),
+                if (isPrimitiveValueType(elemtp)) Nil else List(elemtp),
+                args
+              )
+            }
+          }
+        }
+
         // when calling into java varargs, make sure it's an array - see bug #1360
         def sequenceToArray(tree: Tree) = {
           val toArraySym = tree.tpe member nme.toArray
@@ -291,8 +304,7 @@ abstract class UnCurry extends InfoTransform
          * will make us a superaccessor which also takes `Array` rather than `Seq`.
          * See scala/bug#10368 */
         val javaStyleVarArgs = isJavaVarArgsMethod(fun)
-        var suffix: Tree =
-          if (treeInfo isWildcardStarArgList args) {
+        var suffix: Tree = if (treeInfo isWildcardStarArgList args) {
             val Typed(tree, _) = args.last
             if (javaStyleVarArgs)
               if (tree.tpe.typeSymbol == ArrayClass) tree
@@ -304,8 +316,13 @@ abstract class UnCurry extends InfoTransform
           else {
             def mkArray = mkArrayValue(args drop (formals.length - 1), varargsElemType)
             if (javaStyleVarArgs) mkArray
-            else if (args.isEmpty) gen.mkNil  // avoid needlessly double-wrapping an empty argument list
-            else arrayToSequence(mkArray, varargsElemType)
+            else {
+              args.length match {
+                case 0 => gen.mkNil  // avoid needlessly double-wrapping an empty argument list
+                case 1 => argsToSequence (args drop (formals.length - 1), varargsElemType)
+                case _ => arrayToSequence (mkArray, varargsElemType)
+              }
+            }
           }
 
         exitingUncurry {
@@ -316,6 +333,7 @@ abstract class UnCurry extends InfoTransform
             }
           }
         }
+
         args.take(formals.length - 1) :+ (suffix setType formals.last)
       }
 
