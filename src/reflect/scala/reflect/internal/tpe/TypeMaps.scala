@@ -335,7 +335,7 @@ private[internal] trait TypeMaps {
     object rawToExistentialInJava extends TypeMap {
       def apply(tp: Type): Type = tp match {
         // any symbol that occurs in a java sig, not just java symbols
-        // see https://issues.scala-lang.org/browse/SI-2454?focusedCommentId=46618
+        // see https://github.com/scala/bug/issues/2454#issuecomment-292371833
         case TypeRef(pre, sym, List()) if !sym.typeParams.isEmpty =>
           val eparams = typeParamsToExistentials(sym, sym.typeParams)
           existentialAbstraction(eparams, TypeRef(pre, sym, eparams map (_.tpe)))
@@ -543,7 +543,7 @@ private[internal] trait TypeMaps {
       // reasons which aren't yet fully clear, we can arrive here holding a type
       // parameter whose owner is rhsSym, and which shares the name of an actual
       // type parameter of rhsSym, but which is not among the type parameters of
-      // rhsSym. One can see examples of it at SI-4365.
+      // rhsSym. One can see examples of it at scala/bug#4365.
       val argIndex = rhsSym.typeParams indexWhere (lhsSym.name == _.name)
       // don't be too zealous with the exceptions, see #2641
       if (argIndex < 0 && rhs.parents.exists(typeIsErroneous))
@@ -594,7 +594,7 @@ private[internal] trait TypeMaps {
         else if (!matchesPrefixAndClass(pre, clazz)(tparam.owner))
           loop(nextBase.prefix, clazz.owner)
         else nextBase match {
-          case NoType                         => loop(NoType, clazz.owner) // backstop for SI-2797, must remove `SingletonType#isHigherKinded` and run pos/t2797.scala to get here.
+          case NoType                         => loop(NoType, clazz.owner) // backstop for scala/bug#2797, must remove `SingletonType#isHigherKinded` and run pos/t2797.scala to get here.
           case applied @ TypeRef(_, _, _)     => correspondingTypeArgument(classParam, applied)
           case ExistentialType(eparams, qtpe) => captureSkolems(eparams) ; loop(qtpe, clazz)
           case t                              => abort(s"$tparam in ${tparam.owner} cannot be instantiated from ${seenFromPrefix.widen}")
@@ -698,18 +698,32 @@ private[internal] trait TypeMaps {
     // OPT this check was 2-3% of some profiles, demoted to -Xdev
     if (isDeveloper) assert(sameLength(from, to), "Unsound substitution from "+ from +" to "+ to)
 
+    private[this] var fromHasTermSymbol = false
+    private[this] var fromMin = Int.MaxValue
+    private[this] var fromMax = Int.MinValue
+    private[this] var fromSize = 0
+    from.foreach {
+      sym =>
+        fromMin = math.min(fromMin, sym.id)
+        fromMax = math.max(fromMax, sym.id)
+        fromSize += 1
+        if (sym.isTerm) fromHasTermSymbol = true
+    }
+
     /** Are `sym` and `sym1` the same? Can be tuned by subclasses. */
     protected def matches(sym: Symbol, sym1: Symbol): Boolean = sym eq sym1
 
     /** Map target to type, can be tuned by subclasses */
     protected def toType(fromtp: Type, tp: T): Type
 
+    // We don't need to recurse into the `restpe` below because we will encounter
+    // them in the next level of recursion, when the result of this method is passed to `mapOver`.
     protected def renameBoundSyms(tp: Type): Type = tp match {
-      case MethodType(ps, restp) =>
-        createFromClonedSymbols(ps, restp)((ps1, tp1) => copyMethodType(tp, ps1, renameBoundSyms(tp1)))
-      case PolyType(bs, restp) =>
-        createFromClonedSymbols(bs, restp)((ps1, tp1) => PolyType(ps1, renameBoundSyms(tp1)))
-      case ExistentialType(bs, restp) =>
+      case MethodType(ps, restp) if fromHasTermSymbol && fromContains(ps) =>
+        createFromClonedSymbols(ps, restp)((ps1, tp1) => copyMethodType(tp, ps1, tp1))
+      case PolyType(bs, restp) if fromContains(bs) =>
+        createFromClonedSymbols(bs, restp)((ps1, tp1) => PolyType(ps1, tp1))
+      case ExistentialType(bs, restp) if fromContains(bs) =>
         createFromClonedSymbols(bs, restp)(newExistentialType)
       case _ =>
         tp
@@ -722,10 +736,27 @@ private[internal] trait TypeMaps {
       else subst(tp, sym, from.tail, to.tail)
       )
 
+    private def fromContains(syms: List[Symbol]): Boolean = {
+      def fromContains(sym: Symbol): Boolean = {
+        // OPT Try cheap checks based on the range of symbol ids in from first.
+        //     Equivalent to `from.contains(sym)`
+        val symId = sym.id
+        val fromMightContainSym = symId >= fromMin && symId <= fromMax
+        fromMightContainSym && (
+          symId == fromMin || symId == fromMax || (fromSize > 2 && from.contains(sym))
+        )
+      }
+      var syms1 = syms
+      while (syms1 ne Nil) {
+        val sym = syms1.head
+        if (fromContains(sym)) return true
+        syms1 = syms1.tail
+      }
+      false
+    }
+
     def apply(tp0: Type): Type = if (from.isEmpty) tp0 else {
-      val boundSyms             = tp0.boundSyms
-      val tp1                   = if (boundSyms.nonEmpty && (boundSyms exists from.contains)) renameBoundSyms(tp0) else tp0
-      val tp                    = mapOver(tp1)
+      val tp                    = mapOver(renameBoundSyms(tp0))
       def substFor(sym: Symbol) = subst(tp, sym, from, to)
 
       tp match {
@@ -946,7 +977,7 @@ private[internal] trait TypeMaps {
      *
      * (1) If `T` is stable, we can just use that.
      *
-     * (2) SI-3873: it'd be unsound to instantiate `param.type` to an unstable `T`,
+     * (2) scala/bug#3873: it'd be unsound to instantiate `param.type` to an unstable `T`,
      * so we approximate to `X forSome {type X <: T with Singleton}` -- we can't soundly say more.
      */
     def apply(tp: Type): Type = tp match {
