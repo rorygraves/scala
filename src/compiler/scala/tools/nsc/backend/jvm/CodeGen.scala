@@ -17,21 +17,19 @@ abstract class CodeGen[G <: Global](val global: G) extends PerRunInit {
 
   private[this] lazy val beanInfoCodeGen: LazyVar[CodeGenImpl.JBeanInfoBuilder] = perRunLazy(this)(new CodeGenImpl.JBeanInfoBuilder())
 
-  def genUnit(unit: CompilationUnit): List[GeneratedClass] = {
-    val res = mutable.ListBuffer.empty[GeneratedClass]
-
+  def genUnit(unit: CompilationUnit, processor: GeneratedClassProcessor) = {
     def genClassDef(cd: ClassDef): Unit = try {
       val sym = cd.symbol
       val sourceFile = unit.source.file
-      res += GeneratedClass(genClass(cd, unit), sourceFile, isArtifact = false)
+      processor.startProcess (GeneratedClass(genClass(cd, unit), sourceFile, isArtifact = false))
       if (bTypes.isTopLevelModuleClass(sym)) {
         if (sym.companionClass == NoSymbol)
-          res += GeneratedClass(genMirrorClass(sym, unit), sourceFile, isArtifact = true)
+          processor.startProcess (GeneratedClass(genMirrorClass(sym, unit), sourceFile, isArtifact = true))
         else
           log(s"No mirror class for module with linked class: ${sym.fullName}")
       }
       if (sym hasAnnotation coreBTypes.BeanInfoAttr)
-        res += GeneratedClass(genBeanInfoClass(cd, unit), sourceFile, isArtifact = true)
+        processor.startProcess (GeneratedClass(genBeanInfoClass(cd, unit), sourceFile, isArtifact = true))
     } catch {
       case ex: Throwable =>
         ex.printStackTrace()
@@ -45,7 +43,6 @@ abstract class CodeGen[G <: Global](val global: G) extends PerRunInit {
     }
 
     genClassDefs(unit.body)
-    res.toList
   }
 
   def genClass(cd: ClassDef, unit: CompilationUnit): ClassNode = {

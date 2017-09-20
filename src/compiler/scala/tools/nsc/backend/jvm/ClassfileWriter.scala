@@ -1,31 +1,56 @@
 package scala.tools.nsc.backend.jvm
 
 import java.io.{DataOutputStream, IOException}
+import java.nio.channels.Channels
 import java.nio.charset.StandardCharsets
-import java.nio.file.Files
+import java.nio.file._
+import java.util
 import java.util.jar.Attributes.Name
 
 import scala.reflect.internal.util.{NoPosition, Statistics}
-import scala.reflect.io._
+import scala.reflect.io.PlainNioFile
 import scala.tools.nsc.backend.jvm.BTypes.InternalName
-import scala.tools.nsc.io.{AbstractFile, Jar, JarWriter}
+import scala.tools.nsc.io.AbstractFile
 
-class ClassfileWriter(frontendAccess: PostProcessorFrontendAccess) {
-  import frontendAccess.{backendReporting, compilerSettings}
+object ClassfileWriter {
 
-  // if non-null, asm text files are written to this directory
-  private val asmOutputDir: AbstractFile = getDirectoryOrNull(compilerSettings.genAsmpDirectory)
+  import scala.reflect.io.AbstractFile
 
-  // if non-null, classfiles are additionally written to this directory
-  private val dumpOutputDir: AbstractFile = getDirectoryOrNull(compilerSettings.dumpClassesDirectory)
+  private def getDirectory(dir: Option[String]): Option[Path] =
+    dir map { d => Paths.get(d) }
 
-  // if non-null, classfiles are written to a jar instead of the output directory
-  private val jarWriter: JarWriter = compilerSettings.singleOutputDirectory match {
-    case Some(f) if f hasExtension "jar" =>
+  def apply(frontendAccess: PostProcessorFrontendAccess): ClassfileWriter = {
+    import frontendAccess.{compilerSettings, backendReporting}
+
+    val basicOutputs = compilerSettings.singleOutputDirectory map {
+      basicWriter(frontendAccess, _)
+    } getOrElse {
+      val mappings: Map[AbstractFile, ClassfileWriter] = compilerSettings.multiOutputDirectory.map {
+        case ((src, target)) => src -> basicWriter(frontendAccess, target)
+      }(scala.collection.breakOut)
+      new MultiTargetClassfileWriter(frontendAccess, mappings)
+    }
+    val extras = {
+      val builder = List.newBuilder[ClassfileWriter]
+
+      getDirectory(compilerSettings.genAsmpDirectory) foreach {
+        builder += new AsmpClassfileWriter(frontendAccess, _)
+      }
+      getDirectory(compilerSettings.dumpClassesDirectory) foreach {
+        builder += new DumpClassfileWriter(frontendAccess, _)
+      }
+      builder.result()
+    }
+    if (extras isEmpty) basicOutputs else new ChainedClassfileWriter(basicOutputs, extras)
+  }
+
+  def basicWriter(frontendAccess: PostProcessorFrontendAccess, file: AbstractFile): ClassfileWriter = {
+    import frontendAccess.{compilerSettings, backendReporting}
+    if (file hasExtension "jar") {
       // If no main class was specified, see if there's only one
       // entry point among the classes going into the jar.
       val mainClass = compilerSettings.mainClass match {
-        case c @ Some(m) =>
+        case c@Some(m) =>
           backendReporting.log(s"Main-Class was specified: $m")
           c
 
@@ -42,90 +67,130 @@ class ClassfileWriter(frontendAccess: PostProcessorFrontendAccess) {
         }
       }
       val jarMainAttrs = mainClass.map(c => Name.MAIN_CLASS -> c).toList
-      new Jar(f.file).jarWriter(jarMainAttrs: _*)
-
-    case _ => null
+      val jarfile = new scala.tools.nsc.io.Jar(file.file).jarWriter(jarMainAttrs: _*)
+      new DefaultJarClassfileWriter(frontendAccess, jarfile)
+    }
+    else if (file.file eq null) new AbstractFileClassfileWriter(frontendAccess, file)
+    else new DefaultFileClassfileWriter(frontendAccess, file.file.toPath)
   }
 
-  private def getDirectoryOrNull(dir: Option[String]): AbstractFile =
-    dir.map(d => new PlainDirectory(Directory(Path(d)))).orNull
+  private class DefaultFileClassfileWriter(access: PostProcessorFrontendAccess, base: Path) extends ClassfileWriter(access) {
+    override def writeImpl(className: InternalName, bytes: Array[Byte], sourceFile: AbstractFile): Unit = {
+      val outFile = getPath(base, className, ".class")
+      writeBytes(outFile, bytes)
+    }
+  }
+  private class AbstractFileClassfileWriter(access: PostProcessorFrontendAccess, base: AbstractFile) extends ClassfileWriter(access) {
 
-  private def getFile(base: AbstractFile, clsName: String, suffix: String): AbstractFile = {
-    if (base.file != null) {
-      fastGetFile(base, clsName, suffix)
-    } else {
+    private def getFile(base: AbstractFile, clsName: String, suffix: String): AbstractFile = {
       def ensureDirectory(dir: AbstractFile): AbstractFile =
         if (dir.isDirectory) dir
         else throw new FileConflictException(s"${base.path}/$clsName$suffix: ${dir.path} is not a directory", dir)
+
       var dir = base
       val pathParts = clsName.split("[./]").toList
       for (part <- pathParts.init) dir = ensureDirectory(dir) subdirectoryNamed part
       ensureDirectory(dir) fileNamed pathParts.last + suffix
     }
-  }
 
-  private def fastGetFile(base: AbstractFile, clsName: String, suffix: String) = {
-    val index = clsName.lastIndexOf('/')
-    val (packageName, simpleName) = if (index > 0) {
-      (clsName.substring(0, index), clsName.substring(index + 1))
-    } else ("", clsName)
-    val directory = base.file.toPath.resolve(packageName)
-    new PlainNioFile(directory.resolve(simpleName + suffix))
-  }
+    private def writeBytes(outFile: AbstractFile, bytes: Array[Byte]): Unit = {
+        val out = new DataOutputStream(outFile.bufferedOutput)
+        try out.write(bytes, 0, bytes.length)
+        finally out.close()
+    }
 
-  private def writeBytes(outFile: AbstractFile, bytes: Array[Byte]): Unit = {
-    if (outFile.file != null) {
-      val outPath = outFile.file.toPath
-      try Files.write(outPath, bytes)
-      catch {
-        case _: java.nio.file.NoSuchFileException =>
-          Files.createDirectories(outPath.getParent)
-          Files.write(outPath, bytes)
-      }
-    } else {
-      val out = new DataOutputStream(outFile.bufferedOutput)
-      try out.write(bytes, 0, bytes.length)
-      finally out.close()
+    override def writeImpl(className: InternalName, bytes: Array[Byte], sourceFile: AbstractFile): Unit = {
+      val outFile = getFile(base, className, ".class")
+      writeBytes(outFile, bytes)
     }
   }
+  //TODO convert to raw jar access
+  private class DefaultJarClassfileWriter(access: PostProcessorFrontendAccess, jarWriter :scala.tools.nsc.io.JarWriter) extends ClassfileWriter(access) {
 
-  def write(className: InternalName, bytes: Array[Byte], sourceFile: AbstractFile): Unit = try {
-    val writeStart = Statistics.startTimer(BackendStats.bcodeWriteTimer)
-    if (jarWriter == null) {
-      val outFolder = compilerSettings.outputDirectoryFor(sourceFile)
-      val outFile = getFile(outFolder, className, ".class")
-      writeBytes(outFile, bytes)
-    } else {
+    override def writeImpl(className: InternalName, bytes: Array[Byte], sourceFile: AbstractFile): Unit = {
       val path = className + ".class"
       val out = jarWriter.newOutputStream(path)
       try out.write(bytes, 0, bytes.length)
       finally out.flush()
-    }
-    Statistics.stopTimer(BackendStats.bcodeWriteTimer, writeStart)
 
-    if (asmOutputDir != null) {
-      val asmpFile = getFile(asmOutputDir, className, ".asmp")
+    }
+    override def close() = jarWriter.close()
+
+  }
+  private class AsmpClassfileWriter(access: PostProcessorFrontendAccess, asmOutputDir: Path) extends ClassfileWriter(access) {
+
+    override def writeImpl(className: InternalName, bytes: Array[Byte], sourceFile: AbstractFile): Unit = {
+      val asmpFile = getPath(asmOutputDir, className, ".asmp")
       val asmpString = AsmUtils.textify(AsmUtils.readClass(bytes))
       writeBytes(asmpFile, asmpString.getBytes(StandardCharsets.UTF_8))
     }
+  }
+  private class DumpClassfileWriter(access: PostProcessorFrontendAccess, dumpOutputDir:Path) extends ClassfileWriter(access) {
 
-    if (dumpOutputDir != null) {
-      val dumpFile = getFile(dumpOutputDir, className, ".class")
+    override def writeImpl(className: InternalName, bytes: Array[Byte], sourceFile: AbstractFile): Unit = {
+      val dumpFile = getPath(dumpOutputDir, className, ".class")
       writeBytes(dumpFile, bytes)
     }
-  } catch {
-    case e: FileConflictException =>
-      backendReporting.error(NoPosition, s"error writing $className: ${e.getMessage}")
-    case e: java.nio.file.FileSystemException =>
-      if (compilerSettings.debug)
-        e.printStackTrace()
-      backendReporting.error(NoPosition, s"error writing $className: ${e.getClass.getName} ${e.getMessage}")
+  }
+  private class ChainedClassfileWriter(initial : ClassfileWriter, additions: List[ClassfileWriter]) extends ClassfileWriter(initial.frontendAccess) {
+    val all = initial :: additions
+
+    override def writeImpl(className: InternalName, bytes: Array[Byte], sourceFile: AbstractFile): Unit =
+      all foreach {_.write(className, bytes, sourceFile)}
+
+    override def close(): Unit = all foreach (_.close())
+  }
+  private class MultiTargetClassfileWriter(access: PostProcessorFrontendAccess, destinations : Map[scala.tools.nsc.io.AbstractFile, ClassfileWriter]) extends ClassfileWriter(access) {
+    import access.{backendReporting, compilerSettings}
+
+    override def writeImpl(className: InternalName, bytes: Array[Byte], sourceFile: AbstractFile): Unit = {
+      val outFolder = compilerSettings.outputDirectoryFor(sourceFile)
+      destinations(outFolder).writeImpl(className,bytes, sourceFile)
+    }
+
+    override def close(): Unit = destinations.values foreach (_.close())
+  }
+}
+
+sealed abstract class ClassfileWriter (val frontendAccess: PostProcessorFrontendAccess) {
+  import frontendAccess.{backendReporting, compilerSettings}
+  final def write(className: InternalName, bytes: Array[Byte], sourceFile: scala.reflect.io.AbstractFile): Unit =
+    try writeImpl(className, bytes, sourceFile) catch {
+      case e: FileConflictException =>
+        backendReporting.error(NoPosition, s"error writing $className: ${e.getMessage}")
+      case e: java.nio.file.FileSystemException =>
+        if (compilerSettings.debug)
+          e.printStackTrace()
+        backendReporting.error(NoPosition, s"error writing $className: ${e.getClass.getName} ${e.getMessage}")
+    }
+  def writeImpl(className: InternalName, bytes: Array[Byte], sourceFile: scala.reflect.io.AbstractFile): Unit
+  def close(): Unit = ()
+
+  protected final def getPath(path: Path, clsName: String, suffix: String) : Path = {
+    val index = clsName.lastIndexOf('/')
+    val (packageName, simpleName) = if (index > 0) {
+      (clsName.substring(0, index), clsName.substring(index + 1))
+    } else ("", clsName)
+    val directory = path.resolve(packageName)
+    directory.resolve(simpleName + suffix)
+  }
+  val writeOptions = util.EnumSet.of(StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING)
+  protected final def writeBytes(outPath: Path, bytes: Array[Byte]): Unit = {
+    try writeBytesImpl(outPath, bytes)
+    catch {
+      case _: java.nio.file.NoSuchFileException =>
+        Files.createDirectories(outPath.getParent)
+        writeBytesImpl(outPath, bytes)
+    }
   }
 
-  def close(): Unit = {
-    if (jarWriter != null) jarWriter.close()
+
+  private def writeBytesImpl(outPath: Path, bytes: Array[Byte]) = {
+    val stream = Channels.newOutputStream(outPath.getFileSystem.provider.newByteChannel(outPath, writeOptions))
+    stream.write(bytes)
+    stream.close()
   }
 }
 
 /** Can't output a file due to the state of the file system. */
-class FileConflictException(msg: String, val file: AbstractFile) extends IOException(msg)
+class FileConflictException(msg: String, val file: AnyRef) extends IOException(msg)

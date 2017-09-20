@@ -42,6 +42,7 @@ object PostProcessorFrontendAccess {
 
     def singleOutputDirectory: Option[AbstractFile]
     def outputDirectoryFor(src: AbstractFile): AbstractFile
+    def multiOutputDirectory: List[(AbstractFile,AbstractFile)]
 
     def mainClass: Option[String]
 
@@ -105,6 +106,8 @@ object PostProcessorFrontendAccess {
 
       val singleOutputDirectory: Option[AbstractFile] = s.outputDirs.getSingleOutput
       def outputDirectoryFor(src: AbstractFile): AbstractFile = frontendSynch(s.outputDirs.outputDirFor(src))
+      val multiOutputDirectory : List[(AbstractFile,AbstractFile)] = s.outputDirs.outputs
+
 
       val mainClass: Option[String] = s.mainClass.valueSetByUser
 
