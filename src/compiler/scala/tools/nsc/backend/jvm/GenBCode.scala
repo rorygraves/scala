@@ -27,7 +27,7 @@ abstract class GenBCode extends SubComponent {
 
   override def newPhase(prev: Phase) = new BCodePhase(prev)
 
-  class HackedClassHandler extends WritingClassHandler(null) {
+  class HackedClassHandler(w:WritingClassHandler, cfWriter:ClassfileWriter) extends WritingClassHandler(cfWriter) {
     private val bufferBuilder = List.newBuilder[GeneratedClass]
     override def initialise() = bufferBuilder.clear()
 
@@ -109,21 +109,23 @@ abstract class GenBCode extends SubComponent {
 
     override val erasedTypes = true
 
-    private val globalOptsEnabled = {
+    private var generatedHandler:GeneratedClassHandler = _
+    private def recalcGeneratedHandler = {
       import postProcessorFrontendAccess._
-      compilerSettings.optInlinerEnabled || compilerSettings.optClosureInvocations
-    }
-    private val generatedHandler:GeneratedClassHandler = {
       val cfWriter = postProcessor.classfileWriter.get
       val writer = settings.YmaxWriterThreads.value match {
         case 0 => new SyncWritingClassHandler(cfWriter)
         case x => new AsyncWritingClassHandler(cfWriter, x)
       }
 
-      if (globalOptsEnabled) new GlobalOptimisingGeneratedClassHandler(writer)
+      if (compilerSettings.optInlinerEnabled || compilerSettings.optClosureInvocations)
+        new GlobalOptimisingGeneratedClassHandler(writer)
       else writer
 
-      new HackedClassHandler()
+      backendReporting.inform(s"writer $writer")
+      backendReporting.inform(s"cfWriter $cfWriter")
+
+      new HackedClassHandler(writer, cfWriter)
     }
     def apply(unit: CompilationUnit): Unit = {
       codeGen.genUnit(unit, generatedHandler)
@@ -161,7 +163,7 @@ abstract class GenBCode extends SubComponent {
       codeGen.initialize()
       postProcessorFrontendAccess.initialize()
       postProcessor.initialize()
-      generatedHandler.initialise()
+      generatedHandler = recalcGeneratedHandler
       Statistics.stopTimer(BackendStats.bcodeInitTimer, initStart)
     }
   }
