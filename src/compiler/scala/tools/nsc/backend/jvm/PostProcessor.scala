@@ -41,53 +41,53 @@ abstract class PostProcessor extends PerRunInit {
     inlinerHeuristics.initialize()
   }
 
-  def postProcessAndSendToDisk(classes: Traversable[GeneratedClass]): Unit = {
-    runGlobalOptimizations(classes)
+  def sendToDisk(clazz: GeneratedClass, writer: ClassfileWriter): Unit = {
 
-    for (GeneratedClass(classNode, sourceFile, isArtifact) <- classes) {
-      val bytes = try {
-        if (!isArtifact) {
-          localOptimizations(classNode)
-          val lambdaImplMethods = backendUtils.getIndyLambdaImplMethods(classNode.name)
-          if (lambdaImplMethods.nonEmpty)
-            backendUtils.addLambdaDeserialize(classNode, lambdaImplMethods)
-        }
-        setInnerClasses(classNode)
-        serializeClass(classNode)
-      } catch {
-        case e: java.lang.RuntimeException if e.getMessage != null && (e.getMessage contains "too large!") =>
-          backendReporting.error(NoPosition,
-            s"Could not write class ${classNode.name} because it exceeds JVM code size limits. ${e.getMessage}")
-          null
-        case ex: Throwable =>
-          ex.printStackTrace()
-          backendReporting.error(NoPosition, s"Error while emitting ${classNode.name}\n${ex.getMessage}")
-          null
+    val GeneratedClass(classNode, sourceFile, isArtifact) = clazz
+    val bytes = try {
+      if (!isArtifact) {
+        localOptimizations(classNode)
+        val lambdaImplMethods = backendUtils.getIndyLambdaImplMethods(classNode.name)
+        if (lambdaImplMethods.nonEmpty)
+          backendUtils.addLambdaDeserialize(classNode, lambdaImplMethods)
       }
+      setInnerClasses(classNode)
+      serializeClass(classNode)
+    } catch {
+      case e: java.lang.RuntimeException if e.getMessage != null && (e.getMessage contains "too large!") =>
+        backendReporting.error(NoPosition,
+          s"Could not write class ${classNode.name} because it exceeds JVM code size limits. ${e.getMessage}")
+        null
+      case ex: Throwable =>
+        ex.printStackTrace()
+        backendReporting.error(NoPosition, s"Error while emitting ${classNode.name}\n${ex.getMessage}")
+        null
+    }
 
-      if (bytes != null) {
-        if (AsmUtils.traceSerializedClassEnabled && classNode.name.contains(AsmUtils.traceSerializedClassPattern))
-          AsmUtils.traceClass(bytes)
+    if (bytes != null) {
+      if (AsmUtils.traceSerializedClassEnabled && classNode.name.contains(AsmUtils.traceSerializedClassPattern))
+        AsmUtils.traceClass(bytes)
 
-        classfileWriter.get.write(classNode.name, bytes, sourceFile)
-      }
+      writer.write(classNode.name, bytes, sourceFile)
     }
   }
 
   def runGlobalOptimizations(classes: Traversable[GeneratedClass]): Unit = {
     // add classes to the bytecode repo before building the call graph: the latter needs to
     // look up classes and methods in the code repo.
-    if (compilerSettings.optAddToBytecodeRepository) for (c <- classes) {
-      byteCodeRepository.add(c.classNode, Some(c.sourceFile.canonicalPath))
+    if (compilerSettings.optAddToBytecodeRepository) {
+      for (c <- classes) {
+        byteCodeRepository.add(c.classNode, Some(c.sourceFile.canonicalPath))
+      }
+      if (compilerSettings.optBuildCallGraph) for (c <- classes if !c.isArtifact) {
+        // skip call graph for mirror / bean: we don't inline into them, and they are not referenced from other classes
+        callGraph.addClass(c.classNode)
+      }
+      if (compilerSettings.optInlinerEnabled)
+        inliner.runInliner()
+      if (compilerSettings.optClosureInvocations)
+        closureOptimizer.rewriteClosureApplyInvocations()
     }
-    if (compilerSettings.optBuildCallGraph) for (c <- classes if !c.isArtifact) {
-      // skip call graph for mirror / bean: we don't inline into them, and they are not referenced from other classes
-      callGraph.addClass(c.classNode)
-    }
-    if (compilerSettings.optInlinerEnabled)
-      inliner.runInliner()
-    if (compilerSettings.optClosureInvocations)
-      closureOptimizer.rewriteClosureApplyInvocations()
   }
 
   def localOptimizations(classNode: ClassNode): Unit = {
