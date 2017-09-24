@@ -30,114 +30,13 @@ abstract class GenBCode extends SubComponent {
 
   override def newPhase(prev: Phase) = new BCodePhase(prev)
 
-  class HackedClassHandler(w:WritingClassHandler, cfWriter:ClassfileWriter) extends WritingClassHandler(cfWriter) {
-    private val bufferBuilder = List.newBuilder[GeneratedClass]
-    override def initialise() = bufferBuilder.clear()
-
-    override def pending(): List[(GeneratedClass, Future[Unit])] = bufferBuilder.result() map {(_,null)}
-
-    override def startProcess(clazz: GeneratedClass): Unit = {
-      bufferBuilder += clazz
-    }
-  }
-  private[GenBCode] sealed abstract class GeneratedClassHandler extends GeneratedClassProcessor{
-    def globalOptimise()
-
-    def writer: WritingClassHandler
-
-    def initialise() = ()
-  }
-
-  private class GlobalOptimisingGeneratedClassHandler(val writer: WritingClassHandler) extends GeneratedClassHandler {
-    private val bufferBuilder = List.newBuilder[GeneratedClass]
-
-    override def startProcess(clazz: GeneratedClass): Unit = bufferBuilder += clazz
-
-    override def globalOptimise(): Unit = {
-      val allClasses = bufferBuilder.result()
-      postProcessor.runGlobalOptimizations(allClasses)
-      allClasses foreach writer.startProcess
-    }
-
-    override def initialise(): Unit = {
-      bufferBuilder.clear()
-      writer.initialise()
-    }
-  }
-
-  sealed abstract class WritingClassHandler(val cfWriter: ClassfileWriter) extends GeneratedClassHandler{
-    def pending(): List[(GeneratedClass, Future[Unit])]
-    final override def globalOptimise(): Unit = ()
-    final def writer = this
-  }
-  private class SyncWritingClassHandler(cfWriter: ClassfileWriter) extends WritingClassHandler(cfWriter) {
-    private val bufferBuilder = List.newBuilder[GeneratedClass]
-    override def initialise(): Unit = {
-      super.initialise()
-      bufferBuilder.clear()
-    }
-    override def startProcess(clazz: GeneratedClass): Unit = {
-      bufferBuilder += clazz
-    }
-    def pending(): List[(GeneratedClass, Future[Unit])] = {
-      bufferBuilder.result() map { clazz:GeneratedClass =>
-        val promise = Promise.fromTry(scala.util.Try(postProcessor.sendToDisk(clazz, cfWriter)))
-        (clazz, promise.future)
-      }
-    }
-  }
-
-  private class AsyncWritingClassHandler(cfWriter: ClassfileWriter, maxThreads:Int) extends WritingClassHandler(cfWriter) {
-    private val bufferBuilder = List.newBuilder[(GeneratedClass, Future[Unit])]
-    private implicit val ec = ExecutionContext.fromExecutor(java.util.concurrent.Executors.newFixedThreadPool(maxThreads))
-
-    override def startProcess(clazz: GeneratedClass): Unit = {
-      val future = Future(postProcessor.sendToDisk(clazz, cfWriter))
-      bufferBuilder += ((clazz, future))
-    }
-    def pending(): List[(GeneratedClass, Future[Unit])] = {
-      val result = bufferBuilder.result()
-      bufferBuilder.clear()
-      result
-    }
-    override def initialise(): Unit = {
-      super.initialise()
-      bufferBuilder.clear()
-    }
-
-  }
 
   class BCodePhase(prev: Phase) extends StdPhase(prev) {
     override def description = "Generate bytecode from ASTs using the ASM library"
 
     override val erasedTypes = true
 
-    private var generatedHandler:GeneratedClassHandler = _
-    private def recalcGeneratedHandler = {
-      import postProcessorFrontendAccess._
-      val cfWriter = postProcessor.classfileWriter.get
-      val writer = settings.YmaxWriterThreads.value match {
-        case 0 => new SyncWritingClassHandler(cfWriter)
-        case x => new AsyncWritingClassHandler(cfWriter, x)
-      }
-
-      val res = if (compilerSettings.optInlinerEnabled || compilerSettings.optClosureInvocations)
-        new GlobalOptimisingGeneratedClassHandler(writer)
-      else writer
-
-      backendReporting.inform(s"writer $writer")
-      backendReporting.inform(s"cfWriter $cfWriter")
-      backendReporting.inform(s"res $res")
-
-      backendReporting.inform(s"optAddToBytecodeRepository ${compilerSettings.optAddToBytecodeRepository}")
-      backendReporting.inform(s"optBuildCallGraph ${compilerSettings.optBuildCallGraph}")
-      backendReporting.inform(s"optInlinerEnabled ${compilerSettings.optInlinerEnabled}")
-      backendReporting.inform(s"optClosureInvocations ${compilerSettings.optClosureInvocations}")
-
-      res
-
-      new HackedClassHandler(writer, cfWriter)
-    }
+    private var generatedHandler:ClassHandler = _
     def apply(unit: CompilationUnit): Unit = {
       codeGen.genUnit(unit, generatedHandler)
     }
@@ -151,7 +50,7 @@ abstract class GenBCode extends SubComponent {
             super.run() // invokes `apply` for each compilation unit
           }
           generatedHandler.globalOptimise()
-          generatedHandler.writer.pending().foreach {
+          generatedHandler.pending().foreach {
             case ((clazz, result)) =>
               postProcessor.sendToDisk(clazz, writer)
           }
@@ -174,7 +73,7 @@ abstract class GenBCode extends SubComponent {
       codeGen.initialize()
       postProcessorFrontendAccess.initialize()
       postProcessor.initialize()
-      generatedHandler = recalcGeneratedHandler
+      generatedHandler = ClassHandler(settings, postProcessor)
       Statistics.stopTimer(BackendStats.bcodeInitTimer, initStart)
     }
   }
@@ -189,7 +88,3 @@ object GenBCode {
   val CLASS_CONSTRUCTOR_NAME = "<clinit>"
   val INSTANCE_CONSTRUCTOR_NAME = "<init>"
 }
-sealed abstract class GeneratedClassProcessor {
-  def startProcess(clazz: GeneratedClass): Unit
-}
-
