@@ -40,8 +40,8 @@ private[jvm] object ClassHandler {
     println(s"YmaxWriterThreads ${settings.YmaxWriterThreads.value}")
 
     res
-
-    new HackedClassHandler(postProcessor, writer, cfWriter)
+//
+//    new HackedClassHandler(postProcessor, writer, cfWriter)
   }
 
 
