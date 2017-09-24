@@ -7,9 +7,12 @@ package scala.tools.nsc
 package backend
 package jvm
 
-import scala.concurrent.{ExecutionContext, Future, Promise}
+import scala.concurrent.duration.Duration
+import scala.concurrent.{Await, ExecutionContext, Future, Promise}
 import scala.reflect.internal.util.Statistics
 import scala.tools.asm.Opcodes
+import scala.util.{Failure, Success}
+import scala.util.control.NonFatal
 
 abstract class GenBCode extends SubComponent {
   self =>
@@ -118,12 +121,20 @@ abstract class GenBCode extends SubComponent {
         case x => new AsyncWritingClassHandler(cfWriter, x)
       }
 
-      if (compilerSettings.optInlinerEnabled || compilerSettings.optClosureInvocations)
+      val res = if (compilerSettings.optInlinerEnabled || compilerSettings.optClosureInvocations)
         new GlobalOptimisingGeneratedClassHandler(writer)
       else writer
 
       backendReporting.inform(s"writer $writer")
       backendReporting.inform(s"cfWriter $cfWriter")
+      backendReporting.inform(s"res $res")
+
+      backendReporting.inform(s"optAddToBytecodeRepository ${compilerSettings.optAddToBytecodeRepository}")
+      backendReporting.inform(s"optBuildCallGraph ${compilerSettings.optBuildCallGraph}")
+      backendReporting.inform(s"optInlinerEnabled ${compilerSettings.optInlinerEnabled}")
+      backendReporting.inform(s"optClosureInvocations ${compilerSettings.optClosureInvocations}")
+
+      res
 
       new HackedClassHandler(writer, cfWriter)
     }
