@@ -40,20 +40,6 @@ private[jvm] object ClassHandler {
     println(s"YmaxWriterThreads ${settings.YmaxWriterThreads.value}")
 
     res
-//
-//    new HackedClassHandler(postProcessor, writer, cfWriter)
-  }
-
-
-  class HackedClassHandler(val postProcessor: PostProcessor, w:WritingClassHandler, cfWriter:ClassfileWriter) extends WritingClassHandler {
-    private val bufferBuilder = List.newBuilder[GeneratedClass]
-    override def initialise() = bufferBuilder.clear()
-
-    override def pending(): List[(GeneratedClass, Future[Unit])] = bufferBuilder.result() map {(_,null)}
-
-    override def startProcess(clazz: GeneratedClass): Unit = {
-      bufferBuilder += clazz
-    }
   }
 
   private class GlobalOptimisingGeneratedClassHandler(val postProcessor: PostProcessor, val underlying: WritingClassHandler) extends ClassHandler {
@@ -91,10 +77,12 @@ private[jvm] object ClassHandler {
       bufferBuilder += clazz
     }
     def pending(): List[(GeneratedClass, Future[Unit])] = {
-      bufferBuilder.result() map { clazz:GeneratedClass =>
+      val result = bufferBuilder.result() map { clazz:GeneratedClass =>
         val promise = Promise.fromTry(scala.util.Try(postProcessor.sendToDisk(clazz, cfWriter)))
         (clazz, promise.future)
       }
+      bufferBuilder.clear()
+      result
     }
     override def toString: String = s"SyncWriting[$cfWriter]"
   }

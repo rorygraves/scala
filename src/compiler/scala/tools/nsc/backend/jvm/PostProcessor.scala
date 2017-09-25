@@ -47,9 +47,9 @@ abstract class PostProcessor extends PerRunInit {
     val bytes = try {
       if (!isArtifact) {
         localOptimizations(classNode)
-        val lambdaImplMethods = backendUtils.getIndyLambdaImplMethods(classNode.name)
-        if (lambdaImplMethods.nonEmpty)
-          backendUtils.addLambdaDeserialize(classNode, lambdaImplMethods)
+        backendUtils.onIndyLambdaImplMethodIfPresent(classNode.name) {
+          methods => if (methods.nonEmpty) backendUtils.addLambdaDeserialize(classNode, methods)
+        }
       }
       setInnerClasses(classNode)
       serializeClass(classNode)
