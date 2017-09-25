@@ -100,10 +100,12 @@ private[jvm] object ClassHandler {
       bufferBuilder += clazz
     }
     def pending(): List[(GeneratedClass, Future[Unit])] = {
-      bufferBuilder.result() map { clazz:GeneratedClass =>
+      val result = bufferBuilder.result() map { clazz:GeneratedClass =>
         val promise = Promise.fromTry(scala.util.Try(postProcessor.sendToDisk(clazz, cfWriter)))
         (clazz, promise.future)
       }
+      bufferBuilder.clear()
+      result
     }
     override def toString: String = s"SyncWriting[$cfWriter]"
   }
