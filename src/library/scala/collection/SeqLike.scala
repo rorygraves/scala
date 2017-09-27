@@ -515,17 +515,34 @@ trait SeqLike[+A, +Repr] extends Any with IterableLike[A, Repr] with GenSeqLike[
     b.result()
   }
   //simple optimisations
-//  def distinctSimple: Repr = {
-  def distinct: Repr = {
+  def distinctSimple: Repr = {
     val size = this.sizeHintIfCheap
     if (size == 0 || size == 1 || (size == -1 && isEmpty)) this.asInstanceOf[Repr]
     else {
       val b = newBuilder
       val seen = new mutable.HashSet[A]()
+      var different = false
       for (x <- this) {
-        if (seen.add(x)) b += x
+        if (seen.add(x)) b += x else different = true
       }
-      b.result()
+      if (different) b.result() else this.asInstanceOf[Repr]
+    }
+  }
+//  def distinctSimpleWhile: Repr = {
+  def distinctSimpleWhile: Repr = {
+    val size = this.sizeHintIfCheap
+    if (size == 0 || size == 1 || (size == -1 && isEmpty)) this.asInstanceOf[Repr]
+    else {
+      val b = newBuilder
+      val seen = new mutable.HashSet[A]()
+      var current = thisCollection
+      var different = false
+      do {
+        val next = current.head
+        if (seen.add(next)) b += next else different = true
+        current = current.tail
+      } while (!current.isEmpty)
+      if (different) b.result() else this.asInstanceOf[Repr]
     }
   }
 
@@ -540,22 +557,56 @@ trait SeqLike[+A, +Repr] extends Any with IterableLike[A, Repr] with GenSeqLike[
         } else b = newBuilder ++= seen
       }
     }
-    if (b == null) repr else b.result()
+    if (b == null) this.asInstanceOf[Repr] else b.result()
   }
-  def distinct2: Repr = {
-    var actualSize = 0
+  //def distinct1While: Repr = {
+  def distinct: Repr = {
+    var b: mutable.Builder[A,Repr] = null
     val size = this.sizeHintIfCheap
-    if (size == 0 || size == 1 || (size == -1 && isEmpty)) this.asInstanceOf[Repr]
-    else {
+    if ((size < 0 && nonEmpty) || size > 1 ) {
       val seen = new mutable.LinkedHashSet[A]()
-      for (x <- this) {
-        actualSize += 1
-        seen.add(x)
-      }
-      if (actualSize == seen.size) this.asInstanceOf[Repr]
-      else (newBuilder ++= seen).result
+      var current = thisCollection
+      do {
+        val next = current.head
+        if (seen.add(next)) {
+          if (b != null) b += next
+        } else b = newBuilder ++= seen
+        current = current.tail
+      } while (!current.isEmpty)
     }
+    if (b == null) this.asInstanceOf[Repr] else b.result()
   }
+    def distinct2: Repr = {
+      val size = this.sizeHintIfCheap
+      if (size == 0 || size == 1 || (size == -1 && isEmpty)) this.asInstanceOf[Repr]
+      else {
+        var actualSize = 0
+        val seen = new mutable.LinkedHashSet[A]()
+        for (x <- this) {
+          actualSize += 1
+          seen.add(x)
+        }
+        if (actualSize == seen.size) this.asInstanceOf[Repr]
+        else (newBuilder ++= seen).result
+      }
+    }
+    def distinct2While: Repr = {
+      val size = this.sizeHintIfCheap
+      if (size == 0 || size == 1 || (size == -1 && isEmpty)) this.asInstanceOf[Repr]
+      else {
+        var actualSize = 0
+        val seen = new mutable.LinkedHashSet[A]()
+        seen.sizeHint(size)
+        var current = thisCollection
+        do {
+          val next = current.head
+          actualSize += 1
+          seen.add(next)
+        } while (!current.isEmpty)
+        if (actualSize == seen.size) this.asInstanceOf[Repr]
+        else (newBuilder ++= seen).result
+      }
+    }
   def distinctSmall: Repr = {
     var distinctSize = 0
     var actualSize = 0
