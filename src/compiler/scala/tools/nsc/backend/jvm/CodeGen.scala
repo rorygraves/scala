@@ -42,7 +42,9 @@ abstract class CodeGen[G <: Global](val global: G) extends PerRunInit {
       case cd: ClassDef => genClassDef(cd)
     }
 
+    processor.startUnit()
     genClassDefs(unit.body)
+    processor.endUnit()
   }
 
   def genClass(cd: ClassDef, unit: CompilationUnit): ClassNode = {

@@ -1,9 +1,13 @@
 package scala.tools.nsc.backend.jvm
 
-import scala.concurrent.{ExecutionContext, Future, Promise}
+import scala.collection.mutable.ListBuffer
+import scala.concurrent.duration.Duration
+import scala.concurrent.{Await, ExecutionContext, Future, Promise}
 import scala.tools.nsc.Settings
 
 private[jvm] sealed trait ClassHandler {
+  def startUnit() = ()
+  def endUnit() = ()
 
   def startProcess(clazz: GeneratedClass): Unit
 
@@ -40,8 +44,8 @@ private[jvm] object ClassHandler {
     println(s"YmaxWriterThreads ${settings.YmaxWriterThreads.value}")
 
     res
-//
-//    new HackedClassHandler(postProcessor, writer, cfWriter)
+
+    new HackedClassHandler(postProcessor, writer, cfWriter)
   }
 
 
@@ -49,7 +53,12 @@ private[jvm] object ClassHandler {
     private val bufferBuilder = List.newBuilder[GeneratedClass]
     override def initialise() = bufferBuilder.clear()
 
-    override def pending(): List[(GeneratedClass, Future[Unit])] = bufferBuilder.result() map {(_,null)}
+    override def pending(): List[(GeneratedClass, Future[Unit])] = {
+      bufferBuilder.result() foreach (postProcessor.sendToDisk(_, cfWriter))
+      bufferBuilder.result() map {
+          (_,Future.successful(()))
+      }
+    }
 
     override def startProcess(clazz: GeneratedClass): Unit = {
       bufferBuilder += clazz
@@ -104,9 +113,9 @@ private[jvm] object ClassHandler {
     private implicit val ec = ExecutionContext.fromExecutor(java.util.concurrent.Executors.newFixedThreadPool(maxThreads))
 
     override def startProcess(clazz: GeneratedClass): Unit = {
-      val future = Future(postProcessor.sendToDisk(clazz, cfWriter))
-      bufferBuilder += ((clazz, future))
+      inUnit += clazz
     }
+
     def pending(): List[(GeneratedClass, Future[Unit])] = {
       val result = bufferBuilder.result()
       bufferBuilder.clear()
@@ -118,6 +127,21 @@ private[jvm] object ClassHandler {
     }
     override def toString: String = s"AsyncWriting[threads:$maxThreads writer:$cfWriter]"
 
+    val inUnit = ListBuffer.empty[GeneratedClass]
+
+    override def startUnit(): Unit = super.startUnit()
+
+    override def endUnit(): Unit = {
+      inUnit foreach { clazz =>
+        val future = Future(postProcessor.sendToDisk(clazz, cfWriter))
+        bufferBuilder += ((clazz, future))
+      }
+      inUnit.clear()
+      //temp hack to ensure single threaded access to data
+      bufferBuilder.result().foreach {
+        case (cls, f) => Await.result(f, Duration.Inf)
+      }
+    }
   }
 
 
