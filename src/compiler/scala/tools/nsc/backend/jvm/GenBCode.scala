@@ -83,7 +83,7 @@ abstract class GenBCode extends SubComponent {
       codeGen.initialize()
       postProcessorFrontendAccess.initialize()
       postProcessor.initialize()
-      generatedHandler = ClassHandler(settings, postProcessor)
+      generatedHandler = ClassHandler(settings, postProcessor, postProcessorFrontendAccess.frontendLock)
       Statistics.stopTimer(BackendStats.bcodeInitTimer, initStart)
     }
   }

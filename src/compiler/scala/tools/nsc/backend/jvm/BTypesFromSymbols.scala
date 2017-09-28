@@ -74,6 +74,7 @@ abstract class BTypesFromSymbols[G <: Global](val global: G) extends BTypes {
    * in the classfile method signature.
    */
   final def classBTypeFromSymbol(sym: Symbol): ClassBType = {
+    assert(Thread.holdsLock(frontendAccess.frontendLock))
     // For each java class, the scala compiler creates a class and a module (thus a module class).
     // If the `sym` is a java module class, we use the java class instead. This ensures that the
     // ClassBType is created from the main class (instead of the module class).

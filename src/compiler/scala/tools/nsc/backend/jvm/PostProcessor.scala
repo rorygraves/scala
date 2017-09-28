@@ -41,13 +41,11 @@ abstract class PostProcessor extends PerRunInit {
     inlinerHeuristics.initialize()
   }
 
-  object lock
-
   def sendToDisk(clazz: GeneratedClass, writer: ClassfileWriter): Unit = {
 
     val GeneratedClass(classNode, sourceFile, isArtifact) = clazz
     val bytes = try {
-      lock.synchronized {
+      frontendAccess.frontendSynch {
         if (!isArtifact) {
           localOptimizations(classNode)
           backendUtils.onIndyLambdaImplMethodIfPresent(classNode.name) {

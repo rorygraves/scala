@@ -18,18 +18,23 @@ abstract class CodeGen[G <: Global](val global: G) extends PerRunInit {
   private[this] lazy val beanInfoCodeGen: LazyVar[CodeGenImpl.JBeanInfoBuilder] = perRunLazy(this)(new CodeGenImpl.JBeanInfoBuilder())
 
   def genUnit(unit: CompilationUnit, processor: ClassHandler) = {
+    val sourceFile = unit.source.file
     def genClassDef(cd: ClassDef): Unit = try {
       val sym = cd.symbol
-      val sourceFile = unit.source.file
-      processor.startProcess (GeneratedClass(genClass(cd, unit), sourceFile, isArtifact = false))
+      val mainClassNode = processor.lock.synchronized(genClass(cd, unit))
+      processor.startProcess (GeneratedClass(mainClassNode, sourceFile, isArtifact = false))
       if (bTypes.isTopLevelModuleClass(sym)) {
-        if (sym.companionClass == NoSymbol)
-          processor.startProcess (GeneratedClass(genMirrorClass(sym, unit), sourceFile, isArtifact = true))
+        if (sym.companionClass == NoSymbol) {
+          val mirrorClassNode = processor.lock.synchronized(genMirrorClass(sym, unit))
+          processor.startProcess(GeneratedClass(mirrorClassNode, sourceFile, isArtifact = true))
+        }
         else
           log(s"No mirror class for module with linked class: ${sym.fullName}")
       }
-      if (sym hasAnnotation coreBTypes.BeanInfoAttr)
-        processor.startProcess (GeneratedClass(genBeanInfoClass(cd, unit), sourceFile, isArtifact = true))
+      if (sym hasAnnotation coreBTypes.BeanInfoAttr) {
+        val beanClassNode = processor.lock.synchronized(genBeanInfoClass(cd, unit))
+        processor.startProcess (GeneratedClass(beanClassNode, sourceFile, isArtifact = true))
+      }
     } catch {
       case ex: Throwable =>
         ex.printStackTrace()
@@ -50,6 +55,7 @@ abstract class CodeGen[G <: Global](val global: G) extends PerRunInit {
   def genClass(cd: ClassDef, unit: CompilationUnit): ClassNode = {
     warnCaseInsensitiveOverwrite(cd)
     addSbtIClassShim(cd)
+
     // TODO: do we need a new builder for each class? could we use one per run? or one per Global compiler instance?
     val b = new CodeGenImpl.SyncAndTryBuilder(unit)
     b.genPlainClass(cd)

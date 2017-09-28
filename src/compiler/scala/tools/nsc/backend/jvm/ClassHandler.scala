@@ -6,6 +6,8 @@ import scala.concurrent.{Await, ExecutionContext, Future, Promise}
 import scala.tools.nsc.Settings
 
 private[jvm] sealed trait ClassHandler {
+  val lock: AnyRef
+
   def startUnit() = ()
   def endUnit() = ()
 
@@ -21,15 +23,15 @@ private[jvm] sealed trait ClassHandler {
 }
 private[jvm] object ClassHandler {
 
-  def apply(settings:Settings, postProcessor: PostProcessor) = {
+  def apply(settings:Settings, postProcessor: PostProcessor, lock:AnyRef) = {
     val cfWriter = postProcessor.classfileWriter.get
     val writer = settings.YmaxWriterThreads.value match {
-      case 0 => new SyncWritingClassHandler(postProcessor, cfWriter)
-      case x => new AsyncWritingClassHandler(postProcessor, cfWriter, x)
+      case 0 => new SyncWritingClassHandler(postProcessor, cfWriter, lock)
+      case x => new AsyncWritingClassHandler(postProcessor, cfWriter, lock, x)
     }
 
     val res = if (settings.optInlinerEnabled || settings.optClosureInvocations)
-      new GlobalOptimisingGeneratedClassHandler(postProcessor, writer)
+      new GlobalOptimisingGeneratedClassHandler(postProcessor, writer, lock)
     else writer
 
     println(s"writer $writer")
@@ -49,23 +51,23 @@ private[jvm] object ClassHandler {
   }
 
 
-  class HackedClassHandler(val postProcessor: PostProcessor, w:WritingClassHandler, cfWriter:ClassfileWriter) extends WritingClassHandler {
-    private val bufferBuilder = List.newBuilder[GeneratedClass]
-    override def initialise() = bufferBuilder.clear()
+//  class HackedClassHandler(val postProcessor: PostProcessor, w:WritingClassHandler, cfWriter:ClassfileWriter, val lock:AnyRef) extends WritingClassHandler {
+//    private val bufferBuilder = List.newBuilder[GeneratedClass]
+//    override def initialise() = bufferBuilder.clear()
+//
+//    override def pending(): List[(GeneratedClass, Future[Unit])] = {
+//      bufferBuilder.result() foreach (postProcessor.sendToDisk(_, cfWriter))
+//      bufferBuilder.result() map {
+//          (_,Future.successful(()))
+//      }
+//    }
+//
+//    override def startProcess(clazz: GeneratedClass): Unit = {
+//      bufferBuilder += clazz
+//    }
+//  }
 
-    override def pending(): List[(GeneratedClass, Future[Unit])] = {
-      bufferBuilder.result() foreach (postProcessor.sendToDisk(_, cfWriter))
-      bufferBuilder.result() map {
-          (_,Future.successful(()))
-      }
-    }
-
-    override def startProcess(clazz: GeneratedClass): Unit = {
-      bufferBuilder += clazz
-    }
-  }
-
-  private class GlobalOptimisingGeneratedClassHandler(val postProcessor: PostProcessor, val underlying: WritingClassHandler) extends ClassHandler {
+  private class GlobalOptimisingGeneratedClassHandler(val postProcessor: PostProcessor, val underlying: WritingClassHandler, val lock:AnyRef) extends ClassHandler {
     private val bufferBuilder = List.newBuilder[GeneratedClass]
 
     override def startProcess(clazz: GeneratedClass): Unit = bufferBuilder += clazz
@@ -90,7 +92,7 @@ private[jvm] object ClassHandler {
   sealed trait WritingClassHandler extends ClassHandler{
     final def globalOptimise(): Unit = ()
   }
-  private final class SyncWritingClassHandler(val postProcessor: PostProcessor, cfWriter: ClassfileWriter) extends WritingClassHandler {
+  private final class SyncWritingClassHandler(val postProcessor: PostProcessor, cfWriter: ClassfileWriter, val lock:AnyRef) extends WritingClassHandler {
     private val bufferBuilder = List.newBuilder[GeneratedClass]
     override def initialise(): Unit = {
       super.initialise()
@@ -110,7 +112,7 @@ private[jvm] object ClassHandler {
     override def toString: String = s"SyncWriting[$cfWriter]"
   }
 
-  private final class AsyncWritingClassHandler(val postProcessor: PostProcessor, cfWriter: ClassfileWriter, maxThreads:Int) extends WritingClassHandler {
+  private final class AsyncWritingClassHandler(val postProcessor: PostProcessor, cfWriter: ClassfileWriter, val lock:AnyRef, maxThreads:Int) extends WritingClassHandler {
     private val bufferBuilder = List.newBuilder[(GeneratedClass, Future[Unit])]
     private implicit val ec = ExecutionContext.fromExecutor(java.util.concurrent.Executors.newFixedThreadPool(maxThreads))
 
@@ -140,9 +142,9 @@ private[jvm] object ClassHandler {
       }
       inUnit.clear()
       //temp hack to ensure single threaded access to data
-      bufferBuilder.result().foreach {
-        case (cls, f) => Await.result(f, Duration.Inf)
-      }
+//      bufferBuilder.result().foreach {
+//        case (cls, f) => Await.result(f, Duration.Inf)
+//      }
     }
   }
 
