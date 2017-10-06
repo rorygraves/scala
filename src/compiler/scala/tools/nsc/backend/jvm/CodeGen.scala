@@ -19,21 +19,25 @@ abstract class CodeGen[G <: Global](val global: G) extends PerRunInit {
 
   def genUnit(unit: CompilationUnit, processor: ClassHandler) = {
     val sourceFile = unit.source.file
+
+    //todo
+    val base = settings.outdir.outputDirs.outputDirFor(unit.source.file)
+
     def genClassDef(cd: ClassDef): Unit = try {
       val sym = cd.symbol
-      val mainClassNode = processor.lock.synchronized(genClass(cd, unit))
-      processor.startProcess (GeneratedClass(mainClassNode, sourceFile, isArtifact = false))
+      val mainClassNode = genClass(cd, unit)
+      processor.startProcess(GeneratedClass(mainClassNode, sourceFile, isArtifact = false))
       if (bTypes.isTopLevelModuleClass(sym)) {
         if (sym.companionClass == NoSymbol) {
-          val mirrorClassNode = processor.lock.synchronized(genMirrorClass(sym, unit))
+          val mirrorClassNode = genMirrorClass(sym, unit)
           processor.startProcess(GeneratedClass(mirrorClassNode, sourceFile, isArtifact = true))
         }
         else
           log(s"No mirror class for module with linked class: ${sym.fullName}")
       }
       if (sym hasAnnotation coreBTypes.BeanInfoAttr) {
-        val beanClassNode = processor.lock.synchronized(genBeanInfoClass(cd, unit))
-        processor.startProcess (GeneratedClass(beanClassNode, sourceFile, isArtifact = true))
+        val beanClassNode = genBeanInfoClass(cd, unit)
+        processor.startProcess(GeneratedClass(beanClassNode, sourceFile, isArtifact = true))
       }
     } catch {
       case ex: Throwable =>
@@ -44,10 +48,10 @@ abstract class CodeGen[G <: Global](val global: G) extends PerRunInit {
     def genClassDefs(tree: Tree): Unit = tree match {
       case EmptyTree => ()
       case PackageDef(_, stats) => stats foreach genClassDefs
-      case cd: ClassDef => genClassDef(cd)
+      case cd: ClassDef =>  processor.lock.synchronized(genClassDef(cd))
     }
 
-    processor.startUnit()
+    processor.startUnit(unit.source)
     genClassDefs(unit.body)
     processor.endUnit()
   }

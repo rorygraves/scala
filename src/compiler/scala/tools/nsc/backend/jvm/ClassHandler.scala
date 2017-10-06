@@ -1,14 +1,19 @@
 package scala.tools.nsc.backend.jvm
 
+import java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy
+import java.util.concurrent._
+
 import scala.collection.mutable.ListBuffer
 import scala.concurrent.duration.Duration
 import scala.concurrent.{Await, ExecutionContext, Future, Promise}
+import scala.reflect.internal.util.SourceFile
 import scala.tools.nsc.Settings
+import scala.tools.nsc.io.AbstractFile
 
 private[jvm] sealed trait ClassHandler {
   val lock: AnyRef
 
-  def startUnit() = ()
+  def startUnit(unit:SourceFile) = ()
   def endUnit() = ()
 
   def startProcess(clazz: GeneratedClass): Unit
@@ -21,6 +26,16 @@ private[jvm] sealed trait ClassHandler {
 
   val postProcessor:PostProcessor
 }
+//sealed
+//trait UnderlyingWriter {
+//
+//}
+//final class FileWriter extends UnderlyingWriter {
+//
+//}
+//final class JarWriter extends UnderlyingWriter {
+//
+//}
 private[jvm] object ClassHandler {
 
   def apply(settings:Settings, postProcessor: PostProcessor, lock:AnyRef) = {
@@ -46,26 +61,7 @@ private[jvm] object ClassHandler {
     println(s"YmaxWriterThreads ${settings.YmaxWriterThreads.value}")
 
     res
-//
-//    new HackedClassHandler(postProcessor, writer, cfWriter)
   }
-
-
-//  class HackedClassHandler(val postProcessor: PostProcessor, w:WritingClassHandler, cfWriter:ClassfileWriter, val lock:AnyRef) extends WritingClassHandler {
-//    private val bufferBuilder = List.newBuilder[GeneratedClass]
-//    override def initialise() = bufferBuilder.clear()
-//
-//    override def pending(): List[(GeneratedClass, Future[Unit])] = {
-//      bufferBuilder.result() foreach (postProcessor.sendToDisk(_, cfWriter))
-//      bufferBuilder.result() map {
-//          (_,Future.successful(()))
-//      }
-//    }
-//
-//    override def startProcess(clazz: GeneratedClass): Unit = {
-//      bufferBuilder += clazz
-//    }
-//  }
 
   private class GlobalOptimisingGeneratedClassHandler(val postProcessor: PostProcessor, val underlying: WritingClassHandler, val lock:AnyRef) extends ClassHandler {
     private val bufferBuilder = List.newBuilder[GeneratedClass]
@@ -77,7 +73,6 @@ private[jvm] object ClassHandler {
       postProcessor.runGlobalOptimizations(allClasses)
       allClasses foreach underlying.startProcess
     }
-
 
     override def pending() = underlying.pending()
 
@@ -114,6 +109,11 @@ private[jvm] object ClassHandler {
 
   private final class AsyncWritingClassHandler(val postProcessor: PostProcessor, cfWriter: ClassfileWriter, val lock:AnyRef, maxThreads:Int) extends WritingClassHandler {
     private val bufferBuilder = List.newBuilder[(GeneratedClass, Future[Unit])]
+    //max pending units. If moe than maxQueue are pending we will run in current thread
+    //so this provides some back pressure, so we can allow the files to be written and recover memory
+    val maxQueue = 50
+    val javaExecutor = new ThreadPoolExecutor(maxThreads, maxThreads, 0L, TimeUnit.MILLISECONDS, new ArrayBlockingQueue[Runnable](maxQueue))
+    javaExecutor.setRejectedExecutionHandler(new CallerRunsPolicy)
     private implicit val ec = ExecutionContext.fromExecutor(java.util.concurrent.Executors.newFixedThreadPool(maxThreads))
 
     override def startProcess(clazz: GeneratedClass): Unit = {
@@ -123,6 +123,7 @@ private[jvm] object ClassHandler {
     def pending(): List[(GeneratedClass, Future[Unit])] = {
       val result = bufferBuilder.result()
       bufferBuilder.clear()
+      javaExecutor.shutdownNow()
       result
     }
     override def initialise(): Unit = {
@@ -133,18 +134,13 @@ private[jvm] object ClassHandler {
 
     val inUnit = ListBuffer.empty[GeneratedClass]
 
-    override def startUnit(): Unit = super.startUnit()
-
     override def endUnit(): Unit = {
+      //TODO sumbit a unit not a class
       inUnit foreach { clazz =>
         val future = Future(postProcessor.sendToDisk(clazz, cfWriter))
         bufferBuilder += ((clazz, future))
       }
       inUnit.clear()
-      //temp hack to ensure single threaded access to data
-//      bufferBuilder.result().foreach {
-//        case (cls, f) => Await.result(f, Duration.Inf)
-//      }
     }
   }
 
