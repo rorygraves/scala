@@ -6,22 +6,20 @@ import java.util.concurrent._
 import scala.collection.mutable.ListBuffer
 import scala.concurrent.duration.Duration
 import scala.concurrent.{Await, ExecutionContext, Future, Promise}
-import scala.reflect.internal.util.SourceFile
+import scala.reflect.internal.util.{NoPosition, SourceFile}
 import scala.tools.nsc.Settings
 import scala.tools.nsc.io.AbstractFile
-import scala.util.Try
+import scala.util.control.NonFatal
 
 private[jvm] sealed trait ClassHandler {
+  def complete(): Unit
+
   val lock: AnyRef
 
   def startUnit(unit:SourceFile) = ()
   def endUnit(unit:SourceFile) = ()
 
   def startProcess(clazz: GeneratedClass): Unit
-
-  def globalOptimise()
-
-  def pending(): List[UnitResult]
 
   def initialise() = ()
 
@@ -74,7 +72,12 @@ private[jvm] object ClassHandler {
 
     override def startProcess(clazz: GeneratedClass): Unit = bufferBuilder += clazz
 
-    override def globalOptimise(): Unit = {
+    override def complete(): Unit = {
+      globalOptimise()
+      underlying.complete()
+    }
+
+    private def globalOptimise(): Unit = {
       val allClasses = bufferBuilder.result()
       postProcessor.runGlobalOptimizations(allClasses)
 
@@ -92,8 +95,6 @@ private[jvm] object ClassHandler {
       }
       underlying.endUnit(current.sourceFile)
     }
-
-    override def pending() = underlying.pending()
 
     override def initialise(): Unit = {
       bufferBuilder.clear()
@@ -114,7 +115,7 @@ private[jvm] object ClassHandler {
       inUnit += clazz
     }
 
-    def pending(): List[UnitResult] = {
+    protected def pending(): List[UnitResult] = {
       val result = pendingBuilder.result()
       pendingBuilder.clear()
       result
@@ -141,14 +142,15 @@ private[jvm] object ClassHandler {
       bufferBuilder.clear()
     }
     override protected def postProcessUnit(unitProcess: UnitResult): Unit = {
-      val t = Try {
-        unitProcess.takeClasses foreach {
-          postProcessor.sendToDisk(unitProcess,_, cfWriter)
-        }
+      unitProcess.takeClasses foreach {
+        postProcessor.sendToDisk(unitProcess, _, cfWriter)
       }
-      unitProcess.task = Future.fromTry(t)
-      unitProcess.result.success(())
+      Await.result(unitProcess.result.future, Duration.Inf)
     }
+
+
+    override def complete(): Unit = ()
+
     override def toString: String = s"SyncWriting[$cfWriter]"
   }
 
@@ -168,7 +170,25 @@ private[jvm] object ClassHandler {
         unitProcess.takeClasses foreach {postProcessor.sendToDisk(unitProcess, _, cfWriter)}
         unitProcess.result.success(())
       }
+
+    override def complete(): Unit = {
+      // This way it is easier to test, as the results are deterministic
+      // the the loss of potential performance is probably minimal
+      pending().foreach {
+        unitResult: UnitResult =>
+          try {
+            Await.result(unitResult.task, Duration.Inf)
+            Await.result(unitResult.result.future, Duration.Inf)
+          } catch {
+            case NonFatal(t) =>
+              t.printStackTrace
+              postProcessor.bTypes.frontendAccess.backendReporting.error(NoPosition, s"unable to write ${unitResult.source} $t")
+          }
+      }
+
+    }
   }
+
 }
 //we avoid the lock on frontendSync for the common case, when compiling to a single target
 sealed trait UnitInfoLookup {

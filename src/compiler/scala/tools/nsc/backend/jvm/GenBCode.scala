@@ -46,23 +46,8 @@ abstract class GenBCode extends SubComponent {
         try {
           initialize()
           val writer = postProcessor.classfileWriter.get
-          BackendStats.timed(BackendStats.bcodeGenStat) {
-            super.run() // invokes `apply` for each compilation unit
-          }
-          generatedHandler.globalOptimise()
-          // This way it is easier to test, as the results are deterministic
-          // the the loss of potential performance is probably minimal
-          generatedHandler.pending().foreach {
-            unitResult: UnitResult =>
-              try {
-                Await.result(unitResult.task, Duration.Inf)
-                Await.result(unitResult.result.future, Duration.Inf)
-              } catch {
-                case NonFatal(t) =>
-                  t.printStackTrace
-                  postProcessorFrontendAccess.backendReporting.error(NoPosition, s"unable to write ${unitResult.source} $t")
-              }
-          }
+          super.run() // invokes `apply` for each compilation unit
+          generatedHandler.complete()
         } finally {
           // When writing to a jar, we need to close the jarWriter. Since we invoke the postProcessor
           // multiple times if (!globalOptsEnabled), we have to do it here at the end.

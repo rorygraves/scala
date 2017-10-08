@@ -52,7 +52,9 @@ abstract class CodeGen[G <: Global](val global: G) extends PerRunInit {
     }
 
     processor.startUnit(sourceFile)
-    genClassDefs(unit.body)
+    BackendStats.timed(BackendStats.bcodeGenStat) {
+      genClassDefs(unit.body)
+    }
     processor.endUnit(sourceFile)
   }
 
