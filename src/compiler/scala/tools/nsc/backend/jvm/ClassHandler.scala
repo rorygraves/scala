@@ -39,7 +39,8 @@ private[jvm] sealed trait ClassHandler {
 //}
 private[jvm] object ClassHandler {
 
-  def apply(settings:Settings, postProcessor: PostProcessor, lock:AnyRef) = {
+  def apply(settings:Settings, postProcessor: PostProcessor) = {
+    val lock = postProcessor.bTypes.frontendAccess.frontendLock
     val unitInfoLookup = settings.outputDirs.getSingleOutput match {
       case Some(dir) => new SingleUnitInfo(dir)
       case None => new LookupUnitInfo(postProcessor.bTypes.frontendAccess)

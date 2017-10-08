@@ -202,7 +202,7 @@ class ClassfileWriter(frontendAccess: PostProcessorFrontendAccess) {
     }
   }
 
-  def write(unitResult: SourceUnit, generatedClass:GeneratedClass, className: InternalName, bytes: Array[Byte], sourceFile: AbstractFile): Unit = try {
+  def write(unitResult: SourceUnit, generatedClass:GeneratedClass, className: InternalName, bytes: Array[Byte]): Unit = try {
     val writeStart = Statistics.startTimer(BackendStats.bcodeWriteTimer)
     if (jarWriter == null) {
       val outFolder = unitResult.outputDir

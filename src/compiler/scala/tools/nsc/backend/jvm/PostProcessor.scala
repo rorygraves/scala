@@ -53,8 +53,8 @@ abstract class PostProcessor extends PerRunInit {
           }
         }
         setInnerClasses(classNode)
-        serializeClass(classNode)
       }
+      serializeClass(classNode)
     } catch {
       case e: java.lang.RuntimeException if e.getMessage != null && (e.getMessage contains "too large!") =>
         backendReporting.error(NoPosition,
@@ -70,7 +70,7 @@ abstract class PostProcessor extends PerRunInit {
       if (AsmUtils.traceSerializedClassEnabled && classNode.name.contains(AsmUtils.traceSerializedClassPattern))
         AsmUtils.traceClass(bytes)
 
-      writer.write(unit, clazz, classNode.name, bytes, sourceFile.file)
+      writer.write(unit, clazz, classNode.name, bytes)
     }
   }
 
@@ -109,7 +109,7 @@ abstract class PostProcessor extends PerRunInit {
 
   /**
    * An asm ClassWriter that uses ClassBType.jvmWiseLUB to compute the common superclass of class
-   * types. This operation is used for computing statck map frames.
+   * types. This operation is used for computing stack map frames.
    */
   final class ClassWriterWithBTypeLub(flags: Int) extends ClassWriter(flags) {
     /**
