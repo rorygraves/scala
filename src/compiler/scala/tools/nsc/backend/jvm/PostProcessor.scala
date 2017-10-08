@@ -3,11 +3,11 @@ package backend.jvm
 
 import scala.collection.mutable.ListBuffer
 import scala.reflect.internal.util.NoPosition
-import scala.reflect.io.AbstractFile
 import scala.tools.asm.ClassWriter
 import scala.tools.asm.tree.ClassNode
 import scala.tools.nsc.backend.jvm.analysis.BackendUtils
 import scala.tools.nsc.backend.jvm.opt._
+import scala.reflect.internal.util.SourceFile
 
 /**
  * Implements late stages of the backend that don't depend on a Global instance, i.e.,
@@ -41,7 +41,7 @@ abstract class PostProcessor extends PerRunInit {
     inlinerHeuristics.initialize()
   }
 
-  def sendToDisk(clazz: GeneratedClass, writer: ClassfileWriter): Unit = {
+  def sendToDisk(unit:SourceUnit, clazz: GeneratedClass, writer: ClassfileWriter): Unit = {
 
     val GeneratedClass(classNode, sourceFile, isArtifact) = clazz
     val bytes = try {
@@ -70,7 +70,7 @@ abstract class PostProcessor extends PerRunInit {
       if (AsmUtils.traceSerializedClassEnabled && classNode.name.contains(AsmUtils.traceSerializedClassPattern))
         AsmUtils.traceClass(bytes)
 
-      writer.write(classNode.name, bytes, sourceFile)
+      writer.write(unit, clazz, classNode.name, bytes, sourceFile.file)
     }
   }
 
@@ -79,7 +79,7 @@ abstract class PostProcessor extends PerRunInit {
     // look up classes and methods in the code repo.
     if (compilerSettings.optAddToBytecodeRepository) {
       for (c <- classes) {
-        byteCodeRepository.add(c.classNode, Some(c.sourceFile.canonicalPath))
+        byteCodeRepository.add(c.classNode, Some(c.sourceFile.file.canonicalPath))
       }
       if (compilerSettings.optBuildCallGraph) for (c <- classes if !c.isArtifact) {
         // skip call graph for mirror / bean: we don't inline into them, and they are not referenced from other classes
@@ -133,4 +133,4 @@ abstract class PostProcessor extends PerRunInit {
 /**
  * The result of code generation. [[isArtifact]] is `true` for mirror and bean-info classes.
  */
-case class GeneratedClass(classNode: ClassNode, sourceFile: AbstractFile, isArtifact: Boolean)
+case class GeneratedClass(classNode: ClassNode, sourceFile: SourceFile, isArtifact: Boolean)

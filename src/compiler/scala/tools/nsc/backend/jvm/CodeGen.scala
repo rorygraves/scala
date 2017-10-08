@@ -18,7 +18,7 @@ abstract class CodeGen[G <: Global](val global: G) extends PerRunInit {
   private[this] lazy val beanInfoCodeGen: LazyVar[CodeGenImpl.JBeanInfoBuilder] = perRunLazy(this)(new CodeGenImpl.JBeanInfoBuilder())
 
   def genUnit(unit: CompilationUnit, processor: ClassHandler) = {
-    val sourceFile = unit.source.file
+    val sourceFile = unit.source
 
     //todo
     val base = settings.outdir.outputDirs.outputDirFor(unit.source.file)
@@ -51,9 +51,9 @@ abstract class CodeGen[G <: Global](val global: G) extends PerRunInit {
       case cd: ClassDef =>  processor.lock.synchronized(genClassDef(cd))
     }
 
-    processor.startUnit(unit.source)
+    processor.startUnit(sourceFile)
     genClassDefs(unit.body)
-    processor.endUnit()
+    processor.endUnit(sourceFile)
   }
 
   def genClass(cd: ClassDef, unit: CompilationUnit): ClassNode = {

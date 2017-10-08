@@ -9,18 +9,19 @@ import scala.concurrent.{Await, ExecutionContext, Future, Promise}
 import scala.reflect.internal.util.SourceFile
 import scala.tools.nsc.Settings
 import scala.tools.nsc.io.AbstractFile
+import scala.util.Try
 
 private[jvm] sealed trait ClassHandler {
   val lock: AnyRef
 
   def startUnit(unit:SourceFile) = ()
-  def endUnit() = ()
+  def endUnit(unit:SourceFile) = ()
 
   def startProcess(clazz: GeneratedClass): Unit
 
   def globalOptimise()
 
-  def pending(): List[(GeneratedClass, Future[Unit])]
+  def pending(): List[UnitResult]
 
   def initialise() = ()
 
@@ -39,14 +40,18 @@ private[jvm] sealed trait ClassHandler {
 private[jvm] object ClassHandler {
 
   def apply(settings:Settings, postProcessor: PostProcessor, lock:AnyRef) = {
+    val unitInfoLookup = settings.outputDirs.getSingleOutput match {
+      case Some(dir) => new SingleUnitInfo(dir)
+      case None => new LookupUnitInfo(postProcessor.bTypes.frontendAccess)
+    }
     val cfWriter = postProcessor.classfileWriter.get
     val writer = settings.YmaxWriterThreads.value match {
-      case 0 => new SyncWritingClassHandler(postProcessor, cfWriter, lock)
-      case x => new AsyncWritingClassHandler(postProcessor, cfWriter, lock, x)
+      case 0 => new SyncWritingClassHandler(unitInfoLookup, postProcessor, cfWriter, lock)
+      case x => new AsyncWritingClassHandler(unitInfoLookup, postProcessor, cfWriter, lock, x)
     }
 
     val res = if (settings.optInlinerEnabled || settings.optClosureInvocations)
-      new GlobalOptimisingGeneratedClassHandler(postProcessor, writer, lock)
+    new GlobalOptimisingGeneratedClassHandler(postProcessor, writer, lock)
     else writer
 
     println(s"writer $writer")
@@ -71,7 +76,20 @@ private[jvm] object ClassHandler {
     override def globalOptimise(): Unit = {
       val allClasses = bufferBuilder.result()
       postProcessor.runGlobalOptimizations(allClasses)
-      allClasses foreach underlying.startProcess
+
+      //replay the units to underlying
+      var current = allClasses.head
+      underlying.startUnit(current.sourceFile)
+      underlying.startProcess(current)
+      for (next <- allClasses.tail) {
+        if (next.sourceFile ne current.sourceFile) {
+          underlying.endUnit(current.sourceFile)
+          underlying.startUnit(next.sourceFile)
+        }
+        underlying.startProcess(next)
+        current = next
+      }
+      underlying.endUnit(current.sourceFile)
     }
 
     override def pending() = underlying.pending()
@@ -85,30 +103,55 @@ private[jvm] object ClassHandler {
   }
 
   sealed trait WritingClassHandler extends ClassHandler{
+    val unitInfoLookup: UnitInfoLookup
     final def globalOptimise(): Unit = ()
+
+    protected val pendingBuilder = List.newBuilder[UnitResult]
+    private val inUnit = ListBuffer.empty[GeneratedClass]
+
+    override def startProcess(clazz: GeneratedClass): Unit = {
+      inUnit += clazz
+    }
+
+    def pending(): List[UnitResult] = {
+      val result = pendingBuilder.result()
+      pendingBuilder.clear()
+      result
+    }
+    override def initialise(): Unit = {
+      super.initialise()
+      pendingBuilder.clear()
+    }
+    override def endUnit(unit:SourceFile): Unit = {
+      val unitProcess = new UnitResult(unitInfoLookup, inUnit.result, unit)
+      inUnit.clear()
+      postProcessUnit(unitProcess)
+
+      pendingBuilder += unitProcess
+    }
+    protected def postProcessUnit(unitProcess:UnitResult)
+
+
   }
-  private final class SyncWritingClassHandler(val postProcessor: PostProcessor, cfWriter: ClassfileWriter, val lock:AnyRef) extends WritingClassHandler {
-    private val bufferBuilder = List.newBuilder[GeneratedClass]
+  private final class SyncWritingClassHandler(val unitInfoLookup: UnitInfoLookup, val postProcessor: PostProcessor, cfWriter: ClassfileWriter, val lock:AnyRef) extends WritingClassHandler {
+    private val bufferBuilder = List.newBuilder[UnitResult]
     override def initialise(): Unit = {
       super.initialise()
       bufferBuilder.clear()
     }
-    override def startProcess(clazz: GeneratedClass): Unit = {
-      bufferBuilder += clazz
-    }
-    def pending(): List[(GeneratedClass, Future[Unit])] = {
-      val result = bufferBuilder.result() map { clazz:GeneratedClass =>
-        val promise = Promise.fromTry(scala.util.Try(postProcessor.sendToDisk(clazz, cfWriter)))
-        (clazz, promise.future)
+    override protected def postProcessUnit(unitProcess: UnitResult): Unit = {
+      val t = Try {
+        unitProcess.takeClasses foreach {
+          postProcessor.sendToDisk(unitProcess,_, cfWriter)
+        }
       }
-      bufferBuilder.clear()
-      result
+      unitProcess.task = Future.fromTry(t)
+      unitProcess.result.success(())
     }
     override def toString: String = s"SyncWriting[$cfWriter]"
   }
 
-  private final class AsyncWritingClassHandler(val postProcessor: PostProcessor, cfWriter: ClassfileWriter, val lock:AnyRef, maxThreads:Int) extends WritingClassHandler {
-    private val bufferBuilder = List.newBuilder[(GeneratedClass, Future[Unit])]
+  private final class AsyncWritingClassHandler(val unitInfoLookup: UnitInfoLookup, val postProcessor: PostProcessor, cfWriter: ClassfileWriter, val lock:AnyRef, maxThreads:Int) extends WritingClassHandler {
     //max pending units. If moe than maxQueue are pending we will run in current thread
     //so this provides some back pressure, so we can allow the files to be written and recover memory
     val maxQueue = 50
@@ -116,34 +159,44 @@ private[jvm] object ClassHandler {
     javaExecutor.setRejectedExecutionHandler(new CallerRunsPolicy)
     private implicit val ec = ExecutionContext.fromExecutor(java.util.concurrent.Executors.newFixedThreadPool(maxThreads))
 
-    override def startProcess(clazz: GeneratedClass): Unit = {
-      inUnit += clazz
-    }
-
-    def pending(): List[(GeneratedClass, Future[Unit])] = {
-      val result = bufferBuilder.result()
-      bufferBuilder.clear()
-      javaExecutor.shutdownNow()
-      result
-    }
-    override def initialise(): Unit = {
-      super.initialise()
-      bufferBuilder.clear()
-    }
     override def toString: String = s"AsyncWriting[threads:$maxThreads writer:$cfWriter]"
 
-    val inUnit = ListBuffer.empty[GeneratedClass]
 
-    override def endUnit(): Unit = {
-      //TODO sumbit a unit not a class
-      inUnit foreach { clazz =>
-        val future = Future(postProcessor.sendToDisk(clazz, cfWriter))
-        bufferBuilder += ((clazz, future))
+    override protected def postProcessUnit(unitProcess: UnitResult): Unit =
+      unitProcess.task = Future {
+        unitProcess.takeClasses foreach {postProcessor.sendToDisk(unitProcess, _, cfWriter)}
+        unitProcess.result.success(())
       }
-      inUnit.clear()
-    }
   }
+}
+//we avoid the lock on frontendSync for the common case, when compiling to a single target
+sealed trait UnitInfoLookup {
+  def outputDir(source:AbstractFile) : AbstractFile
+}
+final class SingleUnitInfo(constantOutputDir:AbstractFile) extends UnitInfoLookup {
+  override def outputDir(source: AbstractFile) = constantOutputDir
+}
+final class LookupUnitInfo(frontendAccess: PostProcessorFrontendAccess) extends UnitInfoLookup {
+  override def outputDir(source: AbstractFile) = frontendAccess.compilerSettings.outputDirectoryFor(source)
+}
+sealed trait SourceUnit {
+  val outputDir: AbstractFile
 
+}
+final class UnitResult(unitInfoLookup: UnitInfoLookup, classes_ : List[GeneratedClass],  val source:SourceFile) extends SourceUnit {
+  lazy val outputDir = unitInfoLookup.outputDir(source.file)
 
+  private var classes : List[GeneratedClass] = classes_
 
+  def takeClasses(): List[GeneratedClass] = {
+    val c = classes
+    classes = Nil
+    c
+  }
+  /** the main async task submitted onto the scheduler */
+  var task: Future[Unit] = _
+
+  /** the final completion which may occur after the task completes
+    * this allows the use of async completions*/
+  val result = Promise[Unit]
 }

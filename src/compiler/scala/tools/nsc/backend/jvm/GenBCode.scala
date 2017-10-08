@@ -50,20 +50,19 @@ abstract class GenBCode extends SubComponent {
             super.run() // invokes `apply` for each compilation unit
           }
           generatedHandler.globalOptimise()
-          // the is really the same as onComplete, but we want to consume the
-          // results in order. That way it is easier to test, as the results are deterministic
+          // This way it is easier to test, as the results are deterministic
           // the the loss of potential performance is probably minimal
           generatedHandler.pending().foreach {
-            case ((clazz: GeneratedClass, result: Future[Unit])) =>
-              Await.ready(result, Duration.Inf).value match {
-                case None =>
-                  postProcessorFrontendAccess.backendReporting.error(NoPosition, s"unable to write ${clazz.classNode.name} - code error")
-                case Some(Failure(f)) =>
-                  postProcessorFrontendAccess.backendReporting.error (NoPosition, s"unable to write ${clazz.classNode.name} $f")
-                case Some(Success(())) =>
+            unitResult: UnitResult =>
+              try {
+                Await.result(unitResult.task, Duration.Inf)
+                Await.result(unitResult.result.future, Duration.Inf)
+              } catch {
+                case NonFatal(t) =>
+                  t.printStackTrace
+                  postProcessorFrontendAccess.backendReporting.error(NoPosition, s"unable to write ${unitResult.source} $t")
               }
           }
-
         } finally {
           // When writing to a jar, we need to close the jarWriter. Since we invoke the postProcessor
           // multiple times if (!globalOptsEnabled), we have to do it here at the end.
