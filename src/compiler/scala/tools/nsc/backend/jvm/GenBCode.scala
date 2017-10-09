@@ -45,13 +45,11 @@ abstract class GenBCode extends SubComponent {
       BackendStats.timed(BackendStats.bcodeTimer) {
         try {
           initialize()
-          val writer = postProcessor.classfileWriter.get
           super.run() // invokes `apply` for each compilation unit
           generatedHandler.complete()
         } finally {
-          // When writing to a jar, we need to close the jarWriter. Since we invoke the postProcessor
-          // multiple times if (!globalOptsEnabled), we have to do it here at the end.
-          postProcessor.classfileWriter.get.close()
+          // When writing to a jar, we need to close the jarWriter.
+          generatedHandler.close()
         }
       }
     }

@@ -29,9 +29,6 @@ abstract class PostProcessor extends PerRunInit {
   val callGraph           : CallGraph           { val postProcessor: self.type } = new { val postProcessor: self.type = self } with CallGraph
   val bTypesFromClassfile : BTypesFromClassfile { val postProcessor: self.type } = new { val postProcessor: self.type = self } with BTypesFromClassfile
 
-  // re-initialized per run because it reads compiler settings that might change
-  lazy val classfileWriter: LazyVar[ClassfileWriter] = perRunLazy(this)(new ClassfileWriter(frontendAccess))
-
   lazy val generatedClasses = recordPerRunCache(new ListBuffer[GeneratedClass])
 
   override def initialize(): Unit = {

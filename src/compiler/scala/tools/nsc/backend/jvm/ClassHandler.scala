@@ -12,6 +12,8 @@ import scala.tools.nsc.io.AbstractFile
 import scala.util.control.NonFatal
 
 private[jvm] sealed trait ClassHandler {
+  def close(): Unit
+
   def complete(): Unit
 
   val lock: AnyRef
@@ -43,7 +45,8 @@ private[jvm] object ClassHandler {
       case Some(dir) => new SingleUnitInfo(dir)
       case None => new LookupUnitInfo(postProcessor.bTypes.frontendAccess)
     }
-    val cfWriter = postProcessor.classfileWriter.get
+
+    val cfWriter = ClassfileWriter(postProcessor.bTypes.frontendAccess)
     val writer = settings.YmaxWriterThreads.value match {
       case 0 => new SyncWritingClassHandler(unitInfoLookup, postProcessor, cfWriter, lock)
       case x => new AsyncWritingClassHandler(unitInfoLookup, postProcessor, cfWriter, lock, x)
@@ -69,6 +72,8 @@ private[jvm] object ClassHandler {
 
   private class GlobalOptimisingGeneratedClassHandler(val postProcessor: PostProcessor, val underlying: WritingClassHandler, val lock:AnyRef) extends ClassHandler {
     private val bufferBuilder = List.newBuilder[GeneratedClass]
+
+    override def close(): Unit = underlying.close()
 
     override def startProcess(clazz: GeneratedClass): Unit = bufferBuilder += clazz
 
@@ -106,7 +111,7 @@ private[jvm] object ClassHandler {
 
   sealed trait WritingClassHandler extends ClassHandler{
     val unitInfoLookup: UnitInfoLookup
-    final def globalOptimise(): Unit = ()
+    val cfWriter: ClassfileWriter
 
     protected val pendingBuilder = List.newBuilder[UnitResult]
     private val inUnit = ListBuffer.empty[GeneratedClass]
@@ -133,9 +138,10 @@ private[jvm] object ClassHandler {
     }
     protected def postProcessUnit(unitProcess:UnitResult)
 
+    override def close(): Unit = cfWriter.close()
 
   }
-  private final class SyncWritingClassHandler(val unitInfoLookup: UnitInfoLookup, val postProcessor: PostProcessor, cfWriter: ClassfileWriter, val lock:AnyRef) extends WritingClassHandler {
+  private final class SyncWritingClassHandler(val unitInfoLookup: UnitInfoLookup, val postProcessor: PostProcessor, val cfWriter: ClassfileWriter, val lock:AnyRef) extends WritingClassHandler {
     private val bufferBuilder = List.newBuilder[UnitResult]
     override def initialise(): Unit = {
       super.initialise()
@@ -145,6 +151,9 @@ private[jvm] object ClassHandler {
       unitProcess.takeClasses foreach {
         postProcessor.sendToDisk(unitProcess, _, cfWriter)
       }
+      //pending async
+      unitProcess.result.success(())
+
       Await.result(unitProcess.result.future, Duration.Inf)
     }
 
@@ -154,7 +163,7 @@ private[jvm] object ClassHandler {
     override def toString: String = s"SyncWriting[$cfWriter]"
   }
 
-  private final class AsyncWritingClassHandler(val unitInfoLookup: UnitInfoLookup, val postProcessor: PostProcessor, cfWriter: ClassfileWriter, val lock:AnyRef, maxThreads:Int) extends WritingClassHandler {
+  private final class AsyncWritingClassHandler(val unitInfoLookup: UnitInfoLookup, val postProcessor: PostProcessor, val cfWriter: ClassfileWriter, val lock:AnyRef, maxThreads:Int) extends WritingClassHandler {
     //max pending units. If moe than maxQueue are pending we will run in current thread
     //so this provides some back pressure, so we can allow the files to be written and recover memory
     val maxQueue = 50
@@ -168,6 +177,7 @@ private[jvm] object ClassHandler {
     override protected def postProcessUnit(unitProcess: UnitResult): Unit =
       unitProcess.task = Future {
         unitProcess.takeClasses foreach {postProcessor.sendToDisk(unitProcess, _, cfWriter)}
+        //pending async
         unitProcess.result.success(())
       }
 
