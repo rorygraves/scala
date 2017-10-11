@@ -3,11 +3,11 @@ package backend.jvm
 
 import scala.collection.mutable.ListBuffer
 import scala.reflect.internal.util.{NoPosition, Statistics}
-import scala.reflect.io.AbstractFile
 import scala.tools.asm.ClassWriter
 import scala.tools.asm.tree.ClassNode
 import scala.tools.nsc.backend.jvm.analysis.BackendUtils
 import scala.tools.nsc.backend.jvm.opt._
+import scala.reflect.internal.util.SourceFile
 
 /**
  * Implements late stages of the backend that don't depend on a Global instance, i.e.,
@@ -29,10 +29,6 @@ abstract class PostProcessor(statistics: Statistics with BackendStats) extends P
   val callGraph           : CallGraph           { val postProcessor: self.type } = new { val postProcessor: self.type = self } with CallGraph
   val bTypesFromClassfile : BTypesFromClassfile { val postProcessor: self.type } = new { val postProcessor: self.type = self } with BTypesFromClassfile
 
-  // re-initialized per run because it reads compiler settings that might change
-  lazy val classfileWriter: LazyVar[ClassfileWriter] =
-    perRunLazy(this)(new ClassfileWriter(frontendAccess, statistics))
-
   lazy val generatedClasses = recordPerRunCache(new ListBuffer[GeneratedClass])
 
   override def initialize(): Unit = {
@@ -42,53 +38,53 @@ abstract class PostProcessor(statistics: Statistics with BackendStats) extends P
     inlinerHeuristics.initialize()
   }
 
-  def postProcessAndSendToDisk(classes: Traversable[GeneratedClass]): Unit = {
-    runGlobalOptimizations(classes)
-
-    for (GeneratedClass(classNode, sourceFile, isArtifact) <- classes) {
-      val bytes = try {
-        if (!isArtifact) {
-          localOptimizations(classNode)
-          backendUtils.onIndyLambdaImplMethodIfPresent(classNode.name) {
-            methods => if (methods.nonEmpty) backendUtils.addLambdaDeserialize(classNode, methods)
-          }
+  def sendToDisk(unit:SourceUnit, clazz: GeneratedClass, writer: ClassfileWriter): Unit = {
+    val GeneratedClass(classNode, sourceFile, isArtifact) = clazz
+    val bytes = try {
+      if (!isArtifact) {
+        localOptimizations(classNode)
+        backendUtils.onIndyLambdaImplMethodIfPresent(classNode.name) {
+          methods => if (methods.nonEmpty) backendUtils.addLambdaDeserialize(classNode, methods)
         }
-        setInnerClasses(classNode)
-        serializeClass(classNode)
-      } catch {
-        case e: java.lang.RuntimeException if e.getMessage != null && (e.getMessage contains "too large!") =>
-          backendReporting.error(NoPosition,
-            s"Could not write class ${classNode.name} because it exceeds JVM code size limits. ${e.getMessage}")
-          null
-        case ex: Throwable =>
-          ex.printStackTrace()
-          backendReporting.error(NoPosition, s"Error while emitting ${classNode.name}\n${ex.getMessage}")
-          null
       }
 
-      if (bytes != null) {
-        if (AsmUtils.traceSerializedClassEnabled && classNode.name.contains(AsmUtils.traceSerializedClassPattern))
-          AsmUtils.traceClass(bytes)
+      setInnerClasses(classNode)
+      serializeClass(classNode)
+    } catch {
+      case e: java.lang.RuntimeException if e.getMessage != null && (e.getMessage contains "too large!") =>
+        backendReporting.error(NoPosition,
+          s"Could not write class ${classNode.name} because it exceeds JVM code size limits. ${e.getMessage}")
+        null
+      case ex: Throwable =>
+        ex.printStackTrace()
+        backendReporting.error(NoPosition, s"Error while emitting ${classNode.name}\n${ex.getMessage}")
+        null
+    }
 
-        classfileWriter.get.write(classNode.name, bytes, sourceFile)
-      }
+    if (bytes != null) {
+      if (AsmUtils.traceSerializedClassEnabled && classNode.name.contains(AsmUtils.traceSerializedClassPattern))
+        AsmUtils.traceClass(bytes)
+
+      writer.write(unit, clazz, classNode.name, bytes)
     }
   }
 
   def runGlobalOptimizations(classes: Traversable[GeneratedClass]): Unit = {
     // add classes to the bytecode repo before building the call graph: the latter needs to
     // look up classes and methods in the code repo.
-    if (compilerSettings.optAddToBytecodeRepository) for (c <- classes) {
-      byteCodeRepository.add(c.classNode, Some(c.sourceFile.canonicalPath))
+    if (compilerSettings.optAddToBytecodeRepository) {
+      for (c <- classes) {
+        byteCodeRepository.add(c.classNode, Some(c.sourceFile.file.canonicalPath))
+      }
+      if (compilerSettings.optBuildCallGraph) for (c <- classes if !c.isArtifact) {
+        // skip call graph for mirror / bean: we don't inline into them, and they are not referenced from other classes
+        callGraph.addClass(c.classNode)
+      }
+      if (compilerSettings.optInlinerEnabled)
+        inliner.runInliner()
+      if (compilerSettings.optClosureInvocations)
+        closureOptimizer.rewriteClosureApplyInvocations()
     }
-    if (compilerSettings.optBuildCallGraph) for (c <- classes if !c.isArtifact) {
-      // skip call graph for mirror / bean: we don't inline into them, and they are not referenced from other classes
-      callGraph.addClass(c.classNode)
-    }
-    if (compilerSettings.optInlinerEnabled)
-      inliner.runInliner()
-    if (compilerSettings.optClosureInvocations)
-      closureOptimizer.rewriteClosureApplyInvocations()
   }
 
   def localOptimizations(classNode: ClassNode): Unit = {
@@ -108,7 +104,7 @@ abstract class PostProcessor(statistics: Statistics with BackendStats) extends P
 
   /**
    * An asm ClassWriter that uses ClassBType.jvmWiseLUB to compute the common superclass of class
-   * types. This operation is used for computing statck map frames.
+   * types. This operation is used for computing stack map frames.
    */
   final class ClassWriterWithBTypeLub(flags: Int) extends ClassWriter(flags) {
     /**
@@ -132,4 +128,4 @@ abstract class PostProcessor(statistics: Statistics with BackendStats) extends P
 /**
  * The result of code generation. [[isArtifact]] is `true` for mirror and bean-info classes.
  */
-case class GeneratedClass(classNode: ClassNode, sourceFile: AbstractFile, isArtifact: Boolean)
+case class GeneratedClass(classNode: ClassNode, sourceFile: SourceFile, isArtifact: Boolean)

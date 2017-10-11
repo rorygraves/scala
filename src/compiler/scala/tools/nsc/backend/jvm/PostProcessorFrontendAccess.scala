@@ -21,7 +21,9 @@ sealed abstract class PostProcessorFrontendAccess {
 
   def compilerSettings: CompilerSettings
 
+  def withLocalReporter[T](reporter: BackendReporting) (fn : => T): T
   def backendReporting: BackendReporting
+  def directBackendReporting: BackendReporting
 
   def backendClassPath: BackendClassPath
 
@@ -42,13 +44,9 @@ object PostProcessorFrontendAccess {
 
     def target: String
 
-    def genAsmpDirectory: Option[String]
-    def dumpClassesDirectory: Option[String]
-
-    def singleOutputDirectory: Option[AbstractFile]
-    def outputDirectoryFor(src: AbstractFile): AbstractFile
-
-    def mainClass: Option[String]
+    def outputDirectories : Settings#OutputDirs
+    def syncFileIO: Boolean
+    def jarCompressionLevel: Int
 
     def optAddToBytecodeRepository: Boolean
     def optBuildCallGraph: Boolean
@@ -80,9 +78,10 @@ object PostProcessorFrontendAccess {
     def optTrace: Option[String]
   }
 
-  sealed trait BackendReporting {
+  trait BackendReporting {
     def inlinerWarning(pos: Position, message: String): Unit
     def error(pos: Position, message: String): Unit
+    def inform(message: String): Unit
     def log(message: String): Unit
   }
 
@@ -104,14 +103,9 @@ object PostProcessorFrontendAccess {
       val debug: Boolean = s.debug
 
       val target: String = s.target.value
-
-      val genAsmpDirectory: Option[String] = s.Ygenasmp.valueSetByUser
-      val dumpClassesDirectory: Option[String] = s.Ydumpclasses.valueSetByUser
-
-      val singleOutputDirectory: Option[AbstractFile] = s.outputDirs.getSingleOutput
-      def outputDirectoryFor(src: AbstractFile): AbstractFile = frontendSynch(s.outputDirs.outputDirFor(src))
-
-      val mainClass: Option[String] = s.mainClass.valueSetByUser
+      val outputDirectories = s.outputDirs
+      val syncFileIO: Boolean = s.YsyncFileIO
+      val jarCompressionLevel: Int = s.YjarCompressionLevel.value
 
       val optAddToBytecodeRepository: Boolean = s.optAddToBytecodeRepository
       val optBuildCallGraph: Boolean = s.optBuildCallGraph
@@ -145,17 +139,38 @@ object PostProcessorFrontendAccess {
       val optLogInline: Option[String] = s.YoptLogInline.valueSetByUser
       val optTrace: Option[String] = s.YoptTrace.valueSetByUser
     }
+    private lazy val localReporter = perRunLazy(this)(new ThreadLocal[BackendReporting])
 
-    object backendReporting extends BackendReporting {
+    override def withLocalReporter[T](reporter: BackendReporting) (fn : => T): T = {
+      val threadLocal = localReporter.get
+      val old = threadLocal.get()
+      threadLocal.set(reporter)
+      try fn finally
+        if (old eq null) threadLocal.remove() else threadLocal.set(old)
+    }
+    override def backendReporting : BackendReporting = {
+      val local = localReporter.get.get()
+      if (local eq null) directBackendReporting else local
+    }
+    object directBackendReporting extends BackendReporting {
+      //TODO backend reporting should not be locked, it should be buffered and flushed when we consume the result
       def inlinerWarning(pos: Position, message: String): Unit = frontendSynch {
         currentRun.reporting.inlinerWarning(pos, message)
       }
-      def error(pos: Position, message: String): Unit = frontendSynch(reporter.error(pos, message))
-      def log(message: String): Unit = frontendSynch(global.log(message))
+      def error(pos: Position, message: String): Unit = frontendSynch {
+        reporter.error(pos, message)
+      }
+      def inform(message: String): Unit = frontendSynch {
+        global.inform(message)
+      }
+      def log(message: String): Unit = frontendSynch {
+        global.log(message)
+      }
     }
 
+    private lazy val cp = perRunLazy(this)(frontendSynch(optimizerClassPath(classPath)))
     object backendClassPath extends BackendClassPath {
-      def findClassFile(className: String): Option[AbstractFile] = frontendSynch(optimizerClassPath(classPath).findClassFile(className))
+      def findClassFile(className: String): Option[AbstractFile] = cp.get.findClassFile(className)
     }
 
     def getEntryPoints: List[String] = frontendSynch(cleanup.getEntryPoints)
