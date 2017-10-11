@@ -41,15 +41,14 @@ abstract class PostProcessor extends PerRunInit {
   def sendToDisk(unit:SourceUnit, clazz: GeneratedClass, writer: ClassfileWriter): Unit = {
     val GeneratedClass(classNode, sourceFile, isArtifact) = clazz
     val bytes = try {
-      frontendAccess.frontendSynch {
-        if (!isArtifact) {
-          localOptimizations(classNode)
-          backendUtils.onIndyLambdaImplMethodIfPresent(classNode.name) {
-            methods => if (methods.nonEmpty) backendUtils.addLambdaDeserialize(classNode, methods)
-          }
+      if (!isArtifact) {
+        localOptimizations(classNode)
+        backendUtils.onIndyLambdaImplMethodIfPresent(classNode.name) {
+          methods => if (methods.nonEmpty) backendUtils.addLambdaDeserialize(classNode, methods)
         }
-        setInnerClasses(classNode)
       }
+
+      setInnerClasses(classNode)
       serializeClass(classNode)
     } catch {
       case e: java.lang.RuntimeException if e.getMessage != null && (e.getMessage contains "too large!") =>
