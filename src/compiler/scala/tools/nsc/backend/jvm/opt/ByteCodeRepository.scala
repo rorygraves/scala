@@ -67,6 +67,7 @@ abstract class ByteCodeRepository {
    * of a ClassNode is about 30 kb. I observed having 17k+ classes in the cache, i.e., 500 mb.
    */
   private def limitCacheSize(): Unit = {
+    println(s"limitCacheSize ${parsedClasses.size} $maxCacheSize")
     if (parsedClasses.size > maxCacheSize) {
       // OK if multiple threads get here
       val minimalLRU = parsedClasses.valuesIterator.collect({

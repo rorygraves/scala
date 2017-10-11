@@ -608,7 +608,7 @@ abstract class BTypes {
    * a missing info. In order not to crash the compiler unnecessarily, the inliner does not force
    * infos using `get`, but it reports inliner warnings for missing infos that prevent inlining.
    */
-  final case class ClassBType(internalName: InternalName)(cache: mutable.Map[InternalName, ClassBType]) extends RefBType {
+  final class ClassBType private (val internalName: InternalName) extends RefBType {
     /**
      * Write-once variable allows initializing a cyclic graph of infos. This is required for
      * nested classes. Example: for the definition `class A { class B }` we have
@@ -619,17 +619,10 @@ abstract class BTypes {
     private var _info: Either[NoClassBTypeInfo, ClassInfo] = null
 
     def info: Either[NoClassBTypeInfo, ClassInfo] = {
+      if (_info eq null) this.synchronized()
       assert(_info != null, s"ClassBType.info not yet assigned: $this")
       _info
     }
-
-    def info_=(i: Either[NoClassBTypeInfo, ClassInfo]): Unit = {
-      assert(_info == null, s"Cannot set ClassBType.info multiple times: $this")
-      _info = i
-      checkInfoConsistency()
-    }
-
-    cache(internalName) = this
 
     private def checkInfoConsistency(): Unit = {
       if (info.isLeft) return
@@ -806,6 +799,18 @@ abstract class BTypes {
       "scala/Null",
       "scala/Nothing"
     )
+    def unapply(cr:ClassBType) = Some(cr.internalName)
+
+    def apply(internalName: InternalName, cache: mutable.Map[InternalName, ClassBType])(init: (ClassBType) => Either[NoClassBTypeInfo, ClassInfo]) = {
+      assert (Thread.holdsLock(frontendAccess.frontendLock))
+      val res = new ClassBType(internalName)
+      res.synchronized {
+        cache(internalName) = res
+        res._info = init(res)
+        res.checkInfoConsistency()
+      }
+      res
+    }
   }
 
   /**
@@ -974,7 +979,10 @@ abstract class BTypes {
       }
     }
 
-    def reInitialize(): Unit = frontendSynch(isInit = false)
+    def reInitialize(): Unit = frontendSynch{
+      v = null.asInstanceOf[T]
+      isInit = false
+    }
   }
 }
 
