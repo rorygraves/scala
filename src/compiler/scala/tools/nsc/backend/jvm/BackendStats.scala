@@ -18,7 +18,7 @@ object BackendStats {
   val methodOptTimer  = newSubTimer("intra-method optimizations", bcodeTimer)
   val bcodeWriteTimer = newSubTimer("classfile writing", bcodeTimer)
 
-  def timed[T](timer: Statistics.Timer)(body: => T): T = {
+  @inline def timed[T](timer: Statistics.Timer)(body: => T): T = {
     val start = Statistics.startTimer(timer)
     try body finally Statistics.stopTimer(timer, start)
   }

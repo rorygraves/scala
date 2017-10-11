@@ -7,8 +7,12 @@ package scala.tools.nsc
 package backend
 package jvm
 
+import scala.concurrent.duration.Duration
+import scala.concurrent.{Await, ExecutionContext, Future, Promise}
 import scala.reflect.internal.util.Statistics
 import scala.tools.asm.Opcodes
+import scala.util.{Failure, Success}
+import scala.util.control.NonFatal
 
 abstract class GenBCode extends SubComponent {
   self =>
@@ -26,22 +30,15 @@ abstract class GenBCode extends SubComponent {
 
   override def newPhase(prev: Phase) = new BCodePhase(prev)
 
+
   class BCodePhase(prev: Phase) extends StdPhase(prev) {
     override def description = "Generate bytecode from ASTs using the ASM library"
 
     override val erasedTypes = true
 
-    private val globalOptsEnabled = {
-      import postProcessorFrontendAccess._
-      compilerSettings.optInlinerEnabled || compilerSettings.optClosureInvocations
-    }
-
+    private var generatedHandler:ClassHandler = _
     def apply(unit: CompilationUnit): Unit = {
-      val generated = BackendStats.timed(BackendStats.bcodeGenStat) {
-        codeGen.genUnit(unit)
-      }
-      if (globalOptsEnabled) postProcessor.generatedClasses ++= generated
-      else postProcessor.postProcessAndSendToDisk(generated)
+      codeGen.genUnit(unit, generatedHandler)
     }
 
     override def run(): Unit = {
@@ -49,11 +46,13 @@ abstract class GenBCode extends SubComponent {
         try {
           initialize()
           super.run() // invokes `apply` for each compilation unit
-          if (globalOptsEnabled) postProcessor.postProcessAndSendToDisk(postProcessor.generatedClasses)
+          generatedHandler.complete()
+        } catch {
+          case t:Throwable =>
+            t.printStackTrace()
         } finally {
-          // When writing to a jar, we need to close the jarWriter. Since we invoke the postProcessor
-          // multiple times if (!globalOptsEnabled), we have to do it here at the end.
-          postProcessor.classfileWriter.get.close()
+          // When writing to a jar, we need to close the jarWriter.
+          generatedHandler.close()
         }
       }
     }
@@ -69,6 +68,8 @@ abstract class GenBCode extends SubComponent {
       codeGen.initialize()
       postProcessorFrontendAccess.initialize()
       postProcessor.initialize()
+      val cfWriter = ClassfileWriter(global.cleanup, settings,postProcessorFrontendAccess )
+      generatedHandler = ClassHandler(cfWriter, settings, postProcessor)
       Statistics.stopTimer(BackendStats.bcodeInitTimer, initStart)
     }
   }
