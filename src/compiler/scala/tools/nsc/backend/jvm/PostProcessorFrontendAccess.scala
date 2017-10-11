@@ -37,14 +37,7 @@ object PostProcessorFrontendAccess {
 
     def target: String
 
-    def genAsmpDirectory: Option[String]
-    def dumpClassesDirectory: Option[String]
-
-    def singleOutputDirectory: Option[AbstractFile]
     def outputDirectoryFor(src: AbstractFile): AbstractFile
-    def multiOutputDirectory: List[(AbstractFile,AbstractFile)]
-
-    def mainClass: Option[String]
 
     def optAddToBytecodeRepository: Boolean
     def optBuildCallGraph: Boolean
@@ -101,16 +94,7 @@ object PostProcessorFrontendAccess {
       val debug: Boolean = s.debug
 
       val target: String = s.target.value
-
-      val genAsmpDirectory: Option[String] = s.Ygenasmp.valueSetByUser
-      val dumpClassesDirectory: Option[String] = s.Ydumpclasses.valueSetByUser
-
-      val singleOutputDirectory: Option[AbstractFile] = s.outputDirs.getSingleOutput
       def outputDirectoryFor(src: AbstractFile): AbstractFile = frontendSynch(s.outputDirs.outputDirFor(src))
-      val multiOutputDirectory : List[(AbstractFile,AbstractFile)] = s.outputDirs.outputs
-
-
-      val mainClass: Option[String] = s.mainClass.valueSetByUser
 
       val optAddToBytecodeRepository: Boolean = s.optAddToBytecodeRepository
       val optBuildCallGraph: Boolean = s.optBuildCallGraph

@@ -39,7 +39,6 @@ abstract class PostProcessor extends PerRunInit {
   }
 
   def sendToDisk(unit:SourceUnit, clazz: GeneratedClass, writer: ClassfileWriter): Unit = {
-
     val GeneratedClass(classNode, sourceFile, isArtifact) = clazz
     val bytes = try {
       frontendAccess.frontendSynch {

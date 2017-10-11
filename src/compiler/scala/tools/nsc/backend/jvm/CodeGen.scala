@@ -51,7 +51,6 @@ abstract class CodeGen[G <: Global](val global: G) extends PerRunInit {
       case cd: ClassDef =>  processor.lock.synchronized(genClassDef(cd))
     }
 
-    processor.startUnit(sourceFile)
     BackendStats.timed(BackendStats.bcodeGenStat) {
       genClassDefs(unit.body)
     }

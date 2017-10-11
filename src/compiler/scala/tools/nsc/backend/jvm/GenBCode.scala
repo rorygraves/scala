@@ -47,6 +47,9 @@ abstract class GenBCode extends SubComponent {
           initialize()
           super.run() // invokes `apply` for each compilation unit
           generatedHandler.complete()
+        } catch {
+          case t:Throwable =>
+            t.printStackTrace()
         } finally {
           // When writing to a jar, we need to close the jarWriter.
           generatedHandler.close()
@@ -65,7 +68,8 @@ abstract class GenBCode extends SubComponent {
       codeGen.initialize()
       postProcessorFrontendAccess.initialize()
       postProcessor.initialize()
-      generatedHandler = ClassHandler(settings, postProcessor)
+      val cfWriter = ClassfileWriter(global.cleanup, settings,postProcessorFrontendAccess )
+      generatedHandler = ClassHandler(cfWriter, settings, postProcessor)
       Statistics.stopTimer(BackendStats.bcodeInitTimer, initStart)
     }
   }
