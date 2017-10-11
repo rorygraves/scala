@@ -778,6 +778,15 @@ abstract class BTypes {
       } while (fcs == null)
       fcs
     }
+
+    // equallity and hashcode is based on internalName
+    override def equals(obj: scala.Any): Boolean = obj match {
+      case o:ClassBType => internalName == o.internalName
+      case _ => false
+    }
+
+    // equallity and hashcode is based on internalName
+    override def hashCode(): Int = internalName.hashCode
   }
 
   object ClassBType {
@@ -802,7 +811,6 @@ abstract class BTypes {
     def unapply(cr:ClassBType) = Some(cr.internalName)
 
     def apply(internalName: InternalName, cache: mutable.Map[InternalName, ClassBType])(init: (ClassBType) => Either[NoClassBTypeInfo, ClassInfo]) = {
-      assert (Thread.holdsLock(frontendAccess.frontendLock))
       val res = new ClassBType(internalName)
       res.synchronized {
         cache(internalName) = res

@@ -50,22 +50,9 @@ private[jvm] object ClassHandler {
       case x => new AsyncWritingClassHandler(unitInfoLookup, postProcessor, cfWriter, lock, x)
     }
 
-    val res = if (settings.optInlinerEnabled || settings.optClosureInvocations)
-    new GlobalOptimisingGeneratedClassHandler(postProcessor, writer, lock)
+    if (settings.optInlinerEnabled || settings.optClosureInvocations)
+      new GlobalOptimisingGeneratedClassHandler(postProcessor, writer, lock)
     else writer
-
-    println(s"writer $writer")
-    println(s"cfWriter $cfWriter")
-    println(s"res $res")
-
-    println(s"optAddToBytecodeRepository ${settings.optAddToBytecodeRepository}")
-    println(s"optBuildCallGraph ${settings.optBuildCallGraph}")
-    println(s"optInlinerEnabled ${settings.optInlinerEnabled}")
-    println(s"optClosureInvocations ${settings.optClosureInvocations}")
-
-    println(s"YmaxWriterThreads ${settings.YmaxAddWriterThreads.value}")
-
-    res
   }
 
   private class GlobalOptimisingGeneratedClassHandler(val postProcessor: PostProcessor, val underlying: WritingClassHandler, val lock:AnyRef) extends ClassHandler {
@@ -210,7 +197,6 @@ private[jvm] object ClassHandler {
               postProcessor.bTypes.frontendAccess.backendReporting.error(NoPosition, s"unable to write ${unitResult.source} $t")
           }
       }
-
     }
   }
 
@@ -229,10 +215,13 @@ sealed trait SourceUnit extends CompletionHandler[Integer, AsynchronousFileChann
   val outputDir: AbstractFile
   val outputPath: java.nio.file.Path
   def addOperation(): Unit
+  def sourceFile:AbstractFile
 
 }
 final class UnitResult(unitInfoLookup: UnitInfoLookup, classes_ : List[GeneratedClass],  val source:SourceFile) extends SourceUnit {
   lazy val outputDir = unitInfoLookup.outputDir(source.file)
+
+  override def sourceFile = source.file
 
   lazy val outputPath = outputDir.file.toPath
   private var classes : List[GeneratedClass] = classes_

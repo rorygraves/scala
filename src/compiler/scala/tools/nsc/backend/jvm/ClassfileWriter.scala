@@ -62,7 +62,7 @@ object ClassfileWriter {
       case Some(dir) => singleWriter(dir)
       case None =>
         val mappings: Map[AbstractFile, UnderlyingClassfileWriter] = settings.outputDirs.outputs.map {
-          case (source, destination) => (source -> singleWriter(destination))
+          case (_, destination) => (destination -> singleWriter(destination))
         }(scala.collection.breakOut)
         new MultiClassWriter(mappings)
     }
@@ -197,7 +197,9 @@ object ClassfileWriter {
   }
   private final class MultiClassWriter(underlying: Map [AbstractFile, UnderlyingClassfileWriter]) extends ClassfileWriter {
 
-    def getUnderlying(unit: SourceUnit) = underlying.getOrElse(unit.outputDir, throw new IllegalStateException("TODO"))
+    def getUnderlying(unit: SourceUnit) = underlying.getOrElse(unit.outputDir, {
+      throw new Exception(s"Cannot determine output directory for ${unit.sourceFile} with output ${unit.outputDir}. Configured outputs are ${underlying.keySet}")
+    })
 
     override def write(unit: SourceUnit, clazz: GeneratedClass, className: InternalName, bytes: Array[Byte]): Unit = {
       getUnderlying(unit).write(unit, clazz, className, bytes)
