@@ -105,7 +105,7 @@ abstract class BTypesFromSymbols[G <: Global](val global: G) extends BTypes {
             if (completeSilentlyAndCheckErroneous(classSym)) {
               Left(NoClassBTypeInfoClassSymbolInfoFailedSI9111(classSym.fullName))
             } else {
-              computeJavaClassInfo(classSym, res)
+              computeClassInfo(classSym, res)
             }
           }
       }
@@ -261,7 +261,7 @@ abstract class BTypesFromSymbols[G <: Global](val global: G) extends BTypes {
       r
   })(collection.breakOut)
 
-  private def computeJavaClassInfo(classSym: Symbol, classBType: ClassBType): Right[Nothing, ClassInfo] = {
+  private def computeClassInfo(classSym: Symbol, classBType: ClassBType): Right[Nothing, ClassInfo] = {
     /**
      * Reconstruct the classfile flags from a Java defined class symbol.
      *
