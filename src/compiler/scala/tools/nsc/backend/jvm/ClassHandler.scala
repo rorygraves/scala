@@ -1,5 +1,6 @@
 package scala.tools.nsc.backend.jvm
 
+import java.io.IOException
 import java.nio.channels.{AsynchronousFileChannel, CompletionHandler}
 import java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy
 import java.util.concurrent._
@@ -28,13 +29,6 @@ private[jvm] sealed trait ClassHandler {
 
   val postProcessor:PostProcessor
 }
-//    case e: FileConflictException =>
-//      backendReporting.error(NoPosition, s"error writing $className: ${e.getMessage}")
-//    case e: java.nio.file.FileSystemException =>
-//      if (compilerSettings.debug)
-//        e.printStackTrace()
-//      backendReporting.error(NoPosition, s"error writing $className: ${e.getClass.getName} ${e.getMessage}")
-
 
 private[jvm] object ClassHandler {
 
@@ -91,7 +85,7 @@ private[jvm] object ClassHandler {
       underlying.initialise()
     }
 
-    override def toString: String = s"GloballyOmpimising[$underlying]"
+    override def toString: String = s"GloballyOptimising[$underlying]"
   }
 
   sealed trait WritingClassHandler extends ClassHandler{
@@ -124,64 +118,22 @@ private[jvm] object ClassHandler {
       pendingBuilder += unitProcess
     }
 
+    protected val javaExecutor :Executor
+    protected implicit val executionContext = ExecutionContext.fromExecutor(javaExecutor)
+
     /**
       * provides a ability to create any parent directories that may be needed, before we write the files
-      * if writing is done asynchnonously this enables the IO operation to occur in parallel off the main thread
-      * @param unitProcess
+      * if writing is done asynchronously this enables the IO operation to occur in parallel off the main thread
+      * @param unitProcess the unit being processed
       */
     protected def ensureDirectories(unitProcess: UnitResult): Unit
-    protected def postProcessUnit(unitProcess:UnitResult)
-
-    override def close(): Unit = cfWriter.close()
-
-  }
-  private final class SyncWritingClassHandler(val unitInfoLookup: UnitInfoLookup, val postProcessor: PostProcessor, val cfWriter: ClassfileWriter, val lock:AnyRef) extends WritingClassHandler {
-    private val bufferBuilder = List.newBuilder[UnitResult]
-    override def initialise(): Unit = {
-      super.initialise()
-      bufferBuilder.clear()
-    }
-
-    //we do everything synchronously
-    override protected def ensureDirectories(unitProcess: UnitResult): Unit = ()
-
-    override protected def postProcessUnit(unitProcess: UnitResult): Unit = {
-      unitProcess.takeClasses foreach {
-        postProcessor.sendToDisk(unitProcess, _, cfWriter)
-      }
-      unitProcess.completedUnit()
-
-      Await.result(unitProcess.result.future, Duration.Inf)
-    }
-
-    override def complete(): Unit = ()
-
-    override def toString: String = s"SyncWriting[$cfWriter]"
-  }
-
-  private final class AsyncWritingClassHandler(val unitInfoLookup: UnitInfoLookup, val postProcessor: PostProcessor, val cfWriter: ClassfileWriter, val lock:AnyRef, maxThreads:Int) extends WritingClassHandler {
-    // max pending units. If more than maxQueue are pending we will run in current thread
-    // so this provides some back pressure, so we can allow the files to be written and recover memory
-    // and encorages prallelism in the more expensive post processing
-    // The setting is based of expecting that processing one unit in the foreground will not take longer then
-    // existing back end writers and th time to generate the next unit
-    //  this may require further tuning ....
-    val maxQueue = maxThreads * 2 + 2
-    val javaExecutor = new ThreadPoolExecutor(maxThreads, maxThreads, 0L, TimeUnit.MILLISECONDS, new ArrayBlockingQueue[Runnable](maxQueue))
-    javaExecutor.setRejectedExecutionHandler(new CallerRunsPolicy)
-    private implicit val ec = ExecutionContext.fromExecutor(java.util.concurrent.Executors.newFixedThreadPool(maxThreads))
-
-    override def toString: String = s"AsyncWriting[additional threads:$maxThreads writer:$cfWriter]"
-
-    override protected def ensureDirectories(unitProcess: UnitResult): Unit = {
-      cfWriter.ensureDirectories(ec, unitProcess)
-    }
-
-    override protected def postProcessUnit(unitProcess: UnitResult): Unit =
+    protected def postProcessUnit(unitProcess: UnitResult): Unit =
       unitProcess.task = Future {
         unitProcess.takeClasses foreach {postProcessor.sendToDisk(unitProcess, _, cfWriter)}
         unitProcess.completedUnit()
       }
+
+    override def close(): Unit = cfWriter.close()
 
     override def complete(): Unit = {
       // This way it is easier to test, as the results are deterministic
@@ -193,10 +145,50 @@ private[jvm] object ClassHandler {
             Await.result(unitResult.result.future, Duration.Inf)
           } catch {
             case NonFatal(t) =>
-              t.printStackTrace
+              t.printStackTrace()
               postProcessor.bTypes.frontendAccess.backendReporting.error(NoPosition, s"unable to write ${unitResult.source} $t")
           }
       }
+    }
+  }
+  private final class SyncWritingClassHandler(val unitInfoLookup: UnitInfoLookup, val postProcessor: PostProcessor, val cfWriter: ClassfileWriter, val lock:AnyRef) extends WritingClassHandler {
+
+    object javaExecutor extends Executor {
+      def execute(r: Runnable): Unit = r.run()
+    }
+    //we do everything synchronously
+    override protected def ensureDirectories(unitProcess: UnitResult): Unit = ()
+
+    override protected def postProcessUnit(unitProcess: UnitResult): Unit = {
+      super.postProcessUnit(unitProcess)
+      Await.ready(unitProcess.result.future, Duration.Inf)
+    }
+
+    override def complete(): Unit = ()
+
+    override def toString: String = s"SyncWriting[$cfWriter]"
+  }
+
+  private final class AsyncWritingClassHandler(val unitInfoLookup: UnitInfoLookup, val postProcessor: PostProcessor, val cfWriter: ClassfileWriter, val lock:AnyRef, maxThreads:Int) extends WritingClassHandler {
+    // max pending units. If more than maxQueue are pending we will run in current thread
+    // so this provides some back pressure, so we can allow the files to be written and recover memory
+    // and encourages parallelism in the more expensive post processing
+    // The setting is based of expecting that processing one unit in the foreground will not take longer then
+    // existing back end writers and the time to generate the next unit
+    //  this may require further tuning ....
+    val maxQueue = maxThreads * 2 + 2
+    override val javaExecutor = new ThreadPoolExecutor(maxThreads, maxThreads, 0L, TimeUnit.MILLISECONDS, new ArrayBlockingQueue[Runnable](maxQueue))
+    javaExecutor.setRejectedExecutionHandler(new CallerRunsPolicy)
+
+    override def toString: String = s"AsyncWriting[additional threads:$maxThreads writer:$cfWriter]"
+
+    override protected def ensureDirectories(unitProcess: UnitResult): Unit = {
+      cfWriter.ensureDirectories(executionContext, unitProcess)
+    }
+
+    override def close(): Unit = {
+      super.close()
+      javaExecutor.shutdownNow()
     }
   }
 
@@ -211,7 +203,7 @@ final class SingleUnitInfo(constantOutputDir:AbstractFile) extends UnitInfoLooku
 final class LookupUnitInfo(frontendAccess: PostProcessorFrontendAccess) extends UnitInfoLookup {
   override def outputDir(source: AbstractFile) = frontendAccess.compilerSettings.outputDirectoryFor(source)
 }
-sealed trait SourceUnit extends CompletionHandler[Integer, AsynchronousFileChannel]{
+sealed trait SourceUnit extends CompletionHandler[Integer, (AsynchronousFileChannel, String, PostProcessorFrontendAccess)]{
   val outputDir: AbstractFile
   val outputPath: java.nio.file.Path
   def addOperation(): Unit
@@ -238,19 +230,17 @@ final class UnitResult(unitInfoLookup: UnitInfoLookup, classes_ : List[Generated
 
   /** the final completion which may occur after the task completes
     * this allows the use of async completions*/
-  val result = Promise[Unit]
+  val result = Promise[Unit]()
 
   private val pendingOperations = new AtomicInteger(1)
-  override def failed(exc: Throwable, channel: AsynchronousFileChannel) = result.tryFailure(exc)
-  override def completed(x: Integer, channel: AsynchronousFileChannel) = {
-    try channel.close()
+  override def failed(exc: Throwable, channelInfo: (AsynchronousFileChannel, String, PostProcessorFrontendAccess)) = result.tryFailure(exc)
+  override def completed(x: Integer, channelInfo: (AsynchronousFileChannel, String, PostProcessorFrontendAccess)) = {
+    try channelInfo._1.close()
     catch {
-      case NonFatal(t) =>
-        t.printStackTrace()
-        result.tryFailure(t)
-      case t:Throwable =>
-        t.printStackTrace()
-        result.tryFailure(t); throw t
+      case e: IOException =>
+        if ( channelInfo._3.compilerSettings.debug)
+          e.printStackTrace()
+        channelInfo._3.backendReporting.error(NoPosition, s"error closing file for ${channelInfo._2}: ${e.getMessage}")
     } finally {
       if (pendingOperations.decrementAndGet() == 0) result.trySuccess(())
     }
@@ -261,5 +251,4 @@ final class UnitResult(unitInfoLookup: UnitInfoLookup, classes_ : List[Generated
   def completedUnit(): Unit = {
     if (pendingOperations.decrementAndGet() == 0) result.trySuccess(())
   }
-
 }
