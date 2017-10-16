@@ -130,16 +130,26 @@ object PostProcessorFrontendAccess {
     }
 
     object backendReporting extends BackendReporting {
+      //TODO backend reporting should not be locked, it should be buffered and flushed when we consume the result
       def inlinerWarning(pos: Position, message: String): Unit = frontendSynch {
+        println("inliner warning")
         currentRun.reporting.inlinerWarning(pos, message)
       }
       def error(pos: Position, message: String): Unit = frontendSynch(reporter.error(pos, message))
-      def inform(message: String): Unit = frontendSynch(global.inform(message))
-      def log(message: String): Unit = frontendSynch(global.log(message))
+      def inform(message: String): Unit = frontendSynch {
+        println("inform")
+        global.inform(message)
+      }
+      def log(message: String): Unit = frontendSynch {
+        println("log")
+        global.log(message)
+      }
     }
 
+    private lazy val cp = perRunLazy(this)(frontendSynch(optimizerClassPath(classPath)))
     object backendClassPath extends BackendClassPath {
-      def findClassFile(className: String): Option[AbstractFile] = frontendSynch(optimizerClassPath(classPath).findClassFile(className))
+      //TODO this should be made threadsafe in the new classpath implementation
+      def findClassFile(className: String): Option[AbstractFile] = cp.get.findClassFile(className)
     }
 
     def getEntryPoints: List[String] = frontendSynch(cleanup.getEntryPoints)

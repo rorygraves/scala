@@ -6,7 +6,7 @@ import java.nio.channels.AsynchronousFileChannel
 import java.nio.charset.StandardCharsets
 import java.nio.file.{FileAlreadyExistsException, Files, Path, Paths, StandardOpenOption}
 import java.util
-import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.{ConcurrentHashMap, ExecutorService}
 import java.util.jar.Attributes.Name
 import java.util.jar.JarOutputStream
 import java.util.zip.{CRC32, ZipEntry, ZipOutputStream}
@@ -99,7 +99,6 @@ object ClassfileWriter {
   }
 
   private sealed class DirClassWriter(frontendAccess: PostProcessorFrontendAccess) extends UnderlyingClassfileWriter {
-    val openOptions = util.EnumSet.of(StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING)
 
     val builtPaths = new ConcurrentHashMap[Path, java.lang.Boolean]()
     def ensureDirForPath(baseDir:Path, filePath: Path): Unit = {
@@ -130,14 +129,27 @@ object ClassfileWriter {
     protected def getPath(unit: SourceUnit, className: InternalName) =  unit.outputPath.resolve(className+".class")
     protected def formatData(rawBytes: Array[Byte]) = rawBytes
     protected def qualifier:String = ""
+
+    // the common case is that we are are creating a new file, and on MS Windows the create and truncate is expensive
+    // because there is not an options in the windows API that corresponds to this so the truncate is applied as a separate call
+    // even if the file is new.
+    // as this is rare, its best to always try to create a new file, and it that fails, then open with truncate if that fails
+
+    val fastOpenOptions = util.EnumSet.of(StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)
+    val fallbackOpenOptions = util.EnumSet.of(StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING)
+
     override def write(unit: SourceUnit, clazz: GeneratedClass, className: InternalName, rawBytes: Array[Byte]): Unit = try {
       val path = getPath(unit,className)
       val bytes = formatData(rawBytes)
       unit.addOperation()
 
       ensureDirForPath(unit.outputPath, path)
-      val os = AsynchronousFileChannel.open(path, openOptions, null)
+
+      val os = try AsynchronousFileChannel.open(path, fastOpenOptions, exec)
+      catch {case _:FileAlreadyExistsException => AsynchronousFileChannel.open(path, fallbackOpenOptions, exec)}
+
       os.write(ByteBuffer.wrap(bytes), 0L, (os, className, frontendAccess), unit)
+
     } catch {
       case e: FileConflictException =>
         frontendAccess.backendReporting.error(NoPosition, s"error writing $className$qualifier: ${e.getMessage}")
@@ -243,8 +255,10 @@ sealed trait ClassfileWriter {
 
   def write(unit: SourceUnit, clazz: GeneratedClass, name: InternalName, bytes: Array[Byte])
   def close() : Unit
+  var exec: ExecutorService = null
 }
-sealed trait UnderlyingClassfileWriter extends ClassfileWriter
+sealed trait UnderlyingClassfileWriter extends ClassfileWriter {
+}
 
 /** Can't output a file due to the state of the file system. */
 class FileConflictException(msg: String) extends IOException(msg)

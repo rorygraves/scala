@@ -225,6 +225,7 @@ trait ScalaSettings extends AbsScalaSettings
   val exposeEmptyPackage = BooleanSetting ("-Yexpose-empty-package", "Internal only: expose the empty package.").internalOnly()
   val Ydelambdafy        = ChoiceSetting  ("-Ydelambdafy", "strategy", "Strategy used for translating lambdas into JVM code.", List("inline", "method"), "method")
   val YmaxAddWriterThreads = IntSetting   ("-YmaxAdditionalWriterThreads", "maximum additional threads to write class files", 0, Some((0,16)), (x: String) => None )
+  val YmaxQueue = IntSetting   ("-YmaxQueue", "maximum additional threads to write class files", 0, Some((0,1600)), (x: String) => None )
 
   object optChoices extends MultiChoiceEnumeration {
     val unreachableCode         = Choice("unreachable-code",          "Eliminate unreachable code, exception handlers guarding no instructions, redundant metadata (debug information, line numbers).")
