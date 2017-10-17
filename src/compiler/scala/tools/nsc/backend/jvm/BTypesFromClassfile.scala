@@ -122,7 +122,7 @@ abstract class BTypesFromClassfile {
 
     val interfaces: List[ClassBType] = classNode.interfaces.asScala.map(classBTypeFromParsedClassfile)(collection.breakOut)
 
-    Right(ClassInfo(superClass, interfaces, flags, Lazy(nestedClasses), Lazy(nestedInfo), inlineInfo))
+    Right(ClassInfo(superClass, interfaces, flags, Lazy("nestedClassesClassfile", nestedClasses), Lazy("nestedInfClassfile", nestedInfo), inlineInfo))
   }
 
   /**

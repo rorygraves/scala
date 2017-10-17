@@ -6,6 +6,8 @@
 package scala.tools.nsc
 package backend.jvm
 
+import java.util.concurrent.atomic.AtomicInteger
+
 import scala.collection.concurrent.TrieMap
 import scala.collection.{concurrent, mutable}
 import scala.tools.asm
@@ -647,7 +649,7 @@ abstract class BTypes {
         s"Invalid interfaces in $this: ${info.get.interfaces}"
       )
 
-      info.get.nestedClasses.onForce { cs =>
+      info.get.nestedClasses.onForceWithoutLock { cs =>
         assert(cs.forall(c => ifInit(c)(_.isNestedClass.get)), cs)
       }
     }
@@ -912,14 +914,43 @@ abstract class BTypes {
   // for BTypes, it's easier to add those nested classes to BTypes.
 
   object Lazy {
-    def apply[T <: AnyRef](t: => T): Lazy[T] = new Lazy[T](() => t)
+    def apply[T <: AnyRef](temp:String, t: => T): Lazy[T] = {
+      if (Thread.holdsLock(frontendAccess.frontendLock)) {
+        val x = s"$temp - true"
+        lazyCount.putIfAbsent(x, new AtomicInteger)
+        lazyForced.putIfAbsent(x, new AtomicInteger)
+        lazyCount(x).incrementAndGet()
+        val res = new Lazy[T]("", null)
+        res.value = t
+        res
+      } else {
+        val x = s"$temp - false"
+        lazyCount.putIfAbsent(x, new AtomicInteger)
+        lazyForced.putIfAbsent(x, new AtomicInteger)
+        lazyCount(x).incrementAndGet()
+        new Lazy[T](x, () => t)
+      }
+    }
+
+    /**
+      * a special case when the expression does not require a lock, but the result type has to be a Lazy
+      * @param value the final value of the Lazy
+      * @return a new Lazy, pre-initialised with the specified value
+      */
+    def eagerWithoutLock[T <: AnyRef](value: T): Lazy[T] = {
+      val res = new Lazy[T]("", null)
+      res.value = value
+      res
+    }
+    val lazyCount = new TrieMap[String, AtomicInteger]
+    val lazyForced = new TrieMap[String, AtomicInteger]
   }
 
   /**
    * A lazy value that synchronizes on the `frontendLock`, and supports accumulating actions
    * to be executed when it's forced.
    */
-  final class Lazy[T <: AnyRef](t: () => T) {
+  final class Lazy[T <: AnyRef](temp:String, t: () => T) {
     @volatile private var value: T = _
 
     private var initFunction = {
@@ -929,27 +960,33 @@ abstract class BTypes {
 
     override def toString = if (value == null) "<?>" else value.toString
 
-    def onForce(f: T => Unit): Unit = {
+    private var postForce = List.empty[ T => Unit]
+
+    def onForceWithoutLock(f: T => Unit): Unit = {
       if (value != null) f(value)
-      else frontendSynch {
+      else this.synchronized {
         if (value != null) f(value)
-        else {
-          val prev = initFunction
-          initFunction = () => {
-            prev()
-            f(value)
-          }
-        }
+        else postForce ::= f
       }
     }
 
     def force: T = {
       if (value != null) value
-      else frontendSynch {
-        if (value == null) {
-          initFunction()
-          initFunction = null
+      else {
+        val start = System.nanoTime()
+        frontendSynch {
+          val locked = System.nanoTime()
+          if (value == null) {
+            Lazy.lazyForced(temp).incrementAndGet()
+            initFunction()
+          }
+          System.nanoTime()
         }
+        this.synchronized {
+          postForce foreach (_(value))
+          postForce = Nil
+        }
+
         value
       }
     }

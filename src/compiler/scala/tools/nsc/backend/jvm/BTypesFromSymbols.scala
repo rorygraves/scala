@@ -422,12 +422,12 @@ abstract class BTypesFromSymbols[G <: Global](val global: G) extends BTypes {
 
     val nestedClasses = {
       val ph = phase
-      Lazy(enteringPhase(ph)(nestedClassSymbolsNoJavaModuleClasses.map(classBTypeFromSymbol)))
+      Lazy("nestedClasses", enteringPhase(ph)(nestedClassSymbolsNoJavaModuleClasses.map(classBTypeFromSymbol)))
     }
 
     val nestedInfo = {
       val ph = phase
-      Lazy(enteringPhase(ph)(buildNestedInfo(classSym)))
+      Lazy("nestedInfo", enteringPhase(ph)(buildNestedInfo(classSym)))
     }
 
     val inlineInfo = buildInlineInfo(classSym, classBType.internalName)
@@ -622,13 +622,13 @@ abstract class BTypesFromSymbols[G <: Global](val global: G) extends BTypes {
     cachedClassBType(internalName).getOrElse{
       ClassBType(internalName, classBTypeCacheFromSymbol) { c: ClassBType =>
         // class info consistent with BCodeHelpers.genMirrorClass
-        val nested = Lazy(exitingPickler(memberClassesForInnerClassTable(moduleClassSym)) map classBTypeFromSymbol)
+        val nested = Lazy("nested", exitingPickler(memberClassesForInnerClassTable(moduleClassSym)) map classBTypeFromSymbol)
         Right(ClassInfo(
           superClass = Some(ObjectRef),
           interfaces = Nil,
           flags = asm.Opcodes.ACC_SUPER | asm.Opcodes.ACC_PUBLIC | asm.Opcodes.ACC_FINAL,
           nestedClasses = nested,
-          nestedInfo = Lazy(None),
+          nestedInfo = Lazy.eagerWithoutLock(None),
           inlineInfo = EmptyInlineInfo.copy(isEffectivelyFinal = true))) // no method inline infos needed, scala never invokes methods on the mirror class
       }
     }
@@ -642,8 +642,8 @@ abstract class BTypesFromSymbols[G <: Global](val global: G) extends BTypes {
           superClass = Some(sbScalaBeanInfoRef),
           interfaces = Nil,
           flags = javaFlags(mainClass),
-          nestedClasses = Lazy(Nil),
-          nestedInfo = Lazy(None),
+          nestedClasses = Lazy.eagerWithoutLock(Nil),
+          nestedInfo = Lazy.eagerWithoutLock(None),
           inlineInfo = EmptyInlineInfo))
       }
     }

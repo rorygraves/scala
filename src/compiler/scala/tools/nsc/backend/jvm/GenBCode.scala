@@ -42,19 +42,31 @@ abstract class GenBCode extends SubComponent {
     def apply(unit: CompilationUnit): Unit = {
       codeGen.genUnit(statistics, unit, generatedHandler)
     }
+    def lazyStats(s:String) = {
+      for (k <- bTypes.Lazy.lazyCount.keys) {
+        println(s"LAZY STATS - ${s} $k ${bTypes.Lazy.lazyCount(k)}/${bTypes.Lazy.lazyForced(k)}")
+
+      }
+    }
 
     override def run(): Unit = {
       statistics.timed(bcodeTimer) {
         try {
+          bTypes.Lazy.lazyCount.clear()
+          bTypes.Lazy.lazyForced.clear()
           initialize()
+          lazyStats("1")
           super.run() // invokes `apply` for each compilation unit
+          lazyStats("2")
           generatedHandler.complete()
+          lazyStats("3")
         } catch {
           case t:Throwable =>
             t.printStackTrace()
         } finally {
           // When writing to a jar, we need to close the jarWriter.
           generatedHandler.close()
+          lazyStats("4")
         }
       }
     }
