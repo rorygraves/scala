@@ -11,12 +11,13 @@ import java.util.jar.Attributes.Name
 import java.util.jar.JarOutputStream
 import java.util.zip.{CRC32, ZipEntry, ZipOutputStream}
 
-import scala.concurrent.{ExecutionContextExecutor, Future}
+import scala.concurrent.{ExecutionContext, ExecutionContextExecutor, Future}
 import scala.reflect.internal.util.{NoPosition, Statistics}
 import scala.tools.nsc.Settings
 import scala.tools.nsc.backend.jvm.BTypes.InternalName
 import scala.tools.nsc.io.{AbstractFile, Jar}
 import scala.tools.nsc.transform.CleanUp
+import scala.util.Try
 
 object ClassfileWriter {
   private def getDirectory(dir: String): Path = Paths.get(dir)
@@ -257,7 +258,23 @@ sealed trait ClassfileWriter {
   def close() : Unit
   var exec: ExecutorService = null
 }
-sealed trait UnderlyingClassfileWriter extends ClassfileWriter {
+sealed trait UnderlyingClassfileWriter extends ClassfileWriter
+class AsyncClassfileWriter(val writingService: ExecutorService, count: Int, underlying: ClassfileWriter) extends ClassfileWriter {
+  private implicit val ec = ExecutionContext.fromExecutor(writingService)
+
+  def ensureDirectories(ec: ExecutionContextExecutor, unit: UnitResult) = underlying.ensureDirectories(ec, unit)
+  override def write(unit: SourceUnit, clazz: GeneratedClass, name: InternalName, bytes: Array[Byte]): Unit = {
+    unit.addOperation()
+    val f = Future{underlying.write(unit, clazz, name, bytes)}
+
+    f.onComplete{result:Try[Unit] => unit.endOperation(result)}
+  }
+  override def close(): Unit = {
+    writingService.shutdownNow()
+    underlying.close()
+  }
+
+  override def toString = s"Async[$count]($underlying)"
 }
 
 /** Can't output a file due to the state of the file system. */

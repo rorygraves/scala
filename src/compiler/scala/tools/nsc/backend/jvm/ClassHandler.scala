@@ -12,6 +12,7 @@ import scala.concurrent.{Await, ExecutionContext, Future, Promise}
 import scala.reflect.internal.util.{NoPosition, SourceFile}
 import scala.tools.nsc.Settings
 import scala.tools.nsc.io.AbstractFile
+import scala.util.{Failure, Success, Try}
 import scala.util.control.NonFatal
 
 private[jvm] sealed trait ClassHandler {
@@ -41,6 +42,14 @@ private[jvm] object ClassHandler {
 
     val writer = settings.YmaxAddWriterThreads.value match {
       case 0 => new SyncWritingClassHandler(unitInfoLookup, postProcessor, cfWriter, lock)
+      case x if x < 0 =>
+        val maxThreads = -x
+        val javaExecutor = new ThreadPoolExecutor(maxThreads, maxThreads, 0L, TimeUnit.MILLISECONDS, new LinkedTransferQueue[Runnable],
+          new CommonThreadFactory("scalac-compiler-jvm-", priority = Thread.NORM_PRIORITY +1), new CallerRunsPolicy)
+
+        val asyncCfWriter = new AsyncClassfileWriter(javaExecutor, maxThreads, cfWriter)
+
+        new SyncWritingClassHandler(unitInfoLookup, postProcessor, asyncCfWriter, lock)
       case maxThreads =>
         // the queue size is taken to be large enough to ensure that the a 'CallerRun' will not take longer to
         // run that it takes to exhaust the queue for the backend workers
@@ -55,9 +64,13 @@ private[jvm] object ClassHandler {
         new AsyncWritingClassHandler(unitInfoLookup, postProcessor, cfWriter, lock, maxThreads, javaExecutor, queue)
     }
 
-    if (settings.optInlinerEnabled || settings.optClosureInvocations)
+    val res = if (settings.optInlinerEnabled || settings.optClosureInvocations)
       new GlobalOptimisingGeneratedClassHandler(postProcessor, writer, lock)
     else writer
+
+    println (s"************************ ClassHandler $res")
+    System.err.println (s"************************ ClassHandler $res")
+    res
   }
 
   private class GlobalOptimisingGeneratedClassHandler(val postProcessor: PostProcessor, val underlying: WritingClassHandler, val lock:AnyRef) extends ClassHandler {
@@ -200,6 +213,24 @@ private[jvm] object ClassHandler {
     override def tryStealing: Option[Runnable] = None
   }
 
+  private final class SyncBackgroundWritingClassHandler(val unitInfoLookup: UnitInfoLookup, val postProcessor: PostProcessor, val cfWriter: ClassfileWriter, val lock:AnyRef) extends WritingClassHandler {
+
+    object javaExecutor extends Executor {
+      def execute(r: Runnable): Unit = r.run()
+    }
+    //we do everything synchronously
+    override protected def ensureDirectories(unitProcess: UnitResult): Unit = ()
+
+    override protected def postProcessUnit(unitProcess: UnitResult): Unit = {
+      super.postProcessUnit(unitProcess)
+      Await.ready(unitProcess.result.future, Duration.Inf)
+    }
+
+    override def toString: String = s"SyncWriting[$cfWriter]"
+
+    override def tryStealing: Option[Runnable] = None
+  }
+
   private final class AsyncWritingClassHandler(val unitInfoLookup: UnitInfoLookup, val postProcessor: PostProcessor, val cfWriter: ClassfileWriter, val lock:AnyRef,
                                                maxThreads:Int, override val javaExecutor : ThreadPoolExecutor, queue:ArrayBlockingQueue[Runnable]) extends WritingClassHandler {
     val otherJavaExec = Executors.newFixedThreadPool(2,new CommonThreadFactory("scalac-async-nonast", priority = Thread.NORM_PRIORITY -1))
@@ -238,6 +269,7 @@ sealed trait SourceUnit extends CompletionHandler[Integer, (AsynchronousFileChan
   val outputDir: AbstractFile
   val outputPath: java.nio.file.Path
   def addOperation(): Unit
+  def endOperation(result: Try[Unit]): Unit
   def sourceFile:AbstractFile
 
 }
@@ -279,7 +311,13 @@ final class UnitResult(unitInfoLookup: UnitInfoLookup, classes_ : List[Generated
 
   def addOperation(): Unit = pendingOperations.incrementAndGet()
 
-  def completedUnit(): Unit = {
-    if (pendingOperations.decrementAndGet() == 0) result.trySuccess(())
+  def completedUnit(): Unit = endOperation(Success())
+
+  def endOperation(opResult: Try[Unit]): Unit = opResult match {
+    case _: Success[_] =>
+      if (pendingOperations.decrementAndGet() == 0) result.trySuccess(())
+    case Failure(f) =>
+      result.tryFailure(f)
+      pendingOperations.decrementAndGet()
   }
 }

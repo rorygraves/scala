@@ -6,7 +6,7 @@
 package scala.tools.nsc
 package backend.jvm
 
-import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.{AtomicInteger, AtomicLong}
 
 import scala.collection.concurrent.TrieMap
 import scala.collection.{concurrent, mutable}
@@ -906,7 +906,7 @@ abstract class BTypes {
   def isCompilingPrimitive: Boolean
 
   // The [[Lazy]] and [[LazyVar]] classes would conceptually be better placed within
-  // PostProcessorFrontendAccess (they access the `frontendLock` defined in that class). However,
+  // PostProcessorFrontendAccess (they may access the `frontendLock` defined in that class). However,
   // for every component in which we define nested classes, we need to make sure that the compiler
   // knows that all component instances (val frontendAccess) in various classes are all the same,
   // otherwise the prefixes don't match and we get type mismatch errors.
@@ -914,43 +914,51 @@ abstract class BTypes {
   // for BTypes, it's easier to add those nested classes to BTypes.
 
   object Lazy {
-    def apply[T <: AnyRef](temp:String, t: => T): Lazy[T] = {
-      if (Thread.holdsLock(frontendAccess.frontendLock)) {
-        val x = s"$temp - true"
-        lazyCount.putIfAbsent(x, new AtomicInteger)
-        lazyForced.putIfAbsent(x, new AtomicInteger)
-        lazyCount(x).incrementAndGet()
-        val res = new Lazy[T]("", null)
-        res.value = t
-        res
-      } else {
-        val x = s"$temp - false"
-        lazyCount.putIfAbsent(x, new AtomicInteger)
-        lazyForced.putIfAbsent(x, new AtomicInteger)
-        lazyCount(x).incrementAndGet()
-        new Lazy[T](x, () => t)
-      }
-    }
 
+    /**
+      * create a Lazy, whose calculation is performed with `frontendLock`
+      * @param temp for debug
+      * @param t the calculation
+      * @return a Lazy with which is guaranteed to perform if calc with the lock
+      */
+    def apply[T <: AnyRef](temp:String, t: => T): Lazy[T] = {
+      val x = s"LOCK $temp - ${Thread.holdsLock(frontendAccess.frontendLock)}"
+      if (instrument) {
+        lazyCount.putIfAbsent(x, new AtomicInteger)
+        lazyForced.putIfAbsent(x, (new AtomicInteger, new AtomicLong, new AtomicLong))
+        lazyCount(x).incrementAndGet()
+      }
+      new ReallyLazy[T](x, () => t)
+    }
     /**
       * a special case when the expression does not require a lock, but the result type has to be a Lazy
       * @param value the final value of the Lazy
       * @return a new Lazy, pre-initialised with the specified value
       */
     def eagerWithoutLock[T <: AnyRef](value: T): Lazy[T] = {
-      val res = new Lazy[T]("", null)
-      res.value = value
-      res
+      new Eager[T](value)
     }
+
+    def notLocked[T <: AnyRef](temp: String, t: => T): Lazy[T] = {
+      val x = s"LAZY $temp - ${Thread.holdsLock(frontendAccess.frontendLock)}"
+      if (instrument) {
+        lazyCount.putIfAbsent(x, new AtomicInteger)
+        lazyForced.putIfAbsent(x, (new AtomicInteger, new AtomicLong, new AtomicLong))
+        lazyCount(x).incrementAndGet()
+      }
+      new ReallyLazyNoLock[T](x, () => t)
+    }
+
+    val instrument = false
     val lazyCount = new TrieMap[String, AtomicInteger]
-    val lazyForced = new TrieMap[String, AtomicInteger]
+    val lazyForced = new TrieMap[String, (AtomicInteger, AtomicLong, AtomicLong)]
   }
 
   /**
-   * A lazy value that synchronizes on the `frontendLock`, and supports accumulating actions
-   * to be executed when it's forced.
-   */
-  final class Lazy[T <: AnyRef](temp:String, t: () => T) {
+    * A lazy value that synchronizes on the `frontendLock`, and supports accumulating actions
+    * to be executed when it's forced.
+    */
+  private[BTypes] final class ReallyLazy[T <: AnyRef](temp:String, t: () => T) extends Lazy[T] {
     @volatile private var value: T = _
 
     private var initFunction = {
@@ -973,14 +981,19 @@ abstract class BTypes {
     def force: T = {
       if (value != null) value
       else {
-        val start = System.nanoTime()
+        val heldLock = Thread.holdsLock(frontendAccess.frontendLock)
         frontendSynch {
-          val locked = System.nanoTime()
           if (value == null) {
-            Lazy.lazyForced(temp).incrementAndGet()
+            val start = System.nanoTime()
             initFunction()
+            val lazyCalc = System.nanoTime() - start
+            if (Lazy.instrument) {
+              val (count, time, lockTime) = Lazy.lazyForced(temp)
+              count.incrementAndGet()
+              time.addAndGet(lazyCalc)
+              if (!heldLock) lockTime.addAndGet(lazyCalc)
+            }
           }
-          System.nanoTime()
         }
         this.synchronized {
           postForce foreach (_(value))
@@ -990,6 +1003,64 @@ abstract class BTypes {
         value
       }
     }
+  }
+  /**
+    * A lazy value that doesnt synchronize, and supports accumulating actions
+    * to be executed when it's forced.
+    */
+  private[BTypes] final class ReallyLazyNoLock[T <: AnyRef](temp:String, t: () => T) extends Lazy[T] {
+    @volatile private var value: T = _
+
+    private var initFunction = {
+      val tt = t // prevent allocating a field for t
+      () => { value = tt() }
+    }
+
+    override def toString = if (value == null) "<?>" else value.toString
+
+    private var postForce = List.empty[ T => Unit]
+
+    def onForceWithoutLock(f: T => Unit): Unit = {
+      if (value != null) f(value)
+      else this.synchronized {
+        if (value != null) f(value)
+        else postForce ::= f
+      }
+    }
+
+    def force: T = {
+      if (value != null) value
+      else {
+        val heldLock = Thread.holdsLock(frontendAccess.frontendLock)
+        this.synchronized {
+          if (value == null) {
+            val start = System.nanoTime()
+            initFunction()
+            val lazyCalc = System.nanoTime() - start
+            if (Lazy.instrument) {
+              val (count, time, lockTime) = Lazy.lazyForced(temp)
+              count.incrementAndGet()
+              time.addAndGet(lazyCalc)
+              if (!heldLock) lockTime.addAndGet(lazyCalc)
+            }
+          }
+          postForce foreach (_(value))
+          postForce = Nil
+        }
+
+        value
+      }
+    }
+  }
+
+  abstract sealed class Lazy[T] {
+    def force: T
+    def onForceWithoutLock (f: T => Unit): Unit
+  }
+  private[BTypes] final class Eager[T](val force:T) extends Lazy[T] {
+    def onForceWithoutLock(f: T => Unit): Unit = f(force)
+    override def toString = force.toString
+
   }
 
   /**
