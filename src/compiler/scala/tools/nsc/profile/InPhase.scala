@@ -1,5 +1,7 @@
 package scala.tools.nsc.profile
 
+import java.util
+import java.util.concurrent._
 import java.util.concurrent.atomic.AtomicInteger
 
 import scala.concurrent.duration.Duration
@@ -81,4 +83,39 @@ object FutureInPhase {
 
 class FutureInPhase[T](global: Global, phase:Phase, comment:String)(fn: => T) extends InPhase(global, phase, comment) {
   final def exec() = doAction(fn)
+}
+
+class AsyncHandler(global: Global, phase:Phase, comment:String) {
+  val baseGroup = new ThreadGroup(s"scalac-${phase.name}")
+  def apply[T](fn: => T)(implicit executionContext: ExecutionContext) = FutureInPhase(global, phase, comment)(fn)(executionContext)
+
+  def wrap(exec:ExecutorService):ExecutorService = new WrappedExecutorService(exec)
+  private class WrappedExecutorService(underlying:ExecutorService) extends AbstractExecutorService{
+    override def isTerminated: Boolean = underlying.isTerminated
+
+    override def awaitTermination(timeout: Long, unit: TimeUnit): Boolean = underlying.awaitTermination(timeout, unit)
+
+    override def shutdownNow(): util.List[Runnable] = underlying.shutdownNow()
+
+    override def shutdown(): Unit = underlying.shutdown()
+
+    override def isShutdown: Boolean = underlying.isShutdown
+
+    override def execute(command: Runnable): Unit = command match {
+      case wrapped:InPhase => underlying.execute(wrapped)
+      case _ => underlying.execute(new WrappedRunnable(command))
+    }
+
+    override def newTaskFor[T](runnable: Runnable, value: T): RunnableFuture[T] =
+      super.newTaskFor(new WrappedRunnable(runnable), value)
+
+    override def newTaskFor[T](callable: Callable[T]): RunnableFuture[T] =
+      super.newTaskFor(new WrappedCallable[T](callable))
+  }
+  private class WrappedRunnable(wrapped:Runnable) extends InPhase(global, phase, comment) with Runnable {
+    override def run(): Unit = doAction(wrapped.run())
+  }
+  private class WrappedCallable[T](wrapped:Callable[T]) extends InPhase(global, phase, comment) with Callable[T] {
+    override def call(): T = doAction(wrapped.call())
+  }
 }

@@ -220,7 +220,7 @@ private [profile] class RealProfiler(reporter : ProfileReporter, val settings: S
     assert(mainThread eq Thread.currentThread())
     if (settings.YprofileRunGcBetweenPhases.containsPhase(phase))
       doGC
-    if (phase.name == "jvm")
+    if (phase.next.name == "jvm")
       doGC
     if (settings.YprofileExternalTool.containsPhase(phase)) {
       println("Profile hook start")

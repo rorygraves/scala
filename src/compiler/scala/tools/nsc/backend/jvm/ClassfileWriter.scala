@@ -16,13 +16,14 @@ import scala.reflect.internal.util.{NoPosition, Statistics}
 import scala.tools.nsc.Settings
 import scala.tools.nsc.backend.jvm.BTypes.InternalName
 import scala.tools.nsc.io.{AbstractFile, Jar}
+import scala.tools.nsc.profile.AsyncHandler
 import scala.tools.nsc.transform.CleanUp
 import scala.util.Try
 
 object ClassfileWriter {
   private def getDirectory(dir: String): Path = Paths.get(dir)
 
-  def apply(cleanup:CleanUp, settings:Settings, 
+  def apply(asyncHelper: AsyncHandler, cleanup:CleanUp, settings:Settings,
             statistics: Statistics with BackendStats,
             frontendAccess: PostProcessorFrontendAccess): ClassfileWriter = {
     import frontendAccess.backendReporting

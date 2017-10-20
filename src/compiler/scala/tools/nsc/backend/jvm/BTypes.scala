@@ -922,7 +922,8 @@ abstract class BTypes {
       * @return a Lazy with which is guaranteed to perform if calc with the lock
       */
     def apply[T <: AnyRef](temp:String, t: => T): Lazy[T] = {
-      val x = s"LOCK $temp - ${Thread.holdsLock(frontendAccess.frontendLock)}"
+      val x = if(instrument) s"LOCK $temp - ${Thread.holdsLock(frontendAccess.frontendLock)}"
+      else ""
       if (instrument) {
         lazyCount.putIfAbsent(x, new AtomicInteger)
         lazyForced.putIfAbsent(x, (new AtomicInteger, new AtomicLong, new AtomicLong))
@@ -940,7 +941,8 @@ abstract class BTypes {
     }
 
     def notLocked[T <: AnyRef](temp: String, t: => T): Lazy[T] = {
-      val x = s"LAZY $temp - ${Thread.holdsLock(frontendAccess.frontendLock)}"
+      val x = if (instrument) s"LAZY $temp - ${Thread.holdsLock(frontendAccess.frontendLock)}"
+      else ""
       if (instrument) {
         lazyCount.putIfAbsent(x, new AtomicInteger)
         lazyForced.putIfAbsent(x, (new AtomicInteger, new AtomicLong, new AtomicLong))
@@ -981,7 +983,7 @@ abstract class BTypes {
     def force: T = {
       if (value != null) value
       else {
-        val heldLock = Thread.holdsLock(frontendAccess.frontendLock)
+        val heldLock = Lazy.instrument && Thread.holdsLock(frontendAccess.frontendLock)
         frontendSynch {
           if (value == null) {
             val start = System.nanoTime()
@@ -1031,7 +1033,7 @@ abstract class BTypes {
     def force: T = {
       if (value != null) value
       else {
-        val heldLock = Thread.holdsLock(frontendAccess.frontendLock)
+        val heldLock = Lazy.instrument && Thread.holdsLock(frontendAccess.frontendLock)
         this.synchronized {
           if (value == null) {
             val start = System.nanoTime()
