@@ -57,6 +57,7 @@ private[jvm] object ClassHandler {
     }
     val writer = settings.YaddBackendThreads.value match {
       case 0 => new SyncWritingClassHandler(true, unitInfoLookup, postProcessor, realCfWriter, lock)
+      case -1 => new SyncWritingClassHandler(false, unitInfoLookup, postProcessor, realCfWriter, lock)
       case maxThreads =>
         // the queue size is taken to be large enough to ensure that the a 'CallerRun' will not take longer to
         // run that it takes to exhaust the queue for the backend workers

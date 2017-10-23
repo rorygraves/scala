@@ -47,6 +47,7 @@ abstract class GenBCode extends SubComponent {
     }
 
     override def run(): Unit = {
+//      val start = System.nanoTime()
       statistics.timed(bcodeTimer) {
         try {
           bTypes.Lazy.lazyCount.clear()
@@ -66,6 +67,9 @@ abstract class GenBCode extends SubComponent {
           lazyStats("4")
         }
       }
+//      val end = System.nanoTime()
+//      val diff = (end - start)/1000/1000.0
+//      println (s"*** GenBcode duration = $diff")
     }
 
     /**

@@ -89,7 +89,7 @@ class AsyncHandler(global: Global, phase:Phase, comment:String) {
   val baseGroup = new ThreadGroup(s"scalac-${phase.name}")
   def apply[T](fn: => T)(implicit executionContext: ExecutionContext) = FutureInPhase(global, phase, comment)(fn)(executionContext)
 
-  def wrap(exec:ExecutorService):ExecutorService = new WrappedExecutorService(exec)
+  def wrap(exec:ExecutorService):ExecutorService = exec//new WrappedExecutorService(exec)
   private class WrappedExecutorService(underlying:ExecutorService) extends AbstractExecutorService{
     override def isTerminated: Boolean = underlying.isTerminated
 
