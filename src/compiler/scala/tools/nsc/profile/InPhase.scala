@@ -1,8 +1,9 @@
 package scala.tools.nsc.profile
 
+import java.lang.ThreadLocal
 import java.util
 import java.util.concurrent._
-import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.{AtomicInteger, AtomicLong}
 
 import scala.concurrent.duration.Duration
 import scala.concurrent.{Await, ExecutionContext, Future}
@@ -117,5 +118,67 @@ class AsyncHandler(global: Global, phase:Phase, comment:String) {
   }
   private class WrappedCallable[T](wrapped:Callable[T]) extends InPhase(global, phase, comment) with Callable[T] {
     override def call(): T = doAction(wrapped.call())
+  }
+
+  private class SinglePhaseInstrumentedThreadPoolExecutor
+        ( corePoolSize: Int, maximumPoolSize: Int, keepAliveTime: Long, unit: TimeUnit,
+          workQueue: BlockingQueue[Runnable], threadFactory: ThreadFactory, handler: RejectedExecutionHandler
+        ) extends ThreadPoolExecutor(corePoolSize, maximumPoolSize, keepAliveTime, unit, workQueue, threadFactory,handler) {
+    val firstStart = new AtomicLong
+    val lastEnd = new AtomicLong
+    val allThreadTime = new AtomicLong
+    val allTaskCount = new AtomicLong
+
+    class LocalData {
+      var snap :Long = _
+
+      def start(initialTimeNs: Long): Unit = {
+        snap = initialTimeNs
+      }
+      def end(completionTime: Long): Unit = {
+        val end = System.nanoTime()
+        val duration = snap - end
+        snap = end
+      }
+
+    }
+    object localData extends ThreadLocal[LocalData] {
+      override def initialValue() = new LocalData
+    }
+
+    override def beforeExecute(t: Thread, r: Runnable): Unit = {
+      super.beforeExecute(t, r)
+      allTaskCount.incrementAndGet()
+      val start = System.nanoTime()
+      firstStart.compareAndSet(0L, start)
+      localData.get.start(start)
+    }
+
+    override def afterExecute(r: Runnable, t: Throwable): Unit = {
+      val end = System.nanoTime()
+      localData.get.end(end)
+      var last = 0L
+      do last = lastEnd.get() while (last > end || !lastEnd.compareAndSet(last, end))
+
+      super.afterExecute(r, t)
+    }
+
+    override def terminated(): Unit = {
+      publishStats()
+      super.terminated()
+    }
+  }
+  def publishStats(): Unit = {
+
+  }
+  def processThreadStats(): Unit ={
+
+  }
+  class InPhaseThreadRunnable(doRun:Runnable) extends Runnable {
+    override def run(): Unit =
+      try doRun.run finally processThreadStats()
+  }
+  class InPhaseThreadFactory extends ThreadFactory {
+    override def newThread(r: Runnable): Thread = ???
   }
 }
