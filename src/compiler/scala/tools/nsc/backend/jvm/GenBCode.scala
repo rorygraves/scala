@@ -8,7 +8,7 @@ package backend
 package jvm
 
 import scala.tools.asm.Opcodes
-import scala.tools.nsc.profile.AsyncHandler
+import scala.tools.nsc.profile.AsyncHelper
 
 abstract class GenBCode extends SubComponent {
   self =>
@@ -83,7 +83,7 @@ abstract class GenBCode extends SubComponent {
       codeGen.initialize()
       postProcessorFrontendAccess.initialize()
       postProcessor.initialize()
-      val asyncHelper = new AsyncHandler(global, this, "")
+      val asyncHelper = AsyncHelper(global, this)
       val cfWriter = ClassfileWriter(asyncHelper, global.cleanup, settings, statistics, postProcessorFrontendAccess )
       generatedHandler = ClassHandler(asyncHelper, cfWriter, settings, postProcessor)
       statistics.stopTimer(statistics.bcodeInitTimer, initStart)

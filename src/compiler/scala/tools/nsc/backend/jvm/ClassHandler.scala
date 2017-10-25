@@ -12,7 +12,7 @@ import scala.concurrent.{Await, ExecutionContext, Future, Promise}
 import scala.reflect.internal.util.{NoPosition, SourceFile}
 import scala.tools.nsc.Settings
 import scala.tools.nsc.io.AbstractFile
-import scala.tools.nsc.profile.AsyncHandler
+import scala.tools.nsc.profile.AsyncHelper
 import scala.util.{Failure, Success, Try}
 import scala.util.control.NonFatal
 
@@ -34,7 +34,7 @@ private[jvm] sealed trait ClassHandler {
 
 private[jvm] object ClassHandler {
 
-  def apply(asyncHelper: AsyncHandler, cfWriter: ClassfileWriter, settings:Settings, postProcessor: PostProcessor) = {
+  def apply(asyncHelper: AsyncHelper, cfWriter: ClassfileWriter, settings:Settings, postProcessor: PostProcessor) = {
     val lock = postProcessor.bTypes.frontendAccess.frontendLock
     val unitInfoLookup = settings.outputDirs.getSingleOutput match {
       case Some(dir) => new SingleUnitInfo(dir)

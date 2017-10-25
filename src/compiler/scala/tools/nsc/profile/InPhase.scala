@@ -2,6 +2,7 @@ package scala.tools.nsc.profile
 
 import java.lang.ThreadLocal
 import java.util
+import java.util.Collections
 import java.util.concurrent._
 import java.util.concurrent.atomic.{AtomicInteger, AtomicLong}
 
@@ -86,99 +87,140 @@ class FutureInPhase[T](global: Global, phase:Phase, comment:String)(fn: => T) ex
   final def exec() = doAction(fn)
 }
 
-class AsyncHandler(global: Global, phase:Phase, comment:String) {
-  val baseGroup = new ThreadGroup(s"scalac-${phase.name}")
-  def apply[T](fn: => T)(implicit executionContext: ExecutionContext) = FutureInPhase(global, phase, comment)(fn)(executionContext)
+sealed trait AsyncHelper {
+  //TODO replace this
+  def wrap(executor: ThreadPoolExecutor) = executor
 
-  def wrap(exec:ExecutorService):ExecutorService = exec//new WrappedExecutorService(exec)
-  private class WrappedExecutorService(underlying:ExecutorService) extends AbstractExecutorService{
-    override def isTerminated: Boolean = underlying.isTerminated
+  //TODO replace this
+  def baseGroup = Thread.currentThread.getThreadGroup
 
-    override def awaitTermination(timeout: Long, unit: TimeUnit): Boolean = underlying.awaitTermination(timeout, unit)
+  def newFixedThreadPool
+    (nThreads: Int,
+     info:String, priority : Int = Thread.NORM_PRIORITY) = 0
 
-    override def shutdownNow(): util.List[Runnable] = underlying.shutdownNow()
+}
 
-    override def shutdown(): Unit = underlying.shutdown()
-
-    override def isShutdown: Boolean = underlying.isShutdown
-
-    override def execute(command: Runnable): Unit = command match {
-      case wrapped:InPhase => underlying.execute(wrapped)
-      case _ => underlying.execute(new WrappedRunnable(command))
-    }
-
-    override def newTaskFor[T](runnable: Runnable, value: T): RunnableFuture[T] =
-      super.newTaskFor(new WrappedRunnable(runnable), value)
-
-    override def newTaskFor[T](callable: Callable[T]): RunnableFuture[T] =
-      super.newTaskFor(new WrappedCallable[T](callable))
-  }
-  private class WrappedRunnable(wrapped:Runnable) extends InPhase(global, phase, comment) with Runnable {
-    override def run(): Unit = doAction(wrapped.run())
-  }
-  private class WrappedCallable[T](wrapped:Callable[T]) extends InPhase(global, phase, comment) with Callable[T] {
-    override def call(): T = doAction(wrapped.call())
+object AsyncHelper {
+  def apply(global: Global, phase: Phase): AsyncHelper = {
+    if (global.settings.YprofileEnabled) new ProfilingAsyncHelper(global, phase)
+    else new BasicAsyncHelper(global, phase)
   }
 
-  private class SinglePhaseInstrumentedThreadPoolExecutor
-        ( corePoolSize: Int, maximumPoolSize: Int, keepAliveTime: Long, unit: TimeUnit,
-          workQueue: BlockingQueue[Runnable], threadFactory: ThreadFactory, handler: RejectedExecutionHandler
-        ) extends ThreadPoolExecutor(corePoolSize, maximumPoolSize, keepAliveTime, unit, workQueue, threadFactory,handler) {
-    val firstStart = new AtomicLong
-    val lastEnd = new AtomicLong
-    val allThreadTime = new AtomicLong
-    val allTaskCount = new AtomicLong
+  private abstract class BaseAsyncHelper(global: Global, phase: Phase) extends AsyncHelper {
+    val baseGroup = new ThreadGroup(s"scalac-${phase.name}")
+    private def childGroup(name: String) = new ThreadGroup(baseGroup, name)
+    type ProfileGroup <: AnyRef
 
-    class LocalData {
-      var snap :Long = _
+    protected def wrapRunnable(r:Runnable, pGroup:ProfileGroup) : Runnable
+    protected class CommonThreadFactory(shortId: String, pGroup:ProfileGroup,
+                                      daemon: Boolean = true,
+                                      priority: Int) extends ThreadFactory {
+      private val group: ThreadGroup = childGroup(shortId)
+      private val threadNumber: AtomicInteger = new AtomicInteger(1)
+      private val namePrefix = s"${baseGroup.getName}-$shortId-"
 
-      def start(initialTimeNs: Long): Unit = {
-        snap = initialTimeNs
+      override def newThread(r: Runnable): Thread = {
+        val wrapped = wrapRunnable(r, pGroup)
+        val t: Thread = new Thread(group, wrapped, namePrefix + threadNumber.getAndIncrement, 0)
+        if (t.isDaemon != daemon) t.setDaemon(daemon)
+        if (t.getPriority != priority) t.setPriority(priority)
+        t
       }
-      def end(completionTime: Long): Unit = {
-        val end = System.nanoTime()
-        val duration = snap - end
-        snap = end
+    }
+  }
+  private class BasicAsyncHelper(global: Global, phase: Phase) extends BaseAsyncHelper(global, phase){
+    override type ProfileGroup = Void
+
+    override protected def wrapRunnable(r: Runnable, pGroup: Void): Runnable = r
+  }
+
+
+  private class ProfilingAsyncHelper(global: Global, phase: Phase) extends BaseAsyncHelper(global, phase){
+    override type ProfileGroup = ProfileData
+
+    override protected def wrapRunnable(r: Runnable, pGroup: ProfileData): Runnable =
+      new Runnable {
+        override def run(): Unit =
+          try r.run finally processThreadStats()
+      }
+
+    class ProfileData {
+      import scala.collection.JavaConverters._
+      val running = Collections.newSetFromMap(new ConcurrentHashMap[ThreadProfileData,java.lang.Boolean]).asScala
+
+      object runningTotals  {
+        var threadCount = 0
+
+        var idleNs = 0L
+        var runningNs = 0L
+
+        var lastStartNs = 0L
+        var lastEndNs = 0L
       }
 
     }
-    object localData extends ThreadLocal[LocalData] {
-      override def initialValue() = new LocalData
+
+    /**
+      * data for thread run. Not threadsafe, only written from a single thread
+      */
+    final class ThreadProfileData {
+      var firstStartNs = 0L
+      var taskCount = 0
+
+      var idleNs = 0L
+      var runningNs = 0L
+
+      var lastStartNs = 0L
+      var lastEndNs = 0L
     }
 
-    override def beforeExecute(t: Thread, r: Runnable): Unit = {
-      super.beforeExecute(t, r)
-      allTaskCount.incrementAndGet()
-      val start = System.nanoTime()
-      firstStart.compareAndSet(0L, start)
-      localData.get.start(start)
+
+    private class SinglePhaseInstrumentedThreadPoolExecutor
+    ( corePoolSize: Int, maximumPoolSize: Int, keepAliveTime: Long, unit: TimeUnit,
+      workQueue: BlockingQueue[Runnable], threadFactory: ThreadFactory, handler: RejectedExecutionHandler
+    ) extends ThreadPoolExecutor(corePoolSize, maximumPoolSize, keepAliveTime, unit, workQueue, threadFactory,handler) {
+      val firstStart = new AtomicLong
+      val lastEnd = new AtomicLong
+      val allThreadTime = new AtomicLong
+      val allTaskCount = new AtomicLong
+
+      object localData extends ThreadLocal[ThreadProfileData] {
+        override def initialValue() = new ThreadProfileData
+      }
+
+      override def beforeExecute(t: Thread, r: Runnable): Unit = {
+        val data = localData.get
+        data.taskCount += 1
+        val now = System.nanoTime()
+
+        if (data.firstStartNs == 0) data.firstStartNs = now
+        else data.idleNs += now - data.lastEndNs
+
+        data.lastStartNs = now
+
+        super.beforeExecute(t, r)
+      }
+
+      override def afterExecute(r: Runnable, t: Throwable): Unit = {
+        val now = System.nanoTime()
+        val data = localData.get
+
+        data.lastEndNs = now
+        data.runningNs += now - data.lastStartNs
+
+        super.afterExecute(r, t)
+      }
+
+      override def terminated(): Unit = {
+        publishStats()
+        super.terminated()
+      }
     }
+    def publishStats(): Unit = {
 
-    override def afterExecute(r: Runnable, t: Throwable): Unit = {
-      val end = System.nanoTime()
-      localData.get.end(end)
-      var last = 0L
-      do last = lastEnd.get() while (last > end || !lastEnd.compareAndSet(last, end))
-
-      super.afterExecute(r, t)
     }
+    def processThreadStats(): Unit ={
 
-    override def terminated(): Unit = {
-      publishStats()
-      super.terminated()
     }
-  }
-  def publishStats(): Unit = {
-
-  }
-  def processThreadStats(): Unit ={
-
-  }
-  class InPhaseThreadRunnable(doRun:Runnable) extends Runnable {
-    override def run(): Unit =
-      try doRun.run finally processThreadStats()
-  }
-  class InPhaseThreadFactory extends ThreadFactory {
-    override def newThread(r: Runnable): Thread = ???
   }
 }
