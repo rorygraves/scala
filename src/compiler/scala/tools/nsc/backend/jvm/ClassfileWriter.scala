@@ -260,7 +260,7 @@ sealed trait ClassfileWriter {
   var exec: ExecutorService = null
 }
 sealed trait UnderlyingClassfileWriter extends ClassfileWriter
-class AsyncClassfileWriter(val writingService: ExecutorService, count: Int, underlying: ClassfileWriter) extends ClassfileWriter {
+class AsyncClassfileWriter(val writingService: ExecutorService, threadCount: Int, underlying: ClassfileWriter) extends ClassfileWriter {
   private implicit val ec = ExecutionContext.fromExecutor(writingService)
 
   def ensureDirectories(ec: ExecutionContextExecutor, unit: UnitResult) = underlying.ensureDirectories(ec, unit)
@@ -275,7 +275,7 @@ class AsyncClassfileWriter(val writingService: ExecutorService, count: Int, unde
     underlying.close()
   }
 
-  override def toString = s"Async[$count]($underlying)"
+  override def toString = s"Async[$threadCount]($underlying)"
 }
 
 /** Can't output a file due to the state of the file system. */

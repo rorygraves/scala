@@ -43,17 +43,15 @@ private[jvm] object ClassHandler {
 
     val osExec = settings.YosIoThreads.value match {
       case 0 => null
-      case maxThreads => asyncHelper.wrap(new ThreadPoolExecutor(maxThreads, maxThreads, 0L, TimeUnit.MILLISECONDS, new LinkedTransferQueue[Runnable],
-        new CommonThreadFactory("scalac-compiler-jvm-", threadGroup = asyncHelper.baseGroup, priority = Thread.NORM_PRIORITY + 1), new CallerRunsPolicy))
+      case maxThreads => asyncHelper.newUnboundedQueueFixedThreadPool(maxThreads, "osExec", Thread.NORM_PRIORITY + 2)
     }
     cfWriter.exec = osExec
 
     val realCfWriter = settings.YIoWriterThreads.value match {
       case 0 => cfWriter
       case maxThreads =>
-        val javaExecutor1 = asyncHelper.wrap(new ThreadPoolExecutor(maxThreads, maxThreads, 0L, TimeUnit.MILLISECONDS, new LinkedTransferQueue[Runnable],
-          new CommonThreadFactory("scalac-compiler-jvm-", threadGroup = asyncHelper.baseGroup, priority = Thread.NORM_PRIORITY + 1), new CallerRunsPolicy))
-        new AsyncClassfileWriter(javaExecutor1, maxThreads, cfWriter)
+        val javaExecutor = asyncHelper.newBoundedQueueFixedThreadPool(maxThreads, maxThreads * 5, new CallerRunsPolicy, "cfWriter", Thread.NORM_PRIORITY + 1)
+        new AsyncClassfileWriter(javaExecutor, maxThreads, cfWriter)
     }
     val writer = settings.YaddBackendThreads.value match {
       case 0 => new SyncWritingClassHandler(true, unitInfoLookup, postProcessor, realCfWriter, lock)
@@ -67,9 +65,8 @@ private[jvm] object ClassHandler {
         val queue = new ArrayBlockingQueue[Runnable](queueSize)
         // we assign a higher priority to the background workers as they are removing load from the system
         // and they cannot block the main thread indefinitely
-        val javaExecutor = asyncHelper.wrap(new ThreadPoolExecutor(maxThreads, maxThreads, 0L, TimeUnit.MILLISECONDS, queue,
-          new CommonThreadFactory("scalac-compiler-jvm-", threadGroup = asyncHelper.baseGroup, priority = Thread.NORM_PRIORITY + 1), new CallerRunsPolicy))
-        new AsyncWritingClassHandler(unitInfoLookup, postProcessor, realCfWriter, lock, maxThreads, javaExecutor, queue)
+        val javaExecutor = asyncHelper.newBoundedQueueFixedThreadPool(maxThreads, queueSize, new CallerRunsPolicy, "non-ast")
+        new AsyncWritingClassHandler(unitInfoLookup, postProcessor, realCfWriter, lock, maxThreads, javaExecutor, javaExecutor.getQueue)
     }
 
     val res = if (settings.optInlinerEnabled || settings.optClosureInvocations)
@@ -222,7 +219,7 @@ private[jvm] object ClassHandler {
   }
 
   private final class AsyncWritingClassHandler(val unitInfoLookup: UnitInfoLookup, val postProcessor: PostProcessor, val cfWriter: ClassfileWriter, val lock:AnyRef,
-                                               maxThreads:Int, override val javaExecutor : ExecutorService, queue:ArrayBlockingQueue[Runnable]) extends WritingClassHandler {
+                                               maxThreads:Int, override val javaExecutor : ExecutorService, queue:BlockingQueue[Runnable]) extends WritingClassHandler {
     val otherJavaExec = Executors.newFixedThreadPool(2,new CommonThreadFactory("scalac-async-nonast", priority = Thread.NORM_PRIORITY -1))
     val otherExec =  ExecutionContext.fromExecutor(otherJavaExec)
     cfWriter.exec = otherJavaExec
