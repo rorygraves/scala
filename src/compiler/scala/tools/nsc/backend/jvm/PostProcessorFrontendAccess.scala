@@ -43,7 +43,7 @@ object PostProcessorFrontendAccess {
 
     def target: String
 
-    def outputDirectoryFor(src: AbstractFile): AbstractFile
+    def outputDirectories : Settings#OutputDirs
 
     def optAddToBytecodeRepository: Boolean
     def optBuildCallGraph: Boolean
@@ -100,7 +100,7 @@ object PostProcessorFrontendAccess {
       val debug: Boolean = s.debug
 
       val target: String = s.target.value
-      def outputDirectoryFor(src: AbstractFile): AbstractFile = frontendSynch(s.outputDirs.outputDirFor(src))
+      def outputDirectories = frontendSynch(s.outputDirs)
 
       val optAddToBytecodeRepository: Boolean = s.optAddToBytecodeRepository
       val optBuildCallGraph: Boolean = s.optBuildCallGraph

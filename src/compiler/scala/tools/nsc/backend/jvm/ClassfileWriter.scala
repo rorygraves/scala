@@ -65,12 +65,13 @@ object ClassfileWriter {
       }
     }
     val basicClassWriter = settings.outputDirs.getSingleOutput match {
-      case Some(dir) => singleWriter(dir)
+      case Some(dest) => singleWriter(dest)
       case None =>
-        val mappings: Map[AbstractFile, UnderlyingClassfileWriter] = settings.outputDirs.outputs.map {
-          case (_, destination) => destination -> singleWriter(destination)
-        }(scala.collection.breakOut)
-        new MultiClassWriter(mappings)
+        val outputs = settings.outputDirs.outputs
+        val outputsToWriters:Map[AbstractFile, UnderlyingClassfileWriter] =
+          outputs.collect{case x => x._2}.toSet.map {case dest => dest -> singleWriter(dest)}(scala.collection.breakOut)
+        if (outputsToWriters.size == 1) outputsToWriters.head._2
+        else new MultiClassWriter(outputsToWriters)
     }
     val withStats = if (statistics.enabled) new WithStatsWriter(statistics, basicClassWriter) else basicClassWriter
     val withAdditionalFormats = if (settings.Ygenasmp.valueSetByUser.isEmpty && settings.Ydumpclasses.valueSetByUser.isEmpty) withStats else {

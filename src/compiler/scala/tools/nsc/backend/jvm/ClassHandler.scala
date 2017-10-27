@@ -250,7 +250,8 @@ final class SingleUnitInfo(constantOutputDir:AbstractFile) extends UnitInfoLooku
   override def outputDir(source: AbstractFile) = constantOutputDir
 }
 final class LookupUnitInfo(frontendAccess: PostProcessorFrontendAccess) extends UnitInfoLookup {
-  override def outputDir(source: AbstractFile) = frontendAccess.compilerSettings.outputDirectoryFor(source)
+  lazy val outputDirectories =  frontendAccess.compilerSettings.outputDirectories
+  override def outputDir(source: AbstractFile) = outputDirectories.outputDirFor(source)
 }
 sealed trait SourceUnit extends CompletionHandler[Integer, (AsynchronousFileChannel, String, PostProcessorFrontendAccess)]{
   val outputDir: AbstractFile
