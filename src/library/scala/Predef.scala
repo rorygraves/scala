@@ -652,6 +652,31 @@ private[scala] abstract class LowPriorityImplicits {
   def wrapBooleanArray1(xs: Boolean): WrappedArray[Boolean] = new forCompiler.ofBoolean1(xs)
   def wrapUnitArray1(xs: Unit): WrappedArray[Unit] = new forCompiler.ofUnit1(xs)
 
+  def genericWrapArray2[T](xs1: T, xs2: T): WrappedArray[T] = ((xs1, xs2) match {
+    case (null, _) => null
+    case (_, null) => null
+    case (x1: AnyRef, x2: AnyRef)  => new forCompiler.ofRef2[AnyRef](x1, x2)
+    case (x1: Int, x2: Int) => new forCompiler.ofInt2(x1, x2)
+    case (x1: Double, x2: Double) => new forCompiler.ofDouble2(x1, x2)
+    case (x1: Long, x2: Long) => new forCompiler.ofLong2(x1, x2)
+    case (x1: Float, x2: Float) => new forCompiler.ofFloat2(x1, x2)
+    case (x1: Char, x2: Char) => new forCompiler.ofChar2(x1, x2)
+    case (x1: Byte, x2: Byte) => new forCompiler.ofByte2(x1, x2)
+    case (x1: Short, x2: Short) => new forCompiler.ofShort2(x1, x2)
+    case (x1: Boolean, x2: Boolean) => new forCompiler.ofBoolean2(x1, x2)
+    case (x1: Unit, x2: Unit) => new forCompiler.ofUnit2(x1, x2)
+  }).asInstanceOf[WrappedArray[T]]
+  def wrapRefArray2[T <: AnyRef](xs1: T, xs2: T): WrappedArray[T] = new forCompiler.ofRef2[T](xs1, xs2)
+  def wrapIntArray2(xs1: Int, xs2: Int): WrappedArray[Int] = new forCompiler.ofInt2(xs1, xs2)
+  def wrapDoubleArray2(xs1: Double, xs2: Double): WrappedArray[Double] = new forCompiler.ofDouble2(xs1, xs2)
+  def wrapLongArray2(xs1: Long, xs2: Long): WrappedArray[Long] = new forCompiler.ofLong2(xs1, xs2)
+  def wrapFloatArray2(xs1: Float, xs2: Float): WrappedArray[Float] = new forCompiler.ofFloat2(xs1, xs2)
+  def wrapCharArray2(xs1: Char, xs2: Char): WrappedArray[Char] = new forCompiler.ofChar2(xs1, xs2)
+  def wrapByteArray2(xs1: Byte, xs2: Byte): WrappedArray[Byte] = new forCompiler.ofByte2(xs1, xs2)
+  def wrapShortArray2(xs1: Short, xs2: Short): WrappedArray[Short] = new forCompiler.ofShort2(xs1, xs2)
+  def wrapBooleanArray2(xs1: Boolean, xs2: Boolean): WrappedArray[Boolean] = new forCompiler.ofBoolean2(xs1, xs2)
+  def wrapUnitArray2(xs1: Unit, xs2: Unit): WrappedArray[Unit] = new forCompiler.ofUnit2(xs1, xs2)
+
   /** @group conversions-string */
   implicit def wrapString(s: String): WrappedString = if (s ne null) new WrappedString(s) else null
   /** @group conversions-string */
