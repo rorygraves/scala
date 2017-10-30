@@ -9,8 +9,9 @@ package tools
 package nsc
 package settings
 
-import scala.language.existentials
+import java.util.zip.{Deflater, ZipOutputStream}
 
+import scala.language.existentials
 import scala.annotation.elidable
 import scala.tools.util.PathResolver.Defaults
 import scala.collection.mutable
@@ -224,10 +225,14 @@ trait ScalaSettings extends AbsScalaSettings
 
   val exposeEmptyPackage = BooleanSetting ("-Yexpose-empty-package", "Internal only: expose the empty package.").internalOnly()
   val Ydelambdafy        = ChoiceSetting  ("-Ydelambdafy", "strategy", "Strategy used for translating lambdas into JVM code.", List("inline", "method"), "method")
+
   val YaddBackendThreads = IntSetting   ("-YaddBackendThreads", "maximum additional threads for backend", 0, Some((-1,16)), (x: String) => None )
   val YIoWriterThreads = IntSetting   ("-YIoWriterThreads", "maximum threads for classfile writing", 0, Some((0,16)), (x: String) => None )
   val YosIoThreads = IntSetting   ("-YosIoThreads", "os IO threads (0 = OS default) ", 0, Some((0,16)), (x: String) => None )
   val YmaxQueue = IntSetting   ("-YmaxQueue", "maximum additional threads to write class files", 0, Some((0,1600)), (x: String) => None )
+  val YsyncFileIO = BooleanSetting   ("-YsyncFileIO", "use syncronous IO for to write class files")
+  val YjarCompressionLevel = IntSetting("-YjarCompressionLevel", "compression level to use when writing jar files",
+    Deflater.DEFAULT_COMPRESSION, Some((Deflater.DEFAULT_COMPRESSION,Deflater.BEST_COMPRESSION)), (x: String) => None)
 
   object optChoices extends MultiChoiceEnumeration {
     val unreachableCode         = Choice("unreachable-code",          "Eliminate unreachable code, exception handlers guarding no instructions, redundant metadata (debug information, line numbers).")

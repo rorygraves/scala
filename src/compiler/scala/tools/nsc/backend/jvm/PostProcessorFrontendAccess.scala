@@ -44,6 +44,8 @@ object PostProcessorFrontendAccess {
     def target: String
 
     def outputDirectories : Settings#OutputDirs
+    def syncFileIO: Boolean
+    def jarCompressionLevel: Int
 
     def optAddToBytecodeRepository: Boolean
     def optBuildCallGraph: Boolean
@@ -100,7 +102,9 @@ object PostProcessorFrontendAccess {
       val debug: Boolean = s.debug
 
       val target: String = s.target.value
-      def outputDirectories = frontendSynch(s.outputDirs)
+      val outputDirectories = s.outputDirs
+      val syncFileIO: Boolean = s.YsyncFileIO
+      val jarCompressionLevel: Int = s.YjarCompressionLevel.value
 
       val optAddToBytecodeRepository: Boolean = s.optAddToBytecodeRepository
       val optBuildCallGraph: Boolean = s.optBuildCallGraph

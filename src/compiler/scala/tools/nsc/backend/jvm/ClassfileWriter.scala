@@ -2,14 +2,14 @@ package scala.tools.nsc.backend.jvm
 
 import java.io.{BufferedOutputStream, DataOutputStream, FileOutputStream, IOException}
 import java.nio.ByteBuffer
-import java.nio.channels.AsynchronousFileChannel
+import java.nio.channels.{AsynchronousFileChannel, FileChannel}
 import java.nio.charset.StandardCharsets
 import java.nio.file.{FileAlreadyExistsException, Files, Path, Paths, StandardOpenOption}
 import java.util
 import java.util.concurrent.{ConcurrentHashMap, ExecutorService}
 import java.util.jar.Attributes.Name
 import java.util.jar.JarOutputStream
-import java.util.zip.{CRC32, ZipEntry, ZipOutputStream}
+import java.util.zip.{CRC32, Deflater, ZipEntry, ZipOutputStream}
 
 import scala.concurrent.{ExecutionContext, ExecutionContextExecutor, Future}
 import scala.reflect.internal.util.{NoPosition, Statistics}
@@ -53,25 +53,25 @@ object ClassfileWriter {
         val manifest = new Manifest()
         mainClass foreach {c => manifest.getMainAttributes.put(Name.MAIN_CLASS, c)}
         val jar = new JarOutputStream(new BufferedOutputStream(new FileOutputStream(file.file), 64000), manifest)
-        val storeOnly = false //TODO drive this from -Y...
-        if (storeOnly)jar.setMethod(ZipOutputStream.STORED)
+        val level = frontendAccess.compilerSettings.jarCompressionLevel
+        jar.setLevel(level)
+        val storeOnly = level == Deflater.NO_COMPRESSION
+        if (storeOnly) jar.setMethod(ZipOutputStream.STORED)
         new JarClassWriter(storeOnly, jar)
       } else if (file.isVirtual) {
         new VirtualClassWriter()
       } else if (file.isDirectory) {
         new DirClassWriter(frontendAccess)
       } else {
-        throw new IllegalStateException(s"dont know how to handle an output of $file [${file.getClass}]")
+        throw new IllegalStateException(s"don't know how to handle an output of $file [${file.getClass}]")
       }
     }
     val basicClassWriter = settings.outputDirs.getSingleOutput match {
       case Some(dest) => singleWriter(dest)
       case None =>
-        val outputs = settings.outputDirs.outputs
-        val outputsToWriters:Map[AbstractFile, UnderlyingClassfileWriter] =
-          outputs.collect{case x => x._2}.toSet.map {case dest => dest -> singleWriter(dest)}(scala.collection.breakOut)
-        if (outputsToWriters.size == 1) outputsToWriters.head._2
-        else new MultiClassWriter(outputsToWriters)
+        val distinctOuputs:Set[AbstractFile] = settings.outputDirs.outputs.map (_._2)(scala.collection.breakOut)
+        if (distinctOuputs.size == 1) singleWriter(distinctOuputs.head)
+        else new MultiClassWriter(distinctOuputs.map{output:AbstractFile => output ->  singleWriter(output)}((scala.collection.breakOut)))
     }
     val withStats = if (statistics.enabled) new WithStatsWriter(statistics, basicClassWriter) else basicClassWriter
     val withAdditionalFormats = if (settings.Ygenasmp.valueSetByUser.isEmpty && settings.Ydumpclasses.valueSetByUser.isEmpty) withStats else {
@@ -103,6 +103,7 @@ object ClassfileWriter {
 
   private sealed class DirClassWriter(frontendAccess: PostProcessorFrontendAccess) extends UnderlyingClassfileWriter {
 
+    val sync:Boolean = frontendAccess.compilerSettings.syncFileIO
     val builtPaths = new ConcurrentHashMap[Path, java.lang.Boolean]()
     def ensureDirForPath(baseDir:Path, filePath: Path): Unit = {
       import java.lang.Boolean.TRUE
@@ -144,15 +145,25 @@ object ClassfileWriter {
     override def write(unit: SourceUnit, clazz: GeneratedClass, className: InternalName, rawBytes: Array[Byte]): Unit = try {
       val path = getPath(unit,className)
       val bytes = formatData(rawBytes)
-      unit.addOperation()
-
       ensureDirForPath(unit.outputPath, path)
+      if (sync) {
+        val os = try FileChannel.open(path, fastOpenOptions)
+        catch {
+          case _: FileAlreadyExistsException => FileChannel.open(path, fallbackOpenOptions)
+        }
 
-      val os = try AsynchronousFileChannel.open(path, fastOpenOptions, exec)
-      catch {case _:FileAlreadyExistsException => AsynchronousFileChannel.open(path, fallbackOpenOptions, exec)}
+        os.write(ByteBuffer.wrap(bytes), 0L)
+        os.close()
+      } else {
+        unit.addOperation()
 
-      os.write(ByteBuffer.wrap(bytes), 0L, (os, className, frontendAccess), unit)
+        val os = try AsynchronousFileChannel.open(path, fastOpenOptions, exec)
+        catch {
+          case _: FileAlreadyExistsException => AsynchronousFileChannel.open(path, fallbackOpenOptions, exec)
+        }
 
+        os.write(ByteBuffer.wrap(bytes), 0L, (os, className, frontendAccess), unit)
+      }
     } catch {
       case e: FileConflictException =>
         frontendAccess.backendReporting.error(NoPosition, s"error writing $className$qualifier: ${e.getMessage}")
