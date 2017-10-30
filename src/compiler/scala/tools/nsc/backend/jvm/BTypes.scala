@@ -6,9 +6,6 @@
 package scala.tools.nsc
 package backend.jvm
 
-import java.util.concurrent.atomic.{AtomicInteger, AtomicLong}
-
-import scala.collection.concurrent.TrieMap
 import scala.collection.{concurrent, mutable}
 import scala.tools.asm
 import scala.tools.asm.Opcodes
@@ -922,39 +919,25 @@ abstract class BTypes {
     /**
       * create a Lazy, whose calculation is performed with `frontendLock`
       *
-      * @param temp for debug
       * @param t    the calculation
-      * @return a Lazy with which is guaranteed to perform if calc with the lock
+      * @return a Lazy with which is guaranteed to perform if calculation with `frontendLock` locked
       */
-    def withLock[T <: AnyRef](t: => T): Lazy[T] = {
-      new LazyWithLock[T](() => t)
-    }
+    def withLock[T <: AnyRef](t: => T): Lazy[T] = new LazyWithLock[T](() => t)
 
     /**
-      * a special case when the expression does not require a lock, but the result type has to be a Lazy
+      * create a Lazy where the result is pre-determined, typically a constant, e.g. Nl None etc
       *
       * @param value the final value of the Lazy
       * @return a new Lazy, pre-initialised with the specified value
       */
-    def eager[T <: AnyRef](value: T): Lazy[T] = {
-      new Eager[T](value)
-    }
+    def eager[T <: AnyRef](value: T): Lazy[T] = new Eager[T](value)
 
-    def withoutLock[T <: AnyRef](t: => T): Lazy[T] = {
-      new LazyWithoutLock[T](() => t)
-    }
+    def withoutLock[T <: AnyRef](t: => T): Lazy[T] = new LazyWithoutLock[T](() => t)
 
     private final class Eager[T](val force: T) extends Lazy[T] {
-      /**
-        * if the value is available then evaluate f
-        * otherwise evaluate f when the valueis forced
-        *
-        * @param f
-        */
       def onForce(f: T => Unit): Unit = f(force)
 
       override def toString = force.toString
-
     }
 
     private abstract class AbstractLazy[T <: AnyRef](t: () => T) extends Lazy[T] {

@@ -1,10 +1,6 @@
 package scala.tools.nsc.profile
 
-import java.lang.ThreadLocal
-import java.util
-import java.util.Collections
-import java.util.concurrent._
-import java.util.concurrent.atomic.{AtomicInteger, AtomicLong}
+import java.util.concurrent.atomic.AtomicInteger
 
 import scala.concurrent.duration.Duration
 import scala.concurrent.{Await, ExecutionContext, Future}

@@ -69,13 +69,9 @@ private[jvm] object ClassHandler {
         new AsyncWritingClassHandler(unitInfoLookup, postProcessor, realCfWriter, lock, maxThreads, javaExecutor, javaExecutor.getQueue)
     }
 
-    val res = if (settings.optInlinerEnabled || settings.optClosureInvocations)
+    if (settings.optInlinerEnabled || settings.optClosureInvocations)
       new GlobalOptimisingGeneratedClassHandler(postProcessor, writer, lock)
     else writer
-
-    println (s"************************ ClassHandler $res")
-    System.err.println (s"************************ ClassHandler $res")
-    res
   }
 
   private class GlobalOptimisingGeneratedClassHandler(val postProcessor: PostProcessor, val underlying: WritingClassHandler, val lock:AnyRef) extends ClassHandler {

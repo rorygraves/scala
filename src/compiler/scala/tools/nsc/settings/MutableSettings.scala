@@ -918,7 +918,6 @@ class MutableSettings(val errorFn: String => Unit)
       _numbs = numsAndStrs._1 map asRange
       _names = numsAndStrs._2
       _v     = t
-      println(t)
     }
     override def value = if (v contains "all") List("all") else super.value // i.e., v
     private def numericValues = _numbs

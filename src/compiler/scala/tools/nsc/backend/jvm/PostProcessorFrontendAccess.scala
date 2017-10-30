@@ -16,13 +16,7 @@ sealed abstract class PostProcessorFrontendAccess {
   def initialize(): Unit
 
   final val frontendLock: AnyRef = new Object()
-  @inline final def frontendSynch[T](x: => T): T = {
-//    if (!Thread.holdsLock(frontendLock))
-//      new Exception().printStackTrace()
-    frontendLock.synchronized{
-      x
-    }
-  }
+  @inline final def frontendSynch[T](x: => T): T = frontendLock.synchronized(x)
 
   def compilerSettings: CompilerSettings
 

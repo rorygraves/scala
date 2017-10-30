@@ -9,7 +9,7 @@ package tools
 package nsc
 package settings
 
-import java.util.zip.{Deflater, ZipOutputStream}
+import java.util.zip.Deflater
 
 import scala.language.existentials
 import scala.annotation.elidable
