@@ -80,15 +80,37 @@ class BTypesTest extends BytecodeTesting {
   }
 
   @Test
-  def lazyForceTest(): Unit = {
+  def lazyLockForceTest(): Unit = {
     val res = new mutable.StringBuilder()
-    val l = Lazy({res append "1"; "hi"})
+    val l = Lazy.withLock({res append "1"; "hi"})
     l.onForce(v => res append s"-2:$v")
     l.onForce(v => res append s"-3:$v:${l.force}") // `force` within `onForce` returns the value
     assertEquals("<?>", l.toString)
     assertEquals("hi", l.force)
     assertEquals("hi", l.toString)
     assertEquals("1-2:hi-3:hi:hi", res.toString)
+  }
+  @Test
+  def lazyNoLockForceTest(): Unit = {
+    val res = new mutable.StringBuilder()
+    val l = Lazy.withoutLock({res append "1"; "hi"})
+    l.onForce(v => res append s"-2:$v")
+    l.onForce(v => res append s"-3:$v:${l.force}") // `force` within `onForce` returns the value
+    assertEquals("<?>", l.toString)
+    assertEquals("hi", l.force)
+    assertEquals("hi", l.toString)
+    assertEquals("1-2:hi-3:hi:hi", res.toString)
+  }
+  @Test
+  def lazyEagerTest(): Unit = {
+    val res = new mutable.StringBuilder()
+    val l = Lazy.eager({res append "1"; "hi"})
+    assertEquals("hi", l.toString)
+    l.onForce(v => res append s"-2:$v")
+    l.onForce(v => res append s"-3:$v:${l.force}") // `force` within `onForce` returns the value
+    assertEquals("1-2:hi-3:hi:hi", res.toString)
+    assertEquals("hi", l.force)
+    assertEquals("hi", l.toString)
   }
 
   // TODO @lry do more tests
