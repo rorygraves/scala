@@ -134,7 +134,7 @@ object PostProcessorFrontendAccess {
       val optLogInline: Option[String] = s.YoptLogInline.valueSetByUser
       val optTrace: Option[String] = s.YoptTrace.valueSetByUser
     }
-    private val localReporter = perRunLazy(this)(new ThreadLocal[BackendReporting])
+    private lazy val localReporter = perRunLazy(this)(new ThreadLocal[BackendReporting])
 
     override def withLocalReporter[T](reporter: BackendReporting) (fn : => T): T = {
       val threadLocal = localReporter.get
