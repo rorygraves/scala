@@ -235,11 +235,7 @@ object ConsoleProfileReporter extends ProfileReporter {
 class StreamProfileReporter(out:PrintWriter) extends ProfileReporter {
   override def header(profiler: RealProfiler): Unit = {
     out.println(s"info, ${profiler.id}, ${profiler.outDir}")
-    out.println(s"OLD data")
-    out.println(s"header(data),id,phaseId,phaseName,type,id,comment,wallClockTimeMs,idleTimeMs,cpuTimeMs,userTimeMs,allocatedMB,retainedHeapMB,gcTimeMs")
-    out.println(s"NEW")
-    out.println(s"main/background,startNs,endNs,id,phaseId,phaseName,purpose,threadId,threadName,runNs,idleNs,cpuTimeNs,userTimeNs,allocatedByte,heapSize")
-    out.println(s"GC")
+    out.println(s"header(main/background),startNs,endNs,runId,phaseId,phaseName,purpose,threadId,threadName,runNs,idleNs,cpuTimeNs,userTimeNs,allocatedByte,heapSize")
     out.println(s"header(GC),startNs,endNs,startMs,endMs,name,action,cause,threads")
   }
 
