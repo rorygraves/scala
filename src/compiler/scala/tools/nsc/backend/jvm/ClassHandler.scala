@@ -9,8 +9,9 @@ import java.util.concurrent.atomic.AtomicInteger
 import scala.collection.mutable.ListBuffer
 import scala.concurrent.duration.Duration
 import scala.concurrent.{Await, ExecutionContext, Future, Promise}
-import scala.reflect.internal.util.{NoPosition, SourceFile}
-import scala.tools.nsc.Settings
+import scala.reflect.internal.util.{NoPosition, Position, SourceFile}
+import scala.tools.nsc.{Global, Settings}
+import scala.tools.nsc.backend.jvm.PostProcessorFrontendAccess.BackendReporting
 import scala.tools.nsc.io.AbstractFile
 import scala.tools.nsc.profile.AsyncHelper
 import scala.util.{Failure, Success, Try}
@@ -37,7 +38,7 @@ private[jvm] object ClassHandler {
   def apply(asyncHelper: AsyncHelper, cfWriter: ClassfileWriter, settings:Settings, postProcessor: PostProcessor) = {
     val lock = postProcessor.bTypes.frontendAccess.frontendLock
     val unitInfoLookup = settings.outputDirs.getSingleOutput match {
-      case Some(dir) => new SingleUnitInfo(dir)
+      case Some(dir) => new SingleUnitInfo(postProcessor.bTypes.frontendAccess, dir)
       case None => new LookupUnitInfo(postProcessor.bTypes.frontendAccess)
     }
 
@@ -167,15 +168,16 @@ private[jvm] object ClassHandler {
     override def close(): Unit = cfWriter.close()
 
     override def complete(): Unit = {
-      def stealWhileWaiting(fut: Future[Unit]): Unit = {
+      val directBackendReporting = postProcessor.bTypes.frontendAccess.directBackendReporting
+      def stealWhileWaiting(unitResult: UnitResult, fut: Future[Unit]): Unit = {
         while (!fut.isCompleted)
           tryStealing match {
-            case Some(r:Runnable) =>
-              println("stealing")
-              r.run()
+            case Some(r:Runnable) => r.run()
             case None => Await.ready(fut, Duration.Inf)
         }
         //we know that they are complete by we need to check for exception
+        //but first get any reports
+        unitResult.relayReports(directBackendReporting)
         fut.value.get.get
       }
       println("completing")
@@ -185,8 +187,8 @@ private[jvm] object ClassHandler {
       pending().foreach {
         unitResult: UnitResult =>
           try {
-            stealWhileWaiting(unitResult.task)
-            stealWhileWaiting(unitResult.result.future)
+            stealWhileWaiting(unitResult, unitResult.task)
+            stealWhileWaiting(unitResult, unitResult.result.future)
           } catch {
             case NonFatal(t) =>
               t.printStackTrace()
@@ -241,15 +243,18 @@ private[jvm] object ClassHandler {
 //we avoid the lock on frontendSync for the common case, when compiling to a single target
 sealed trait UnitInfoLookup {
   def outputDir(source:AbstractFile) : AbstractFile
+  val frontendAccess: PostProcessorFrontendAccess
 }
-final class SingleUnitInfo(constantOutputDir:AbstractFile) extends UnitInfoLookup {
+final class SingleUnitInfo(val frontendAccess: PostProcessorFrontendAccess, constantOutputDir:AbstractFile) extends UnitInfoLookup {
   override def outputDir(source: AbstractFile) = constantOutputDir
 }
-final class LookupUnitInfo(frontendAccess: PostProcessorFrontendAccess) extends UnitInfoLookup {
-  lazy val outputDirectories =  frontendAccess.compilerSettings.outputDirectories
+final class LookupUnitInfo(val frontendAccess: PostProcessorFrontendAccess) extends UnitInfoLookup {
+  lazy val outputDirectories = frontendAccess.compilerSettings.outputDirectories
   override def outputDir(source: AbstractFile) = outputDirectories.outputDirFor(source)
 }
-sealed trait SourceUnit extends CompletionHandler[Integer, (AsynchronousFileChannel, String, PostProcessorFrontendAccess)]{
+sealed trait SourceUnit extends CompletionHandler[Integer, (AsynchronousFileChannel, String)]{
+  def withBufferedReporter[T](fn: => T): T
+
   val outputDir: AbstractFile
   val outputPath: java.nio.file.Path
   def addOperation(): Unit
@@ -257,13 +262,13 @@ sealed trait SourceUnit extends CompletionHandler[Integer, (AsynchronousFileChan
   def sourceFile:AbstractFile
 
 }
-final class UnitResult(unitInfoLookup: UnitInfoLookup, classes_ : List[GeneratedClass],  val source:SourceFile) extends SourceUnit {
+final class UnitResult(unitInfoLookup: UnitInfoLookup, classes_ : List[GeneratedClass], val source:SourceFile) extends SourceUnit with BackendReporting {
   lazy val outputDir = unitInfoLookup.outputDir(source.file)
 
   override def sourceFile = source.file
 
   lazy val outputPath = outputDir.file.toPath
-  private var classes : List[GeneratedClass] = classes_
+  private var classes: List[GeneratedClass] = classes_
 
   def copyClasses = classes
 
@@ -272,22 +277,25 @@ final class UnitResult(unitInfoLookup: UnitInfoLookup, classes_ : List[Generated
     classes = Nil
     c
   }
+
   /** the main async task submitted onto the scheduler */
   var task: Future[Unit] = _
 
   /** the final completion which may occur after the task completes
-    * this allows the use of async completions*/
+    * this allows the use of async completions */
   val result = Promise[Unit]()
 
   private val pendingOperations = new AtomicInteger(1)
-  override def failed(exc: Throwable, channelInfo: (AsynchronousFileChannel, String, PostProcessorFrontendAccess)) = result.tryFailure(exc)
-  override def completed(x: Integer, channelInfo: (AsynchronousFileChannel, String, PostProcessorFrontendAccess)) = {
+
+  override def failed(exc: Throwable, channelInfo: (AsynchronousFileChannel, String)) = result.tryFailure(exc)
+
+  override def completed(x: Integer, channelInfo: (AsynchronousFileChannel, String)) = {
     try channelInfo._1.close()
     catch {
       case e: IOException =>
-        if ( channelInfo._3.compilerSettings.debug)
+        if (unitInfoLookup.frontendAccess.compilerSettings.debug)
           e.printStackTrace()
-        channelInfo._3.backendReporting.error(NoPosition, s"error closing file for ${channelInfo._2}: ${e.getMessage}")
+        unitInfoLookup.frontendAccess.backendReporting.error(NoPosition, s"error closing file for ${channelInfo._2}: ${e.getMessage}")
     } finally {
       if (pendingOperations.decrementAndGet() == 0) result.trySuccess(())
     }
@@ -304,4 +312,54 @@ final class UnitResult(unitInfoLookup: UnitInfoLookup, classes_ : List[Generated
       result.tryFailure(f)
       pendingOperations.decrementAndGet()
   }
+
+  def relayReports(backendReporting: BackendReporting) = this.synchronized {
+    if (bufferedReports nonEmpty) {
+      for (report: Report <- bufferedReports.reverse) {
+        report.relay(backendReporting)
+      }
+    }
+  }
+
+  private var bufferedReports = List.empty[Report]
+
+  override def withBufferedReporter[T](fn: => T) = unitInfoLookup.frontendAccess.withLocalReporter(this)(fn)
+
+  override def inlinerWarning(pos: Position, message: String): Unit =
+    this.synchronized(bufferedReports ::= new ReportInlinerWarning(pos, message))
+
+  override def error(pos: Position, message: String): Unit =
+    this.synchronized(bufferedReports ::= new ReportError(pos, message))
+
+  override def inform(message: String): Unit =
+    this.synchronized(bufferedReports ::= new ReportInform(message))
+
+  override def log(message: String): Unit =
+    this.synchronized(bufferedReports ::= new ReportLog(message))
+
+  private sealed trait Report {
+    def relay(backendReporting: BackendReporting): Unit
+  }
+
+  private class ReportInlinerWarning(pos: Position, message: String) extends Report {
+    override def relay(reporting: BackendReporting): Unit =
+      reporting.inlinerWarning(pos, message)
+  }
+
+  private class ReportError(pos: Position, message: String) extends Report {
+    override def relay(reporting: BackendReporting): Unit =
+      reporting.error(pos, message)
+  }
+
+  private class ReportInform(message: String) extends Report {
+    override def relay(reporting: BackendReporting): Unit =
+      reporting.inform(message)
+  }
+
+  private class ReportLog(message: String) extends Report {
+    override def relay(reporting: BackendReporting): Unit =
+      reporting.log(message)
+  }
+
 }
+

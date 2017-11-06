@@ -20,7 +20,9 @@ sealed abstract class PostProcessorFrontendAccess {
 
   def compilerSettings: CompilerSettings
 
+  def withLocalReporter[T](reporter: BackendReporting) (fn : => T): T
   def backendReporting: BackendReporting
+  def directBackendReporting: BackendReporting
 
   def backendClassPath: BackendClassPath
 
@@ -71,7 +73,7 @@ object PostProcessorFrontendAccess {
     def optTrace: Option[String]
   }
 
-  sealed trait BackendReporting {
+  trait BackendReporting {
     def inlinerWarning(pos: Position, message: String): Unit
     def error(pos: Position, message: String): Unit
     def inform(message: String): Unit
@@ -132,27 +134,37 @@ object PostProcessorFrontendAccess {
       val optLogInline: Option[String] = s.YoptLogInline.valueSetByUser
       val optTrace: Option[String] = s.YoptTrace.valueSetByUser
     }
+    private val localReporter = perRunLazy(this)(new ThreadLocal[BackendReporting])
 
-    object backendReporting extends BackendReporting {
+    override def withLocalReporter[T](reporter: BackendReporting) (fn : => T): T = {
+      val threadLocal = localReporter.get
+      val old = threadLocal.get()
+      threadLocal.set(reporter)
+      try fn finally
+        if (old eq null) threadLocal.remove() else threadLocal.set(old)
+    }
+    override def backendReporting : BackendReporting = {
+      val local = localReporter.get.get()
+      if (local eq null) directBackendReporting else local
+    }
+    object directBackendReporting extends BackendReporting {
       //TODO backend reporting should not be locked, it should be buffered and flushed when we consume the result
       def inlinerWarning(pos: Position, message: String): Unit = frontendSynch {
-        println("inliner warning")
         currentRun.reporting.inlinerWarning(pos, message)
       }
-      def error(pos: Position, message: String): Unit = frontendSynch(reporter.error(pos, message))
+      def error(pos: Position, message: String): Unit = frontendSynch {
+        reporter.error(pos, message)
+      }
       def inform(message: String): Unit = frontendSynch {
-        println("inform")
         global.inform(message)
       }
       def log(message: String): Unit = frontendSynch {
-        println("log")
         global.log(message)
       }
     }
 
     private lazy val cp = perRunLazy(this)(frontendSynch(optimizerClassPath(classPath)))
     object backendClassPath extends BackendClassPath {
-      //TODO this should be made threadsafe in the new classpath implementation
       def findClassFile(className: String): Option[AbstractFile] = cp.get.findClassFile(className)
     }
 

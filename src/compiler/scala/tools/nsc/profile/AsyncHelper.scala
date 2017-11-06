@@ -28,18 +28,17 @@ object AsyncHelper {
     val baseGroup = new ThreadGroup(s"scalac-${phase.name}")
     private def childGroup(name: String) = new ThreadGroup(baseGroup, name)
 
-    protected type ProfileData <: AnyRef
+    protected def wrapRunnable(r: Runnable): Runnable
 
-    protected def wrapRunnable(r:Runnable, profileData: ProfileData) : Runnable
-    protected class CommonThreadFactory(shortId: String, profileData: ProfileData,
-                                      daemon: Boolean = true,
-                                      priority: Int) extends ThreadFactory {
+    protected class CommonThreadFactory(shortId: String,
+                                        daemon: Boolean = true,
+                                        priority: Int) extends ThreadFactory {
       private val group: ThreadGroup = childGroup(shortId)
       private val threadNumber: AtomicInteger = new AtomicInteger(1)
       private val namePrefix = s"${baseGroup.getName}-$shortId-"
 
       override def newThread(r: Runnable): Thread = {
-        val wrapped = wrapRunnable(r, profileData)
+        val wrapped = wrapRunnable(r)
         val t: Thread = new Thread(group, wrapped, namePrefix + threadNumber.getAndIncrement, 0)
         if (t.isDaemon != daemon) t.setDaemon(daemon)
         if (t.getPriority != priority) t.setPriority(priority)
@@ -47,94 +46,50 @@ object AsyncHelper {
       }
     }
   }
-  private final class BasicAsyncHelper(global: Global, phase: Phase) extends BaseAsyncHelper(global, phase){
+
+  private final class BasicAsyncHelper(global: Global, phase: Phase) extends BaseAsyncHelper(global, phase) {
 
     override def newUnboundedQueueFixedThreadPool(nThreads: Int, shortId: String, priority: Int): ThreadPoolExecutor = {
-      val threadFactory = new CommonThreadFactory(shortId, null, priority = priority)
+      val threadFactory = new CommonThreadFactory(shortId, priority = priority)
       //like Executors.newFixedThreadPool
       new ThreadPoolExecutor(nThreads, nThreads, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue[Runnable], threadFactory)
     }
 
     override def newBoundedQueueFixedThreadPool(nThreads: Int, maxQueueSize: Int, rejectHandler: RejectedExecutionHandler, shortId: String, priority: Int): ThreadPoolExecutor = {
-      val threadFactory = new CommonThreadFactory(shortId, null, priority = priority)
+      val threadFactory = new CommonThreadFactory(shortId, priority = priority)
       //like Executors.newFixedThreadPool
       new ThreadPoolExecutor(nThreads, nThreads, 0L, TimeUnit.MILLISECONDS, new ArrayBlockingQueue[Runnable](maxQueueSize), threadFactory, rejectHandler)
     }
 
-    override type ProfileData = Void
-
-    override protected def wrapRunnable(r: Runnable, profileData: ProfileData): Runnable = r
+    override protected def wrapRunnable(r: Runnable): Runnable = r
   }
 
-  private class ProfilingAsyncHelper(global: Global, phase: Phase, private val profiler:RealProfiler) extends BaseAsyncHelper(global, phase){
+  private class ProfilingAsyncHelper(global: Global, phase: Phase, private val profiler: RealProfiler) extends BaseAsyncHelper(global, phase) {
 
     override def newUnboundedQueueFixedThreadPool(nThreads: Int, shortId: String, priority: Int): ThreadPoolExecutor = {
       val background = profiler.registerBackground(global, phase, shortId)
-      val allProfileData = new AllProfileData(background)
-      val threadFactory = new CommonThreadFactory(shortId, allProfileData, priority = priority)
+      val threadFactory = new CommonThreadFactory(shortId, priority = priority)
       //like Executors.newFixedThreadPool
-      new SinglePhaseInstrumentedThreadPoolExecutor(nThreads, nThreads, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue[Runnable], threadFactory, new AbortPolicy, allProfileData)
+      new SinglePhaseInstrumentedThreadPoolExecutor(nThreads, nThreads, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue[Runnable], threadFactory, new AbortPolicy)
     }
 
     override def newBoundedQueueFixedThreadPool(nThreads: Int, maxQueueSize: Int, rejectHandler: RejectedExecutionHandler, shortId: String, priority: Int): ThreadPoolExecutor = {
       val background = profiler.registerBackground(global, phase, shortId)
-      val allProfileData = new AllProfileData(background)
-      val threadFactory = new CommonThreadFactory(shortId, allProfileData, priority = priority)
+      val threadFactory = new CommonThreadFactory(shortId, priority = priority)
       //like Executors.newFixedThreadPool
-      new SinglePhaseInstrumentedThreadPoolExecutor(nThreads, nThreads, 0L, TimeUnit.MILLISECONDS, new ArrayBlockingQueue[Runnable](maxQueueSize), threadFactory, rejectHandler, allProfileData)
+      new SinglePhaseInstrumentedThreadPoolExecutor(nThreads, nThreads, 0L, TimeUnit.MILLISECONDS, new ArrayBlockingQueue[Runnable](maxQueueSize), threadFactory, rejectHandler)
     }
 
-    override protected type ProfileData = AllProfileData
+    override protected def wrapRunnable(r: Runnable): Runnable = () => {
+      val data = new ThreadProfileData
+      localData.set(data)
 
-    override protected def wrapRunnable(r: Runnable, profileData: ProfileData): Runnable =
-      () => {
-        val data = new ThreadProfileData
-        profileData.running += data
-        localData.set(data)
-        try r.run finally profileData.processThreadStats(data)
+      val profileStart = Profiler.emptySnap
+      try r.run finally {
+        val snap = profiler.snapThread()
+        val threadRange = ProfileRange(profileStart, snap, phase, 0, "", Thread.currentThread())
+        profiler.completeBackground(threadRange)
       }
-    class AllProfileData(private val id: profiler.Background) {
-
-      import scala.collection.JavaConverters._
-
-      val running = Collections.newSetFromMap(new ConcurrentHashMap[ThreadProfileData, java.lang.Boolean]).asScala
-      private var shuttingDown = false
-
-      private var completedThreadCount = 0
-
-      private var idleNs = 0L
-      private var runningNs = 0L
-
-      private var firstStartNs = 0L
-      private var lastEndNs = 0L
-
-      private var profileCounters: ProfileCounters = Profiler.emptySnap
-
-      def processThreadStats(data: ThreadProfileData): Unit = {
-        val snap = profiler.snapBackgroundThread()
-        this.synchronized {
-
-          completedThreadCount += 1
-          idleNs += data.idleNs
-          runningNs += data.runningNs
-
-          firstStartNs = if (firstStartNs == 0L) data.firstStartNs else Math.min(firstStartNs, data.firstStartNs)
-          lastEndNs = if (lastEndNs == 0L) data.lastEndNs else Math.max(lastEndNs, data.lastEndNs)
-
-          profileCounters += snap
-
-          running -= data
-
-          if (shuttingDown && running.isEmpty) publishStatsNow
-        }
-      }
-      def publishStatsWhenDone(): Unit = this.synchronized {
-        shuttingDown = true
-
-        if (running isEmpty) publishStatsNow
-      }
-      def publishStatsNow(): Unit =
-          profiler.completeBackground(id, firstStartNs, lastEndNs, completedThreadCount, runningNs, idleNs, profileCounters)
     }
 
     /**
@@ -154,19 +109,16 @@ object AsyncHelper {
     val localData = new ThreadLocal[ThreadProfileData]
 
     private class SinglePhaseInstrumentedThreadPoolExecutor
-    ( corePoolSize: Int, maximumPoolSize: Int, keepAliveTime: Long, unit: TimeUnit,
-    workQueue: BlockingQueue[Runnable], threadFactory: ThreadFactory, handler: RejectedExecutionHandler, allProfileData: AllProfileData
-    ) extends ThreadPoolExecutor(corePoolSize, maximumPoolSize, keepAliveTime, unit, workQueue, threadFactory,handler) {
+        (   corePoolSize: Int, maximumPoolSize: Int, keepAliveTime: Long, unit: TimeUnit,
+            workQueue: BlockingQueue[Runnable], threadFactory: ThreadFactory, handler: RejectedExecutionHandler
+    ) extends ThreadPoolExecutor(corePoolSize, maximumPoolSize, keepAliveTime, unit, workQueue, threadFactory, handler) {
 
       override def beforeExecute(t: Thread, r: Runnable): Unit = {
         val data = localData.get
         data.taskCount += 1
         val now = System.nanoTime()
 
-        if (data.firstStartNs == 0) {
-          data.firstStartNs = now
-
-        }
+        if (data.firstStartNs == 0) data.firstStartNs = now
         else data.idleNs += now - data.lastEndNs
 
         data.lastStartNs = now
@@ -184,10 +136,6 @@ object AsyncHelper {
         super.afterExecute(r, t)
       }
 
-      override def terminated(): Unit = {
-        allProfileData.publishStatsWhenDone()
-        super.terminated()
-      }
     }
   }
 }

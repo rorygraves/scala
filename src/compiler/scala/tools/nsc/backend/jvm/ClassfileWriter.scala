@@ -162,7 +162,7 @@ object ClassfileWriter {
           case _: FileAlreadyExistsException => AsynchronousFileChannel.open(path, fallbackOpenOptions, exec)
         }
 
-        os.write(ByteBuffer.wrap(bytes), 0L, (os, className, frontendAccess), unit)
+        os.write(ByteBuffer.wrap(bytes), 0L, (os, className), unit)
       }
     } catch {
       case e: FileConflictException =>
@@ -278,7 +278,11 @@ class AsyncClassfileWriter(val writingService: ExecutorService, threadCount: Int
   def ensureDirectories(ec: ExecutionContextExecutor, unit: UnitResult) = underlying.ensureDirectories(ec, unit)
   override def write(unit: SourceUnit, clazz: GeneratedClass, name: InternalName, bytes: Array[Byte]): Unit = {
     unit.addOperation()
-    val f = Future{underlying.write(unit, clazz, name, bytes)}
+    val f = Future{
+      unit.withBufferedReporter {
+        underlying.write(unit, clazz, name, bytes)
+      }
+    }
 
     f.onComplete{result:Try[Unit] => unit.endOperation(result)}
   }

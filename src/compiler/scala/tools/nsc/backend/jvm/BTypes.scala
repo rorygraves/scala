@@ -925,7 +925,7 @@ abstract class BTypes {
     def withLock[T <: AnyRef](t: => T): Lazy[T] = new LazyWithLock[T](() => t)
 
     /**
-      * create a Lazy where the result is pre-determined, typically a constant, e.g. Nl None etc
+      * create a Lazy where the result is pre-determined, typically a constant, e.g. Nil None etc
       *
       * @param value the final value of the Lazy
       * @return a new Lazy, pre-initialised with the specified value
