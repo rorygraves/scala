@@ -67,14 +67,12 @@ object AsyncHelper {
   private class ProfilingAsyncHelper(global: Global, phase: Phase, private val profiler: RealProfiler) extends BaseAsyncHelper(global, phase) {
 
     override def newUnboundedQueueFixedThreadPool(nThreads: Int, shortId: String, priority: Int): ThreadPoolExecutor = {
-      val background = profiler.registerBackground(global, phase, shortId)
       val threadFactory = new CommonThreadFactory(shortId, priority = priority)
       //like Executors.newFixedThreadPool
       new SinglePhaseInstrumentedThreadPoolExecutor(nThreads, nThreads, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue[Runnable], threadFactory, new AbortPolicy)
     }
 
     override def newBoundedQueueFixedThreadPool(nThreads: Int, maxQueueSize: Int, rejectHandler: RejectedExecutionHandler, shortId: String, priority: Int): ThreadPoolExecutor = {
-      val background = profiler.registerBackground(global, phase, shortId)
       val threadFactory = new CommonThreadFactory(shortId, priority = priority)
       //like Executors.newFixedThreadPool
       new SinglePhaseInstrumentedThreadPoolExecutor(nThreads, nThreads, 0L, TimeUnit.MILLISECONDS, new ArrayBlockingQueue[Runnable](maxQueueSize), threadFactory, rejectHandler)

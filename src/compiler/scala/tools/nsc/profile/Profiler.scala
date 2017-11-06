@@ -7,8 +7,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import javax.management.openmbean.CompositeData
 import javax.management.{Notification, NotificationEmitter, NotificationListener}
 
-import scala.collection.mutable
-import scala.tools.nsc.{Global, Phase, Settings}
+import scala.tools.nsc.{Phase, Settings}
 
 object Profiler {
   def apply(settings: Settings):Profiler =
@@ -93,9 +92,6 @@ private [profile] class RealProfiler(reporter : ProfileReporter, val settings: S
   def completeBackground(threadRange: ProfileRange): Unit = {
     reporter.reportBackground(this, threadRange)
   }
-
-  def registerBackground(global: Global, phase: Phase, shortId: String) = new Background(global, phase, shortId)
-  class Background private [RealProfiler] (val global: Global, val phase: Phase, val shortId: String)
 
   def outDir = settings.outputDirs.getSingleOutput.getOrElse(settings.outputDirs.outputs.head._2.file).toString
 
@@ -201,6 +197,7 @@ object EventType extends Enumeration {
   //total for compile
   val GC = Value("GC")
 }
+
 sealed trait ProfileReporter {
   def reportBackground(profiler: RealProfiler, threadRange: ProfileRange): Unit
   def reportForeground(profiler: RealProfiler, threadRange: ProfileRange): Unit
@@ -246,7 +243,7 @@ class StreamProfileReporter(out:PrintWriter) extends ProfileReporter {
     reportCommon(EventType.MAIN, profiler, threadRange)
   }
   private def reportCommon(tpe:EventType.value, profiler: RealProfiler, threadRange: ProfileRange): Unit = {
-    out.println(s"${tpe},${threadRange.start.snapTimeNanos},${threadRange.end.snapTimeNanos},${profiler.id},${threadRange.phase.id},${threadRange.phase.name},${threadRange.purpose},${threadRange.thread.getId},${threadRange.thread.getName},${threadRange.runNs},${threadRange.idleNs},${threadRange.cpuNs},${threadRange.userNs},${threadRange.allocatedBytes},${if(tpe == EventType.MAIN) threadRange.end.heapBytes else ""}")
+    out.println(s"$tpe,${threadRange.start.snapTimeNanos},${threadRange.end.snapTimeNanos},${profiler.id},${threadRange.phase.id},${threadRange.phase.name},${threadRange.purpose},${threadRange.thread.getId},${threadRange.thread.getName},${threadRange.runNs},${threadRange.idleNs},${threadRange.cpuNs},${threadRange.userNs},${threadRange.allocatedBytes},${if(tpe == EventType.MAIN) threadRange.end.heapBytes else ""}")
   }
 
   override def reportGc(data: GcEventData): Unit = {
