@@ -911,7 +911,17 @@ abstract class BTypes {
   // for BTypes, it's easier to add those nested classes to BTypes.
 
   abstract sealed class Lazy[T] {
+    /** get the result of the lazy value, calculation the result and performing the additional actions if the value
+      * is not already known.
+      * @return the
+      */
     def force: T
+
+    /** add an accumulating action, which is performed when the result is forced.
+      * If the result is already known at the time of this call then perform the action immediately
+      *
+      * @param f the action
+      */
     def onForce(f: T => Unit): Unit
   }
   object Lazy {
@@ -932,6 +942,12 @@ abstract class BTypes {
       */
     def eager[T <: AnyRef](value: T): Lazy[T] = new Eager[T](value)
 
+    /**
+      * create a Lazy, whose calculation is performed on demand
+      *
+      * @param t    the calculation
+      * @return a Lazy with which is guaranteed to perform if calculation with `frontendLock` locked
+      */
     def withoutLock[T <: AnyRef](t: => T): Lazy[T] = new LazyWithoutLock[T](() => t)
 
     private final class Eager[T](val force: T) extends Lazy[T] {
@@ -941,6 +957,8 @@ abstract class BTypes {
     }
 
     private abstract class AbstractLazy[T <: AnyRef](t: () => T) extends Lazy[T] {
+      // value need be volatile to ensure that init doesn't expose incomplete results
+      // due to JVM inlining of init
       @volatile protected var value: T = _
 
       override def toString = if (value == null) "<?>" else value.toString
@@ -957,16 +975,15 @@ abstract class BTypes {
 
       def force: T = {
         // assign to local var to avoid volatile reads and associated memory barriers
-        var value = this.value
-        if (value != null) value
+        var result = value
+        if (result != null) result
         else {
-          value = init(t)
-          this.value = value
+          result = init(t)
           this.synchronized {
-            postForce foreach (_ (value))
+            postForce foreach (_ (result))
             postForce = Nil
           }
-          value
+          result
         }
       }
 
@@ -980,7 +997,8 @@ abstract class BTypes {
     private final class LazyWithLock[T <: AnyRef](t: () => T) extends AbstractLazy[T](t) {
 
       def init(t: () => T): T = frontendSynch {
-        if (value == null) t() else value
+        if (value == null) value = t()
+        value
       }
     }
 
@@ -991,10 +1009,10 @@ abstract class BTypes {
     private final class LazyWithoutLock[T <: AnyRef](t: () => T) extends AbstractLazy[T](t) {
 
       def init(t: () => T): T = this.synchronized {
-        if (value == null) t() else value
+        if (value == null) value = t()
+        value
       }
     }
-
   }
 
   /**
