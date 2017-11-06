@@ -143,6 +143,7 @@ private [profile] class RealProfiler(reporter : ProfileReporter, val settings: S
 
   override def handleNotification(notification: Notification, handback: scala.Any): Unit = {
     import java.lang.{Long => jLong}
+    import java.lang.{Integer => jInt}
     val reportNs = System.nanoTime()
     val data = notification.getUserData
     val seq = notification.getSequenceNumber
@@ -158,7 +159,7 @@ private [profile] class RealProfiler(reporter : ProfileReporter, val settings: S
         val duration = info.get("duration").asInstanceOf[jLong].longValue()
         val startTime = info.get("startTime").asInstanceOf[jLong].longValue()
         val endTime = info.get("endTime").asInstanceOf[jLong].longValue()
-        val threads = info.get("GcThreadCount").asInstanceOf[jLong].longValue()
+        val threads = info.get("GcThreadCount").asInstanceOf[jInt].longValue()
         reporter.reportGc(new GcEventData("", reportNs, startTime, endTime, name, action, cause, threads))
     }
   }
