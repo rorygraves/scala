@@ -261,6 +261,12 @@ abstract class BTypesFromSymbols[G <: Global](val global: G) extends BTypes {
       r
   })(collection.breakOut)
 
+  private def mayHaveInnerClassForInnerClassTable(classSymbol: Symbol): Boolean = {
+    classSymbol.info.decls.exists {
+      sym:Symbol => (sym.isClass || sym.isModule) && !considerAsTopLevelImplementationArtifact(sym)
+    }
+  }
+
   private def computeClassInfo(classSym: Symbol, classBType: ClassBType): Right[Nothing, ClassInfo] = {
     /**
      * Reconstruct the classfile flags from a Java defined class symbol.
@@ -421,26 +427,49 @@ abstract class BTypesFromSymbols[G <: Global](val global: G) extends BTypes {
     })
 
     val nestedClasses = {
+      val mayHaveNested1 = mayHaveInnerClassForInnerClassTable(classSym)
+      val mayHaveNested2 = exitingPickler(mayHaveInnerClassForInnerClassTable(classSym))
+      val topLevel = considerAsTopLevelImplementationArtifact(classSym)
+      val compiled = currentRun.compiles(classSym)
+
+      val common = s"nestedClasses,${classBType.internalName},${classSym.isJavaDefined},norm,compiled=$compiled, mayHaveNested1=$mayHaveNested1 + mayHaveNested2=$mayHaveNested2,topLevel=$topLevel"
+
       val ph = phase
-      Lazy.withLock(enteringPhase(ph)(nestedClassSymbolsNoJavaModuleClasses.map(classBTypeFromSymbol)))
+      println (s"*** LAZY,DEFINE,,$common")
+      Lazy.withLock{
+        val start = System.nanoTime()
+        val res = enteringPhase(ph)(nestedClassSymbolsNoJavaModuleClasses.map(classBTypeFromSymbol))
+        println (s"*** LAZY,EXPAND,${System.nanoTime()-start},$common,${res.size},$res")
+        res
+      }
     }
 
     val nestedInfo = {
-      val ph = phase
-      Lazy.withLock(enteringPhase(ph)(buildNestedInfo(classSym)))
+      if (isEmptyNestedInfo(classSym)) Lazy.eagerNone
+      else {
+        val compiled = currentRun.compiles(classSym)
+        val common = s"nestedInfo,${classBType.internalName},${classSym.isJavaDefined},norm,compiled=$compiled"
+
+        val ph = phase
+        println(s"*** LAZY,DEFINE,,$common")
+        Lazy.withLock {
+          val start = System.nanoTime()
+          val res = enteringPhase(ph)(buildNonEmptyNestedInfo(classSym))
+          println(s"*** LAZY,EXPAND,$common,${res.size},$res")
+          res
+        }
+      }
     }
 
     val inlineInfo = buildInlineInfo(classSym, classBType.internalName)
 
     Right(ClassInfo(superClass, interfaces, flags, nestedClasses, nestedInfo, inlineInfo))
   }
-
-  private def buildNestedInfo(innerClassSym: Symbol): Option[NestedInfo] = {
-    assert(innerClassSym.isClass, s"Cannot build NestedInfo for non-class symbol $innerClassSym")
+  private def isEmptyNestedInfo(innerClassSym: Symbol): Boolean = {
 
     val isTopLevel = innerClassSym.rawowner.isPackageClass
     // specialized classes are considered top-level, see comment in BTypes
-    if (isTopLevel || considerAsTopLevelImplementationArtifact(innerClassSym)) None
+    if (isTopLevel || considerAsTopLevelImplementationArtifact(innerClassSym)) true
     else if (innerClassSym.rawowner.isTerm) {
       // This case should never be reached: the lambdalift phase mutates the rawowner field of all
       // classes to be the enclosing class. scala/bug#9392 shows an errant macro that leaves a reference
@@ -448,50 +477,53 @@ abstract class BTypesFromSymbols[G <: Global](val global: G) extends BTypes {
       devWarning(innerClassSym.pos,
         s"""The class symbol $innerClassSym with the term symbol ${innerClassSym.rawowner} as `rawowner` reached the backend.
            |Most likely this indicates a stale reference to a non-existing class introduced by a macro, see scala/bug#9392.""".stripMargin)
-      None
-    } else {
-      // See comment in BTypes, when is a class marked static in the InnerClass table.
-      val isStaticNestedClass = isOriginallyStaticOwner(innerClassSym.originalOwner)
+      true
+    } else false
+  }
 
-      // After lambdalift (which is where we are), the rawowner field contains the enclosing class.
-      val enclosingClass = {
-        // (1) Example java source: class C { static class D { } }
-        // The Scala compiler creates a class and a module symbol for C. Because D is a static
-        // nested class, the symbol for D is nested in the module class C (not in the class C).
-        // For the InnerClass attribute, we use the class symbol C, which represents the situation
-        // in the source code.
+  private def buildNonEmptyNestedInfo(innerClassSym: Symbol): Option[NestedInfo] = {
+    assert(innerClassSym.isClass, s"Cannot build NestedInfo for non-class symbol $innerClassSym")
+    // See comment in BTypes, when is a class marked static in the InnerClass table.
+    val isStaticNestedClass = isOriginallyStaticOwner(innerClassSym.originalOwner)
 
-        // (2) Java compatibility. See the big comment in BTypes that summarizes the InnerClass spec.
-        if ((innerClassSym.isJavaDefined && innerClassSym.rawowner.isModuleClass) ||                      // (1)
-            (!isAnonymousOrLocalClass(innerClassSym) && isTopLevelModuleClass(innerClassSym.rawowner))) { // (2)
-          // phase travel for linkedCoC - does not always work in late phases
-          exitingPickler(innerClassSym.rawowner.linkedClassOfClass) match {
-            case NoSymbol =>
-              // For top-level modules without a companion class, see doc of mirrorClassClassBType.
-              mirrorClassClassBType(exitingPickler(innerClassSym.rawowner))
+    // After lambdalift (which is where we are), the rawowner field contains the enclosing class.
+    val enclosingClass = {
+      // (1) Example java source: class C { static class D { } }
+      // The Scala compiler creates a class and a module symbol for C. Because D is a static
+      // nested class, the symbol for D is nested in the module class C (not in the class C).
+      // For the InnerClass attribute, we use the class symbol C, which represents the situation
+      // in the source code.
 
-            case companionClass =>
-              classBTypeFromSymbol(companionClass)
-          }
-        } else {
-          classBTypeFromSymbol(innerClassSym.rawowner)
+      // (2) Java compatibility. See the big comment in BTypes that summarizes the InnerClass spec.
+      if ((innerClassSym.isJavaDefined && innerClassSym.rawowner.isModuleClass) || // (1)
+        (!isAnonymousOrLocalClass(innerClassSym) && isTopLevelModuleClass(innerClassSym.rawowner))) { // (2)
+        // phase travel for linkedCoC - does not always work in late phases
+        exitingPickler(innerClassSym.rawowner.linkedClassOfClass) match {
+          case NoSymbol =>
+            // For top-level modules without a companion class, see doc of mirrorClassClassBType.
+            mirrorClassClassBType(exitingPickler(innerClassSym.rawowner))
+
+          case companionClass =>
+            classBTypeFromSymbol(companionClass)
         }
+      } else {
+        classBTypeFromSymbol(innerClassSym.rawowner)
       }
-
-      val outerName: Option[String] = {
-        if (isAnonymousOrLocalClass(innerClassSym)) None
-        else Some(enclosingClass.internalName)
-      }
-
-      val innerName: Option[String] = {
-        // phase travel necessary: after flatten, the name includes the name of outer classes.
-        // if some outer name contains $anon, a non-anon class is considered anon.
-        if (exitingPickler(innerClassSym.isAnonymousClass || innerClassSym.isAnonymousFunction)) None
-        else Some(innerClassSym.rawname + innerClassSym.moduleSuffix) // moduleSuffix for module classes
-      }
-
-      Some(NestedInfo(enclosingClass, outerName, innerName, isStaticNestedClass))
     }
+
+    val outerName: Option[String] = {
+      if (isAnonymousOrLocalClass(innerClassSym)) None
+      else Some(enclosingClass.internalName)
+    }
+
+    val innerName: Option[String] = {
+      // phase travel necessary: after flatten, the name includes the name of outer classes.
+      // if some outer name contains $anon, a non-anon class is considered anon.
+      if (exitingPickler(innerClassSym.isAnonymousClass || innerClassSym.isAnonymousFunction)) None
+      else Some(innerClassSym.rawname + innerClassSym.moduleSuffix) // moduleSuffix for module classes
+    }
+
+    Some(NestedInfo(enclosingClass, outerName, innerName, isStaticNestedClass))
   }
 
   /**
@@ -622,13 +654,23 @@ abstract class BTypesFromSymbols[G <: Global](val global: G) extends BTypes {
     cachedClassBType(internalName).getOrElse{
       ClassBType(internalName, classBTypeCacheFromSymbol) { c: ClassBType =>
         // class info consistent with BCodeHelpers.genMirrorClass
-        val nested = Lazy.withLock(exitingPickler(memberClassesForInnerClassTable(moduleClassSym)) map classBTypeFromSymbol)
+        val mayHaveNested1 = mayHaveInnerClassForInnerClassTable(moduleClassSym)
+        val mayHaveNested2 = exitingPickler(mayHaveInnerClassForInnerClassTable(moduleClassSym))
+        val compiled=currentRun.compiles(moduleClassSym)
+        val common = s"nestedClasses,$internalName,${moduleClassSym.isJavaDefined},mirror,$compiled,$mayHaveNested1 + $mayHaveNested2"
+        println (s"*** LAZY,DEFINE,,$common")
+        val nested = Lazy.withLock{
+          val start = System.nanoTime()
+          val res = exitingPickler(memberClassesForInnerClassTable(moduleClassSym)) map classBTypeFromSymbol
+          println (s"*** LAZY,EXPAND,${System.nanoTime()-start},$common,${res.size},$res")
+          res
+        }
         Right(ClassInfo(
           superClass = Some(ObjectRef),
           interfaces = Nil,
           flags = asm.Opcodes.ACC_SUPER | asm.Opcodes.ACC_PUBLIC | asm.Opcodes.ACC_FINAL,
           nestedClasses = nested,
-          nestedInfo = Lazy.eager(None),
+          nestedInfo = Lazy.eagerNone,
           inlineInfo = EmptyInlineInfo.copy(isEffectivelyFinal = true))) // no method inline infos needed, scala never invokes methods on the mirror class
       }
     }
@@ -642,8 +684,8 @@ abstract class BTypesFromSymbols[G <: Global](val global: G) extends BTypes {
           superClass = Some(sbScalaBeanInfoRef),
           interfaces = Nil,
           flags = javaFlags(mainClass),
-          nestedClasses = Lazy.eager(Nil),
-          nestedInfo = Lazy.eager(None),
+          nestedClasses = Lazy.eagerNil,
+          nestedInfo = Lazy.eagerNone,
           inlineInfo = EmptyInlineInfo))
       }
     }
@@ -664,7 +706,7 @@ abstract class BTypesFromSymbols[G <: Global](val global: G) extends BTypes {
    */
   final def isStaticModuleClass(sym: Symbol): Boolean = {
     sym.isModuleClass &&
-    isOriginallyStaticOwner(sym.originalOwner) // isStaticModuleClass is a source-level property, see comment on isOriginallyStaticOwner
+      isOriginallyStaticOwner(sym.originalOwner) // isStaticModuleClass is a source-level property, see comment on isOriginallyStaticOwner
   }
 
   // legacy, to be removed when the @remote annotation gets removed

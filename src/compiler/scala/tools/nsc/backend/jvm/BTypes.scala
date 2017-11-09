@@ -910,7 +910,7 @@ abstract class BTypes {
   // Since we already do this dance (val bTypes: GenBCode.this.bTypes.type = GenBCode.this.bTypes)
   // for BTypes, it's easier to add those nested classes to BTypes.
 
-  abstract sealed class Lazy[T] {
+  abstract sealed class Lazy[+T] {
     /** get the result of the lazy value, calculation the result and performing the additional actions if the value
       * is not already known.
       * @return the
@@ -949,6 +949,9 @@ abstract class BTypes {
       * @return a Lazy with which is guaranteed to perform if calculation with `frontendLock` locked
       */
     def withoutLock[T <: AnyRef](t: => T): Lazy[T] = new LazyWithoutLock[T](() => t)
+
+    val eagerNil = eager(Nil)
+    val eagerNone = eager(None)
 
     private final class Eager[T](val force: T) extends Lazy[T] {
       def onForce(f: T => Unit): Unit = f(force)
