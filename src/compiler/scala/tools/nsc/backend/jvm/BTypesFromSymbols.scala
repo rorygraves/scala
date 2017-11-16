@@ -426,13 +426,27 @@ abstract class BTypesFromSymbols[G <: Global](val global: G) extends BTypes {
       } else true
     })
 
-    val nestedClasses = {
-      val mayHaveNested1 = mayHaveInnerClassForInnerClassTable(classSym)
-      val mayHaveNested2 = exitingPickler(mayHaveInnerClassForInnerClassTable(classSym))
-      val topLevel = considerAsTopLevelImplementationArtifact(classSym)
-      val compiled = currentRun.compiles(classSym)
+    val mayHaveNested1 = mayHaveInnerClassForInnerClassTable(classSym)
+    val mayHaveNested2 = exitingPickler(mayHaveInnerClassForInnerClassTable(classSym))
+    val topLevel = considerAsTopLevelImplementationArtifact(classSym)
+    val compiled = currentRun.compiles(classSym)
 
-      val common = s"nestedClasses,${classBType.internalName},${classSym.isJavaDefined},norm,compiled=$compiled, mayHaveNested1=$mayHaveNested1 + mayHaveNested2=$mayHaveNested2,topLevel=$topLevel"
+    var top = classSym
+    while (!top.isTopLevel) top = top.rawowner
+
+    var top2 = classSym
+    while (!top2.originalOwner.isPackageClass) top2 = top2.originalOwner
+
+    val topIsCompiled = currentRun.compiles(top)
+
+    val compiled2 = classSym.ownerChain
+
+    val eager = isScalaClassSymbolCompiled(classSym)
+
+
+    val nestedClasses = {
+      val common = s"nestedClasses,${classBType.internalName},java=${classSym.isJavaDefined},norm,eager=$eager"
+      //compiled=$compiled,topIsCompiled=$topIsCompiled, ${top.rawowner}, ${top.originalOwner}, ${currentRun.compiles(top.originalOwner)}, ${top.effectiveOwner} - ${top.rawowner} - ${top.originalOwner}, top2=$top2 :: ${currentRun.compiles(top2)}, compiled2=${compiled2.mkString(":")}"
 
       val ph = phase
       println (s"*** LAZY,DEFINE,,$common")
@@ -447,15 +461,15 @@ abstract class BTypesFromSymbols[G <: Global](val global: G) extends BTypes {
     val nestedInfo = {
       if (isEmptyNestedInfo(classSym)) Lazy.eagerNone
       else {
-        val compiled = currentRun.compiles(classSym)
-        val common = s"nestedInfo,${classBType.internalName},${classSym.isJavaDefined},norm,compiled=$compiled"
+        val common = s"nestedInfo,${classBType.internalName},java=${classSym.isJavaDefined},norm,eager=$eager"
+          //compiled=$compiled,topIsCompiled=$topIsCompiled, ${top.rawowner}, ${top.originalOwner}, ${currentRun.compiles(top.originalOwner)}, ${top.effectiveOwner} - ${top.rawowner} - ${top.originalOwner}, top2=$top2 :: ${currentRun.compiles(top2)}, compiled2=${compiled2.mkString(":")}"
 
         val ph = phase
         println(s"*** LAZY,DEFINE,,$common")
         Lazy.withLock {
           val start = System.nanoTime()
           val res = enteringPhase(ph)(buildNonEmptyNestedInfo(classSym))
-          println(s"*** LAZY,EXPAND,$common,${res.size},$res")
+          println(s"*** LAZY,EXPAND,${System.nanoTime()-start},$common,${res.size},$res")
           res
         }
       }
@@ -644,6 +658,22 @@ abstract class BTypesFromSymbols[G <: Global](val global: G) extends BTypes {
   }
 
   /**
+    * Indicates if a symbol is a scala clas symbol and compiled in this run.
+    * Ideally we could use [[currentRun.isCompiled(sym)]] to detect this but
+    * that uses the owner chain, which is modified by lamdalift for static inner classes
+    *
+    * @param sym the symbol to be tested. It is expected, but not enforced that this symbol is a class symbol
+    */
+  private def isScalaClassSymbolCompiled(sym:Symbol) : Boolean = {
+    if (sym.isJavaDefined) false
+    else {
+      var top = sym
+      while (!top.originalOwner.isPackageClass) top = top.originalOwner
+      currentRun.compiles(top)
+    }
+  }
+
+  /**
    * For top-level objects without a companion class, the compiler generates a mirror class with
    * static forwarders (Java compat). There's no symbol for the mirror class, but we still need a
    * ClassBType (its info.nestedClasses will hold the InnerClass entries, see comment in BTypes).
@@ -657,7 +687,19 @@ abstract class BTypesFromSymbols[G <: Global](val global: G) extends BTypes {
         val mayHaveNested1 = mayHaveInnerClassForInnerClassTable(moduleClassSym)
         val mayHaveNested2 = exitingPickler(mayHaveInnerClassForInnerClassTable(moduleClassSym))
         val compiled=currentRun.compiles(moduleClassSym)
-        val common = s"nestedClasses,$internalName,${moduleClassSym.isJavaDefined},mirror,$compiled,$mayHaveNested1 + $mayHaveNested2"
+        var top = moduleClassSym
+        while (!top.isTopLevel) top = top.rawowner
+        val topIsCompiled = currentRun.compiles(top)
+
+        var top2 = moduleClassSym
+        while (!top2.originalOwner.isPackageClass) top2 = top2.originalOwner
+
+
+        val compiled2 = moduleClassSym.enclClassChain
+
+        val eager = isScalaClassSymbolCompiled(moduleClassSym)
+        val common = s"nestedClasses,$internalName,java=${moduleClassSym.isJavaDefined},mirror,compiled=$compiled,topIsCompiled=$topIsCompiled,eager=$eager"
+        //${top.rawowner}, ${top.originalOwner}, ${currentRun.compiles(top.originalOwner)}, ${top.effectiveOwner} - ${top.rawowner} - ${top.originalOwner}, top2=$top2 :: ${currentRun.compiles(top2)}, compiled2=${compiled2.mkString(":")}"
         println (s"*** LAZY,DEFINE,,$common")
         val nested = Lazy.withLock{
           val start = System.nanoTime()
