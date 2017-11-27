@@ -12,8 +12,8 @@ abstract class Statistics(val symbolTable: SymbolTable, settings: MutableSetting
   initFromSettings(settings)
 
   def initFromSettings(currentSettings: MutableSettings): Unit = {
-    enabled = currentSettings.YstatisticsEnabled
-    hotEnabled = currentSettings.YhotStatisticsEnabled
+//    enabled = currentSettings.YstatisticsEnabled
+//    hotEnabled = currentSettings.YhotStatisticsEnabled
   }
 
   type TimerSnapshot = (Long, Long)
@@ -265,23 +265,25 @@ quant)
   /** Represents whether normal statistics can or cannot be enabled. */
   @inline final def enabled: Boolean = areColdStatsLocallyEnabled
   def enabled_=(cond: Boolean) = {
-    if (cond && !enabled) {
-      StatisticsStatics.enableColdStats()
-      areColdStatsLocallyEnabled = true
-    }
+    ???
+//    if (cond && !enabled) {
+//      StatisticsStatics.enableColdStats()
+//      areColdStatsLocallyEnabled = true
+//    }
   }
 
   /** Represents whether hot statistics can or cannot be enabled. */
   @inline final def hotEnabled: Boolean = enabled && areHotStatsLocallyEnabled
   def hotEnabled_=(cond: Boolean) = {
-    if (cond && enabled && !areHotStatsLocallyEnabled) {
-      StatisticsStatics.enableHotStats()
-      areHotStatsLocallyEnabled = true
-    }
+    ???
+//    if (cond && enabled && !areHotStatsLocallyEnabled) {
+//      StatisticsStatics.enableHotStats()
+//      areHotStatsLocallyEnabled = true
+//    }
   }
 
   /** Tells whether statistics should be definitely reported to the user for this `Global` instance. */
-  @inline final def areStatisticsLocallyEnabled: Boolean = areColdStatsLocallyEnabled
+  @inline final def areStatisticsLocallyEnabled: Boolean = ProcessSettings.coldStatsEnabled || ProcessSettings.hotStatsEnabled
 
   import scala.reflect.internal.Reporter
   /** Reports the overhead of measuring statistics via the nanoseconds variation. */

@@ -9,10 +9,10 @@ package internal
 
 import scala.collection.immutable
 import scala.collection.mutable.ListBuffer
-import util.{ Statistics, shortClassOfInstance, StatisticsStatics }
+import util.{ProcessSettings, Statistics, StatisticsStatics, shortClassOfInstance}
 import Flags._
 import scala.annotation.tailrec
-import scala.reflect.io.{ AbstractFile, NoAbstractFile }
+import scala.reflect.io.{AbstractFile, NoAbstractFile}
 import Variance._
 
 trait Symbols extends api.Symbols { self: SymbolTable =>
@@ -281,7 +281,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     def varianceString: String = variance.symbolicString
 
     override def flagMask =
-      if (settings.debug && !isAbstractType) AllFlags
+      if (settings.debugXX && !isAbstractType) AllFlags
       else if (owner.isRefinementClass) ExplicitFlags & ~OVERRIDE
       else ExplicitFlags
 
@@ -869,7 +869,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     /** Conditions where we omit the prefix when printing a symbol, to avoid
      *  unpleasantries like Predef.String, $iw.$iw.Foo and <empty>.Bippy.
      */
-    final def isOmittablePrefix = /*!settings.debug.value &&*/ (
+    final def isOmittablePrefix = /*!settings.debug &&*/ (
          UnqualifiedOwners(skipPackageObject)
       || isEmptyPrefix
     )
@@ -1497,7 +1497,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     // disabled to keep the method maximally hotspot-friendly:
     // def tpe: Type = {
     //   val result = tpe_*
-    //   if (settings.debug.value && result.typeArgs.nonEmpty)
+    //   if (settings.debug && result.typeArgs.nonEmpty)
     //     printCaller(s"""Call to ${this.tpe} created $result: call tpe_* or tpeHK""")("")
     //   result
     // }
@@ -2607,7 +2607,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
       symbolKind.abbreviation
 
     final def kindString: String =
-      if (settings.debug.value) accurateKindString
+      if (settings.debugXX) accurateKindString
       else sanitizedKindString
 
     /** If the name of the symbol's owner should be used when you care about
@@ -2631,7 +2631,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
      *  If settings.Yshowsymkinds, adds abbreviated symbol kind.
      */
     def nameString: String = {
-      val name_s = if (settings.debug.value) "" + unexpandedName else unexpandedName.dropLocal.decode
+      val name_s = if (settings.debugXX) "" + unexpandedName else unexpandedName.dropLocal.decode
       val kind_s = if (settings.Yshowsymkinds.value) "#" + abbreviatedKindString else ""
 
       name_s + idString + kind_s
@@ -2658,7 +2658,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
      *  If hasMeaninglessName is true, uses the owner's name to disambiguate identity.
      */
     override def toString: String = {
-      val simplifyNames = !settings.debug
+      def simplifyNames = !ProcessSettings.debug
       if (isPackageObjectOrClass && simplifyNames) s"package object ${owner.decodedName}"
       else {
         val kind = kindString
@@ -2691,7 +2691,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     /** String representation of symbol's definition following its name */
     final def infoString(tp: Type): String = {
       def parents = (
-        if (settings.debug.value) parentsString(tp.parents)
+        if (settings.debugXX) parentsString(tp.parents)
         else briefParentsString(tp.parents)
       )
       def isStructuralThisType = (
@@ -2749,7 +2749,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
 
     /** String representation of existentially bound variable */
     def existentialToString =
-      if (isSingletonExistential && !settings.debug.value)
+      if (isSingletonExistential && !settings.debugXX)
         "val " + tpnme.dropSingletonName(name) + ": " + dropSingletonType(info.bounds.hi)
       else defString
   }
@@ -3215,7 +3215,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
       owner.newTypeSkolemSymbol(name, origin, pos, newFlags)
 
     override def nameString: String =
-      if (settings.debug.value) (super.nameString + "&" + level)
+      if (settings.debugXX) (super.nameString + "&" + level)
       else super.nameString
   }
 
@@ -3485,7 +3485,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
       // Avoid issuing lots of redundant errors
       if (!hasFlag(IS_ERROR)) {
         globalError(pos, missingMessage)
-        if (settings.debug.value)
+        if (settings.debugXX)
           (new Throwable).printStackTrace
 
         this setFlag IS_ERROR
@@ -3691,7 +3691,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
   /** An exception for cyclic references of symbol definitions */
   case class CyclicReference(sym: Symbol, info: Type)
   extends TypeError("illegal cyclic reference involving " + sym) {
-    if (settings.debug.value) printStackTrace()
+    if (settings.debugXX) printStackTrace()
   }
 
   /** A class for type histories */

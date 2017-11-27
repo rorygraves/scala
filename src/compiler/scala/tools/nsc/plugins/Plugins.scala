@@ -96,7 +96,7 @@ trait Plugins { global: Global =>
     } globalError("bad option: -P:" + opt)
 
     // Plugins may opt out, unless we just want to show info
-    plugs filter (p => p.init(p.options, globalError) || (settings.debug && settings.isInfo))
+    plugs filter (p => p.init(p.options, globalError) || (settings.debugXX && settings.isInfo))
   }
 
   lazy val plugins: List[Plugin] = loadPlugins()

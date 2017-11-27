@@ -96,7 +96,7 @@ object PostProcessorFrontendAccess {
     private def buildCompilerSettings(): CompilerSettings = new CompilerSettings {
       import global.{settings => s}
 
-      val debug: Boolean = s.debug
+      val debug: Boolean = s.debugXX
 
       val target: String = s.target.value
 

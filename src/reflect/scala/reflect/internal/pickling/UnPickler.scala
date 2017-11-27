@@ -17,6 +17,7 @@ import PickleFormat._
 import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
 import scala.annotation.switch
+import scala.reflect.internal.util.ProcessSettings
 import scala.util.control.NonFatal
 
 /** @author Martin Odersky
@@ -54,7 +55,7 @@ abstract class UnPickler {
   class Scan(_bytes: Array[Byte], offset: Int, classRoot: ClassSymbol, moduleRoot: ModuleSymbol, filename: String) extends PickleBuffer(_bytes, offset, -1) {
     //println("unpickle " + classRoot + " and " + moduleRoot)//debug
 
-    protected def debug = settings.debug.value
+    protected def debug = ProcessSettings.debug && settings.debugXX//.value
 
     checkVersion()
 

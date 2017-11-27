@@ -30,7 +30,7 @@ abstract class AbstractReporter extends Reporter {
   private def isVerbose   = settings.verbose.value
   private def noWarnings  = settings.nowarnings.value
   private def isPromptSet = settings.prompt.value
-  private def isDebug     = settings.debug
+  private def isDebug     = settings.debugXX
 
   protected def info0(pos: Position, msg: String, severity: Severity, force: Boolean) {
     if (severity == INFO) {

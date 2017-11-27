@@ -49,7 +49,7 @@ object REPL {
         }
       } catch {
         case ex @ FatalError(msg) =>
-          if (true || command.settings.debug) // !!!
+          if (true || command.settings.debugXX) // !!!
             ex.printStackTrace()
           reporter.error(null, "fatal error: " + msg)
       }

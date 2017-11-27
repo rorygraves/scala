@@ -115,7 +115,7 @@ trait Implicits {
   /** A friendly wrapper over inferImplicit to be used in macro contexts and toolboxes.
    */
   def inferImplicit(tree: Tree, pt: Type, isView: Boolean, context: Context, silent: Boolean, withMacrosDisabled: Boolean, pos: Position, onError: (Position, String) => Unit): Tree = {
-    val result = context.withMacros(enabled = !withMacrosDisabled) {
+    val result = context.withMacros(!withMacrosDisabled) {
       inferImplicit(tree, pt, reportAmbiguous = true, isView = isView, context, saveAmbiguousDivergent = !silent, pos)
     }
 
@@ -1257,7 +1257,7 @@ trait Implicits {
         if (args contains EmptyTree) EmptyTree
         else typedPos(tree.pos.focus) {
           val mani = gen.mkManifestFactoryCall(full, constructor, tparg, args.toList)
-          if (settings.debug) println("generated manifest: "+mani) // DEBUG
+          if (settings.debugXX) println("generated manifest: "+mani) // DEBUG
           mani
         }
 
@@ -1475,7 +1475,7 @@ trait Implicits {
         }
       }
 
-      if (result.isFailure && settings.debug) // debuglog is not inlined for some reason
+      if (result.isFailure && settings.debugXX) // debuglog is not inlined for some reason
         log(s"no implicits found for ${pt} ${pt.typeSymbol.info.baseClasses} ${implicitsOfExpectedType}")
 
       result

@@ -66,18 +66,18 @@ abstract class SymbolTable extends macros.Universe
   protected def elapsedMessage(msg: String, start: Long) =
     msg + " in " + (TimeUnit.NANOSECONDS.toMillis(System.nanoTime()) - start) + "ms"
 
-  def informProgress(msg: String)          = if (settings.verbose) inform("[" + msg + "]")
-  def informTime(msg: String, start: Long) = informProgress(elapsedMessage(msg, start))
+  @inline def informProgress(msg: => String)          = if (settings.verbose) inform("[" + msg + "]")
+  @inline def informTime(msg: => String, start: Long) = informProgress(elapsedMessage(msg, start))
 
   def shouldLogAtThisPhase = false
   def isPastTyper = false
-  protected def isDeveloper: Boolean = settings.debug
+  protected final val isDeveloper: Boolean = ProcessSettings.developmentTime
 
   @deprecated("use devWarning if this is really a warning; otherwise use log", "2.11.0")
   def debugwarn(msg: => String): Unit = devWarning(msg)
 
   /** Override with final implementation for inlining. */
-  def debuglog(msg:  => String): Unit = if (settings.debug) log(msg)
+  def debuglog(msg:  => String): Unit = if (settings.debugXX) log(msg)
   def devWarning(msg: => String): Unit = if (isDeveloper) Console.err.println(msg)
   def throwableAsString(t: Throwable): String = "" + t
   def throwableAsString(t: Throwable, maxFrames: Int): String = t.getStackTrace take maxFrames mkString "\n  at "

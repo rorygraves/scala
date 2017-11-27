@@ -8,6 +8,8 @@ package scala
 package reflect.internal
 package settings
 
+import scala.reflect.internal.util.ProcessSettings
+
 /** A mutable Settings object.
  */
 abstract class MutableSettings extends AbsSettings {
@@ -46,10 +48,11 @@ abstract class MutableSettings extends AbsSettings {
   def Yshowsymowners: BooleanSetting
   def Yshowsymkinds: BooleanSetting
   def breakCycles: BooleanSetting
-  def debug: BooleanSetting
-  def developer: BooleanSetting
+  def debug : BooleanSetting
+  def debugXX = ProcessSettings.debug//: BooleanSetting
+  def developer = ProcessSettings.developmentTime//: BooleanSetting
   def explaintypes: BooleanSetting
-  def overrideObjects: BooleanSetting
+  def overrideObjects: Boolean//Setting
   def printtypes: BooleanSetting
   def uniqid: BooleanSetting
   def verbose: BooleanSetting

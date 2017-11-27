@@ -43,7 +43,7 @@ object MainTokenMetric {
       tokenMetric(compiler, command.files)
     } catch {
       case ex @ FatalError(msg) =>
-        if (command.settings.debug)
+        if (command.settings.debugXX)
           ex.printStackTrace()
         reporter.error(null, "fatal error: " + msg)
     }

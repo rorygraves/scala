@@ -100,11 +100,11 @@ abstract class ClassfileParser {
   }
 
   private def handleMissing(e: MissingRequirementError) = {
-    if (settings.debug) e.printStackTrace
+    if (settings.debugXX) e.printStackTrace
     throw new IOException(s"Missing dependency '${e.req}', required by $file")
   }
   private def handleError(e: Exception) = {
-    if (settings.debug) e.printStackTrace()
+    if (settings.debugXX) e.printStackTrace()
     throw new IOException(s"class file '$file' is broken\n(${e.getClass}/${e.getMessage})")
   }
   private def mismatchError(c: Symbol) = {
@@ -1051,7 +1051,7 @@ abstract class ClassfileParser {
         // with a `FatalError` exception, handled above. Here you'd end up after a NPE (for example),
         // and that should never be swallowed silently.
         warning(s"Caught: $ex while parsing annotations in ${in.file}")
-        if (settings.debug) ex.printStackTrace()
+        if (settings.debugXX) ex.printStackTrace()
         None // ignore malformed annotations
     }
 

@@ -27,7 +27,7 @@ private[internal] trait TypeToStrings {
     // else
     if (toStringRecursions >= maxToStringRecursions) {
       devWarning("Exceeded recursion depth attempting to print " + util.shortClassOfInstance(tpe))
-      if (settings.debug)
+      if (settings.debugXX)
         (new Throwable).printStackTrace
 
       "..."

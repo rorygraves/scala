@@ -97,7 +97,7 @@ class CompilerCommand(arguments: List[String], val settings: Settings) {
     else if (Yhelp)         yusageMsg
     else if (showPlugins)   global.pluginDescriptions
     else if (showPhases)    global.phaseDescriptions + (
-      if (debug) "\n" + global.phaseFlagDescriptions else ""
+      if (debugXX) "\n" + global.phaseFlagDescriptions else ""
     )
     else if (genPhaseGraph.isSetByUser) {
       val components = global.phaseNames  // global.phaseDescriptors // one initializes

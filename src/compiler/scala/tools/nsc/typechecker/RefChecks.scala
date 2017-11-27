@@ -345,7 +345,7 @@ abstract class RefChecks extends Transform {
                 infoStringWithLocation(other),
                 infoStringWithLocation(member)
               )
-            else if (settings.debug)
+            else if (settings.debugXX)
               analyzer.foundReqMsg(member.tpe, other.tpe)
             else ""
 
@@ -1766,7 +1766,7 @@ abstract class RefChecks extends Transform {
         result
       } catch {
         case ex: TypeError =>
-          if (settings.debug) ex.printStackTrace()
+          if (settings.debugXX) ex.printStackTrace()
           reporter.error(tree.pos, ex.getMessage())
           tree
       } finally {

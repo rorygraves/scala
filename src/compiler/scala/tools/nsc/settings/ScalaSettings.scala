@@ -10,10 +10,10 @@ package nsc
 package settings
 
 import scala.language.existentials
-
 import scala.annotation.elidable
 import scala.tools.util.PathResolver.Defaults
 import scala.collection.mutable
+import scala.reflect.internal.util.ProcessSettings
 
 trait ScalaSettings extends AbsScalaSettings
                        with StandardScalaSettings
@@ -95,7 +95,7 @@ trait ScalaSettings extends AbsScalaSettings
    */
   val Xhelp              = BooleanSetting      ("-X", "Print a synopsis of advanced options.")
   val checkInit          = BooleanSetting      ("-Xcheckinit", "Wrap field accessors to throw an exception on uninitialized access.")
-  val developer          = BooleanSetting      ("-Xdev", "Indicates user is a developer - issue warnings about anything which seems amiss")
+  //val developer = ProcessSettings.developmentTime//          = BooleanSetting      ("-Xdev", "Indicates user is a developer - issue warnings about anything which seems amiss")
   val noassertions       = BooleanSetting      ("-Xdisable-assertions", "Generate no assertions or assumptions.") andThen (flag =>
                                                 if (flag) elidebelow.value = elidable.ASSERTION + 1)
   val elidebelow         = IntSetting          ("-Xelide-below", "Calls to @elidable methods are omitted if method priority is lower than argument",
@@ -178,8 +178,8 @@ trait ScalaSettings extends AbsScalaSettings
   /**
    * -Y "Private" settings
    */
-  val overrideObjects = BooleanSetting    ("-Yoverride-objects", "Allow member objects to be overridden.")
-  val overrideVars    = BooleanSetting    ("-Yoverride-vars", "Allow vars to be overridden.")
+  val overrideObjects= false// = BooleanSetting    ("-Yoverride-objects", "Allow member objects to be overridden.")
+  val overrideVars=false//    = BooleanSetting    ("-Yoverride-vars", "Allow vars to be overridden.")
   val Yhelp           = BooleanSetting    ("-Y", "Print a synopsis of private options.")
   val breakCycles     = BooleanSetting    ("-Ybreak-cycles", "Attempt to break cycles encountered during typing")
   val browse          = PhasesSetting     ("-Ybrowse", "Browse the abstract syntax tree after")

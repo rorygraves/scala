@@ -83,7 +83,7 @@ abstract class BTypesFromSymbols[G <: Global](val global: G) extends BTypes {
 
     assert(classSym != NoSymbol, "Cannot create ClassBType from NoSymbol")
     assert(classSym.isClass, s"Cannot create ClassBType from non-class symbol $classSym")
-    if (global.settings.debug) {
+    if (global.settings.debugXX) {
       // OPT these assertions have too much performance overhead to run unconditionally
       assertClassNotArrayNotPrimitive(classSym)
       assert(!primitiveTypeToBType.contains(classSym) || isCompilingPrimitive, s"Cannot create ClassBType for primitive class symbol $classSym")

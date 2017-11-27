@@ -38,7 +38,7 @@ trait Trees extends api.Trees {
     val id = nodeCount // TODO: add to attachment?
     nodeCount += 1
 
-    if (StatisticsStatics.areSomeHotStatsEnabled())
+    if (StatisticsStatics.areSomeHotStatsEnabled)
       statistics.incCounter(statistics.nodeByType, getClass)
 
     final override def pos: Position = rawatt.pos
@@ -1086,7 +1086,7 @@ trait Trees extends api.Trees {
     private def requireLegal(value: Any, allowed: Any, what: String) = (
       if (value != allowed) {
         log(s"can't set $what for $self to value other than $allowed")
-        if (settings.debug && settings.developer)
+        if (settings.debugXX && settings.developer)
           (new Throwable).printStackTrace
       }
     )
