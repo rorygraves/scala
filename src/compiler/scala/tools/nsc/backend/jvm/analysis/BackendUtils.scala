@@ -5,8 +5,11 @@ package analysis
 import java.lang.invoke.LambdaMetafactory
 
 import scala.annotation.{switch, tailrec}
-import scala.collection.JavaConverters._
 import scala.collection.mutable
+import scala.collection.JavaConverters._
+import java.util.concurrent.ConcurrentHashMap
+
+import scala.collection.generic.Clearable
 import scala.tools.asm
 import scala.tools.asm.Opcodes._
 import scala.tools.asm.tree._
@@ -44,7 +47,9 @@ abstract class BackendUtils extends PerRunInit {
    * inlining: when inlining an indyLambda instruction into a class, we need to make sure the class
    * has the method.
    */
-  val indyLambdaImplMethods: mutable.AnyRefMap[InternalName, mutable.LinkedHashSet[asm.Handle]] = recordPerRunCache(mutable.AnyRefMap())
+  private val indyLambdaImplMethods: ConcurrentHashMap[InternalName, mutable.LinkedHashSet[asm.Handle]] = recordPerRunCache{
+    new ConcurrentHashMap[InternalName, mutable.LinkedHashSet[asm.Handle]] with Clearable
+  }
 
   // unused objects created by these constructors are eliminated by pushPop
   private[this] lazy val sideEffectFreeConstructors: LazyVar[Set[(String, String)]] = perRunLazy(this) {
@@ -364,38 +369,47 @@ abstract class BackendUtils extends PerRunInit {
     }
   }
 
-  /**
+  def onIndyLambdaImplMethodIfPresent(hostClass: InternalName) (action : mutable.LinkedHashSet[asm.Handle] => Unit): Unit =
+    indyLambdaImplMethods.get(hostClass) match {
+      case null =>
+      case xs => xs.synchronized(action(xs))
+    }
+
+  def onIndyLambdaImplMethod[T](hostClass: InternalName) (action: mutable.LinkedHashSet[asm.Handle] => T): T ={
+    val methods = indyLambdaImplMethods.computeIfAbsent(hostClass, (_) => mutable.LinkedHashSet[asm.Handle]())
+
+    methods.synchronized (action(methods))
+  }
+
+      /**
    * add methods
    * @return the added methods. Note the order is undefined
    */
   def addIndyLambdaImplMethod(hostClass: InternalName, handle: Seq[asm.Handle]): Seq[asm.Handle] = {
-    if (handle.isEmpty) Nil else {
-      val set = indyLambdaImplMethods.getOrElseUpdate(hostClass, mutable.LinkedHashSet())
-      if (set.isEmpty) {
-        set ++= handle
-        handle
-      } else {
-        var added = List.empty[asm.Handle]
-        handle foreach { h => if (set.add(h)) added ::= h}
-        added
-      }
+    if (handle.isEmpty) Nil else onIndyLambdaImplMethod(hostClass) {
+      case set =>
+        if (set.isEmpty) {
+          set ++= handle
+          handle
+        } else {
+          var added = List.empty[asm.Handle]
+          handle foreach { h => if (set.add(h)) added ::= h }
+          added
+        }
     }
   }
 
   def addIndyLambdaImplMethod(hostClass: InternalName, handle: asm.Handle): Boolean = {
-    indyLambdaImplMethods.getOrElseUpdate(hostClass, mutable.LinkedHashSet()).add(handle)
+    onIndyLambdaImplMethod(hostClass) {
+      _ add handle
+    }
   }
 
   def removeIndyLambdaImplMethod(hostClass: InternalName, handle: Seq[asm.Handle]): Unit = {
     if (handle.nonEmpty)
-      indyLambdaImplMethods.get(hostClass).foreach(_ --= handle)
-  }
-
-  def getIndyLambdaImplMethods(hostClass: InternalName): Iterable[asm.Handle] = {
-    indyLambdaImplMethods.getOrNull(hostClass) match {
-      case null => Nil
-      case xs => xs
-    }
+      onIndyLambdaImplMethodIfPresent(hostClass) {
+        _ --= handle
+      }
   }
 
   /**
