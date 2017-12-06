@@ -376,7 +376,12 @@ abstract class SymbolTable extends macros.Universe
      * compiler and then inspect the state of a cache.
      */
     def unrecordCache[T <: Clearable](cache: T): Unit = {
-      caches = caches.filterNot(_.get eq cache)
+      cache match {
+        case jc: JavaClearable =>
+          caches = caches.filterNot(cache == _.get)
+        case _ =>
+          caches = caches.filterNot(_.get eq cache)
+      }
     }
 
     def clearAll() = {
