@@ -377,7 +377,7 @@ abstract class CoreBTypesFromSymbols[G <: Global] extends CoreBTypes {
           coreBTypes.jliMethodTypeRef),
         coreBTypes.jliCallSiteRef
       ).descriptor,
-      /* itf = */ coreBTypes.jliLambdaMetafactoryRef.isInterface.get)
+      /* itf = */ coreBTypes.jliLambdaMetafactoryRef.get.isInterface)
   }
 
   def lambdaMetaFactoryAltMetafactoryHandle: Handle = _lambdaMetaFactoryAltMetafactoryHandle.get
@@ -392,7 +392,7 @@ abstract class CoreBTypesFromSymbols[G <: Global] extends CoreBTypes {
           ArrayBType(ObjectRef)),
         coreBTypes.jliCallSiteRef
       ).descriptor,
-      /* itf = */ coreBTypes.jliLambdaMetafactoryRef.isInterface.get)
+      /* itf = */ coreBTypes.jliLambdaMetafactoryRef.get.isInterface)
   }
 
   def lambdaDeserializeBootstrapHandle: Handle = _lambdaDeserializeBootstrapHandle.get
@@ -408,6 +408,6 @@ abstract class CoreBTypesFromSymbols[G <: Global] extends CoreBTypes {
         ),
         coreBTypes.jliCallSiteRef
       ).descriptor,
-      /* itf = */ coreBTypes.srLambdaDeserialize.isInterface.get)
+      /* itf = */ coreBTypes.srLambdaDeserialize.get.isInterface)
   }
 }

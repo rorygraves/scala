@@ -691,7 +691,7 @@ abstract class Inliner {
    */
   def classIsAccessible(accessed: BType, from: ClassBType): Either[OptimizerWarning, Boolean] = (accessed: @unchecked) match {
     // TODO: A2 requires "same run-time package", which seems to be package + classloader (JVMS 5.3.). is the below ok?
-    case c: ClassBType     => c.isPublic.map(_ || c.packageInternalName == from.packageInternalName)
+    case c: ClassBType     => c.get.isPublic || (c.packageInternalName == from.packageInternalName)
     case a: ArrayBType     => classIsAccessible(a.elementType, from)
     case _: PrimitiveBType => Right(true)
   }
@@ -745,8 +745,8 @@ abstract class Inliner {
         case ACC_PROTECTED => // B2
           val isStatic = (ACC_STATIC & memberFlags) != 0
           tryEither {
-            val condB2 = from.isSubtypeOf(memberDeclClass).orThrow && {
-              isStatic || memberRefClass.isSubtypeOf(from).orThrow || from.isSubtypeOf(memberRefClass).orThrow
+            val condB2 = from.isSubtypeOf(memberDeclClass) && {
+              isStatic || memberRefClass.isSubtypeOf(from) || from.isSubtypeOf(memberRefClass)
             }
             Right(
               (condB2 || samePackageAsDestination /* B3 (protected) */) &&

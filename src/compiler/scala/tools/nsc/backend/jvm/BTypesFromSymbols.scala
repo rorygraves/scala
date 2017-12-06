@@ -103,7 +103,7 @@ abstract class BTypesFromSymbols[G <: Global](val global: G) extends BTypes {
           // allows initializing cyclic dependencies, see the comment on variable ClassBType._info.
           ClassBType(internalName, true) { res:ClassBType =>
             if (completeSilentlyAndCheckErroneous(classSym))
-              Left(NoClassBTypeInfoClassSymbolInfoFailedSI9111(classSym.fullName))
+              ClassInfoUnavailable(NoClassBTypeInfoClassSymbolInfoFailedSI9111(classSym.fullName))
             else computeClassInfo(classSym, res)
           }
       }
@@ -140,7 +140,7 @@ abstract class BTypesFromSymbols[G <: Global](val global: G) extends BTypes {
     val owner = if (sym.owner.isModuleClass) sym.owner.linkedClassOfClass else sym.owner
     val descriptor = methodBTypeFromMethodType(sym.info, isConstructor = false).descriptor
     val ownerBType = classBTypeFromSymbol(owner)
-    new asm.Handle(asm.Opcodes.H_INVOKESTATIC, ownerBType.internalName, sym.name.encoded, descriptor, /* itf = */ ownerBType.isInterface.get)
+    new asm.Handle(asm.Opcodes.H_INVOKESTATIC, ownerBType.internalName, sym.name.encoded, descriptor, /* itf = */ ownerBType.get.isInterface)
   }
 
   /**
@@ -188,7 +188,7 @@ abstract class BTypesFromSymbols[G <: Global](val global: G) extends BTypes {
           case ThisType(sym)           => classBTypeFromSymbol(sym)
           case SingleType(_, sym)      => primitiveOrClassToBType(sym)
           case ConstantType(_)         => typeToBType(t.underlying)
-          case RefinedType(parents, _) => parents.map(typeToBType(_).asClassBType).reduceLeft((a, b) => a.jvmWiseLUB(b).get)
+          case RefinedType(parents, _) => parents.map(typeToBType(_).asClassBType).reduceLeft((a, b) => a.jvmWiseLUB(b))
           case AnnotatedType(_, t)     => typeToBType(t)
           case ExistentialType(_, t)   => typeToBType(t)
         }
@@ -259,7 +259,7 @@ abstract class BTypesFromSymbols[G <: Global](val global: G) extends BTypes {
       r
   })(collection.breakOut)
 
-  private def computeClassInfo(classSym: Symbol, classBType: ClassBType): Right[Nothing, ClassInfo] = {
+  private def computeClassInfo(classSym: Symbol, classBType: ClassBType): ClassInfo = {
     /**
      * Reconstruct the classfile flags from a Java defined class symbol.
      *
@@ -435,7 +435,7 @@ abstract class BTypesFromSymbols[G <: Global](val global: G) extends BTypes {
 
     val inlineInfo = buildInlineInfo(classSym, classBType.internalName)
 
-    Right(ClassInfo(superClass, interfaces, flags, nestedClasses, nestedInfo, inlineInfo))
+    ClassInfo(superClass, interfaces, flags, nestedClasses, nestedInfo, inlineInfo)
   }
   private def isEmptyNestedInfo(innerClassSym: Symbol): Boolean = {
     assert(innerClassSym.isClass, s"Cannot build NestedInfo for non-class symbol $innerClassSym")
@@ -627,13 +627,13 @@ abstract class BTypesFromSymbols[G <: Global](val global: G) extends BTypes {
       ClassBType(internalName, true) { c: ClassBType =>
         val shouldBeLazy = moduleClassSym.isJavaDefined || !currentRun.compiles(moduleClassSym)
         val nested = Lazy.withLockOrEager(shouldBeLazy, exitingPickler(memberClassesForInnerClassTable(moduleClassSym)) map classBTypeFromSymbol)
-        Right(ClassInfo(
+        ClassInfo(
           superClass = Some(ObjectRef),
           interfaces = Nil,
           flags = asm.Opcodes.ACC_SUPER | asm.Opcodes.ACC_PUBLIC | asm.Opcodes.ACC_FINAL,
           nestedClasses = nested,
           nestedInfo = Lazy.eagerNone,
-          inlineInfo = EmptyInlineInfo.copy(isEffectivelyFinal = true))) // no method inline infos needed, scala never invokes methods on the mirror class
+          inlineInfo = EmptyInlineInfo.copy(isEffectivelyFinal = true)) // no method inline infos needed, scala never invokes methods on the mirror class
       }
     }
   }
@@ -642,13 +642,13 @@ abstract class BTypesFromSymbols[G <: Global](val global: G) extends BTypes {
     val internalName = mainClass.javaBinaryNameString + "BeanInfo"
     cachedClassBType(internalName).getOrElse {
       ClassBType(internalName, true) { c: ClassBType =>
-        Right(ClassInfo(
+        ClassInfo(
           superClass = Some(sbScalaBeanInfoRef),
           interfaces = Nil,
           flags = javaFlags(mainClass),
           nestedClasses = Lazy.eagerNil,
           nestedInfo = Lazy.eagerNone,
-          inlineInfo = EmptyInlineInfo))
+          inlineInfo = EmptyInlineInfo)
       }
     }
   }

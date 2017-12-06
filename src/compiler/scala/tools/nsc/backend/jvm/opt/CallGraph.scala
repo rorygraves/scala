@@ -291,7 +291,7 @@ abstract class CallGraph {
       // The inlineInfo.methodInfos of a ClassBType holds an InlineInfo for each method *declared*
       // within a class (not for inherited methods). Since we already have the  classBType of the
       // callee, we only check there for the methodInlineInfo, we should find it there.
-      calleeDeclarationClassBType.info.orThrow.inlineInfo.methodInfos.get(methodSignature) match {
+      calleeDeclarationClassBType.getOrThrow.inlineInfo.methodInfos.get(methodSignature) match {
         case Some(methodInlineInfo) =>
           val isAbstract = BytecodeUtils.isAbstractMethod(calleeMethodNode)
 
@@ -315,10 +315,10 @@ abstract class CallGraph {
           val isStaticallyResolved: Boolean = {
             isNonVirtualCall(call) || // SD-86: super calls (invokespecial) can be inlined -- TODO: check if that's still needed, and if it's correct: scala-dev#143
             methodInlineInfo.effectivelyFinal ||
-              receiverType.info.orThrow.inlineInfo.isEffectivelyFinal // (1)
+              receiverType.getOrThrow.inlineInfo.isEffectivelyFinal // (1)
           }
 
-          val warning = calleeDeclarationClassBType.info.orThrow.inlineInfo.warning.map(
+          val warning = calleeDeclarationClassBType.getOrThrow.inlineInfo.warning.map(
             MethodInlineInfoIncomplete(calleeDeclarationClassBType.internalName, calleeMethodNode.name, calleeMethodNode.desc, _))
 
           CallsiteInfo(
@@ -330,7 +330,7 @@ abstract class CallGraph {
             warning              = warning)
 
         case None =>
-          val warning = MethodInlineInfoMissing(calleeDeclarationClassBType.internalName, calleeMethodNode.name, calleeMethodNode.desc, calleeDeclarationClassBType.info.orThrow.inlineInfo.warning)
+          val warning = MethodInlineInfoMissing(calleeDeclarationClassBType.internalName, calleeMethodNode.name, calleeMethodNode.desc, calleeDeclarationClassBType.getOrThrow.inlineInfo.warning)
           CallsiteInfo(false, None, false, false, IntMap.empty, Some(warning))
       }
     } catch {

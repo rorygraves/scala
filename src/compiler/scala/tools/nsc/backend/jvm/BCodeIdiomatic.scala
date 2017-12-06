@@ -189,15 +189,15 @@ abstract class BCodeIdiomatic {
      */
     def genConcat(elemType: BType, pos: Position): Unit = {
       val paramType: BType = elemType match {
-        case ct: ClassBType if ct.isSubtypeOf(StringRef).get          => StringRef
-        case ct: ClassBType if ct.isSubtypeOf(jlStringBufferRef).get  => jlStringBufferRef
-        case ct: ClassBType if ct.isSubtypeOf(jlCharSequenceRef).get  => jlCharSequenceRef
+        case ct: ClassBType if ct.isSubtypeOf(StringRef)          => StringRef
+        case ct: ClassBType if ct.isSubtypeOf(jlStringBufferRef)  => jlStringBufferRef
+        case ct: ClassBType if ct.isSubtypeOf(jlCharSequenceRef)  => jlCharSequenceRef
         // Don't match for `ArrayBType(CHAR)`, even though StringBuilder has such an overload:
         // `"a" + Array('b')` should NOT be "ab", but "a[C@...".
-        case _: RefBType                                              => ObjectRef
+        case _: RefBType                                          => ObjectRef
         // jlStringBuilder does not have overloads for byte and short, but we can just use the int version
-        case BYTE | SHORT                                             => INT
-        case pt: PrimitiveBType                                       => pt
+        case BYTE | SHORT                                         => INT
+        case pt: PrimitiveBType                                   => pt
       }
       val bt = MethodBType(List(paramType), jlStringBuilderRef)
       invokevirtual(JavaStringBuilderClassName, "append", bt.descriptor, pos)

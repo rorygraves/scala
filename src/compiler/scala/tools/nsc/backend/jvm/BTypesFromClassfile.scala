@@ -49,7 +49,7 @@ abstract class BTypesFromClassfile {
     cachedClassBType(internalName).getOrElse{
       ClassBType(internalName, false){ res:ClassBType =>
         byteCodeRepository.classNode(internalName) match {
-          case Left(msg) => Left(NoClassBTypeInfoMissingBytecode(msg))
+          case Left(msg) => ClassInfoUnavailable(NoClassBTypeInfoMissingBytecode(msg))
           case Right(c) => computeClassInfoFromClassNode(c, res)
         }
       }
@@ -67,7 +67,7 @@ abstract class BTypesFromClassfile {
     }
   }
 
-  private def computeClassInfoFromClassNode(classNode: ClassNode, classBType: ClassBType): Right[Nothing, ClassInfo] = {
+  private def computeClassInfoFromClassNode(classNode: ClassNode, classBType: ClassBType): ClassInfo = {
     val superClass = classNode.superName match {
       case null =>
         assert(classNode.name == ObjectRef.internalName, s"class with missing super type: ${classNode.name}")
@@ -122,7 +122,7 @@ abstract class BTypesFromClassfile {
 
     val interfaces: List[ClassBType] = classNode.interfaces.asScala.map(classBTypeFromParsedClassfile)(collection.breakOut)
 
-    Right(ClassInfo(superClass, interfaces, flags, Lazy.withoutLock(nestedClasses), Lazy.withoutLock(nestedInfo), inlineInfo))
+    ClassInfo(superClass, interfaces, flags, Lazy.withoutLock(nestedClasses), Lazy.withoutLock(nestedInfo), inlineInfo)
   }
 
   /**

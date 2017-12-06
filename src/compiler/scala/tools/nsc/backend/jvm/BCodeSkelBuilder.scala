@@ -109,7 +109,7 @@ abstract class BCodeSkelBuilder extends BCodeHelpers {
 
       gen(cd.impl)
 
-      cnode.visitAttribute(thisBType.inlineInfoAttribute.get)
+      cnode.visitAttribute(thisBType.inlineInfoAttribute)
 
       if (AsmUtils.traceClassEnabled && cnode.name.contains(AsmUtils.traceClassPattern))
         AsmUtils.traceClass(cnode)

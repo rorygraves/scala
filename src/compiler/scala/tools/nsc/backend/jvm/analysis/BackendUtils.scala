@@ -325,7 +325,7 @@ abstract class BackendUtils extends PerRunInit {
 
     def getClassIfNested(internalName: InternalName): Option[ClassBType] = {
       val c = bTypesFromClassfile.classBTypeFromParsedClassfile(internalName)
-      if (c.isNestedClass.get) Some(c) else None
+      if (c.get.isNestedClass) Some(c) else None
     }
 
     def raiseError(msg: String, sig: String, e: Option[Throwable]): Unit = {
@@ -354,12 +354,12 @@ abstract class BackendUtils extends PerRunInit {
    * can-multi-thread
    */
   final def addInnerClasses(jclass: asm.ClassVisitor, refedInnerClasses: List[ClassBType]) {
-    val allNestedClasses = refedInnerClasses.flatMap(_.enclosingNestedClassesChain.get).distinct
+    val allNestedClasses = refedInnerClasses.flatMap(_.enclosingNestedClassesChain).distinct
 
     // sorting ensures nested classes are listed after their enclosing class thus satisfying the Eclipse Java compiler
     for (nestedClass <- allNestedClasses.sortBy(_.internalName.toString)) {
       // Extract the innerClassEntry - we know it exists, enclosingNestedClassesChain only returns nested classes.
-      val Some(e) = nestedClass.innerClassAttributeEntry.get
+      val e = nestedClass.innerClassAttributeEntry.get
       jclass.visitInnerClass(e.name, e.outerName, e.innerName, e.flags)
     }
   }

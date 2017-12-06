@@ -206,7 +206,7 @@ abstract class ByteCodeRepository {
                   case (other, otherOwner) =>
                     (other ne method) && {
                       val otherTp = bTypesFromClassfile.classBTypeFromClassNode(otherOwner)
-                      otherTp.isSubtypeOf(ownerTp).get
+                      otherTp.isSubtypeOf(ownerTp)
                     }
                 }
               }

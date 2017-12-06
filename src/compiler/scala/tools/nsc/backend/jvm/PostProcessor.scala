@@ -121,7 +121,7 @@ abstract class PostProcessor(statistics: Statistics with BackendStats) extends P
       // All types that appear in a class node need to have their ClassBType cached, see [[cachedClassBType]].
       val a = cachedClassBType(inameA).get
       val b = cachedClassBType(inameB).get
-      val lub = a.jvmWiseLUB(b).get
+      val lub = a.jvmWiseLUB(b)
       val lubName = lub.internalName
       assert(lubName != "scala/Any")
       lubName

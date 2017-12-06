@@ -104,13 +104,13 @@ abstract class InlinerHeuristics extends PerRunInit {
     findSingleCall(method, mi => mi.itf && mi.getOpcode == Opcodes.INVOKESTATIC && mi.name == traitStaticSuperAccessorName(method.name))
 
   private def isTraitSuperAccessor(method: MethodNode, owner: ClassBType): Boolean = {
-    owner.isInterface == Right(true) &&
+    owner.getOr(false, _.isInterface) &&
       BytecodeUtils.isStaticMethod(method) &&
       traitMethodInvocation(method).nonEmpty
   }
 
   private def isMixinForwarder(method: MethodNode, owner: ClassBType): Boolean = {
-    owner.isInterface == Right(false) &&
+    owner.getOr(false, _.isInterface) &&
       !BytecodeUtils.isStaticMethod(method) &&
       superAccessorInvocation(method).nonEmpty
   }

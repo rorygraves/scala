@@ -85,7 +85,7 @@ abstract class BCodeBodyBuilder extends BCodeSkelBuilder {
       val thrownKind = tpeTK(expr)
       // `throw null` is valid although scala.Null (as defined in src/library-aux) isn't a subtype of Throwable.
       // Similarly for scala.Nothing (again, as defined in src/library-aux).
-      assert(thrownKind.isNullType || thrownKind.isNothingType || thrownKind.asClassBType.isSubtypeOf(jlThrowableRef).get)
+      assert(thrownKind.isNullType || thrownKind.isNothingType || thrownKind.asClassBType.isSubtypeOf(jlThrowableRef))
       genLoad(expr, thrownKind)
       lineNumber(expr)
       emit(asm.Opcodes.ATHROW) // ICode enters here into enterIgnoreMode, we'll rely instead on DCE at ClassNode level.
@@ -1065,7 +1065,7 @@ abstract class BCodeBodyBuilder extends BCodeSkelBuilder {
       val bmType = methodBTypeFromSymbol(method)
       val mdescr = bmType.descriptor
 
-      val isInterface = receiverBType.isInterface.get
+      val isInterface = receiverBType.get.isInterface
       import InvokeStyle._
       if (style == Super) {
         if (receiverClass.isTrait && !method.isJavaDefined) {
