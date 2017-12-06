@@ -7,7 +7,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
 
-import scala.collection.JavaConverters._
+import scala.reflect.internal.util.JavaClearable
 import scala.tools.nsc.backend.jvm.BTypes.MethodInlineInfo
 import scala.tools.nsc.backend.jvm.BackendReporting._
 import scala.tools.testing.BytecodeTesting
@@ -20,7 +20,7 @@ class InlineInfoTest extends BytecodeTesting {
   override def compilerArgs = "-opt:l:inline -opt-inline-from:**"
 
   compiler.keepPerRunCachesAfterRun(List(
-    bTypes.classBTypeCache,
+    JavaClearable(bTypes.classBTypeCache),
     postProcessor.byteCodeRepository.compilingClasses,
     postProcessor.byteCodeRepository.parsedClasses))
 

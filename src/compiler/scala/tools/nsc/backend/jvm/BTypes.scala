@@ -6,7 +6,7 @@
 package scala.tools.nsc
 package backend.jvm
 
-import scala.collection.{concurrent, mutable}
+import java.util.concurrent.ConcurrentHashMap
 import scala.tools.asm
 import scala.tools.asm.Opcodes
 import scala.tools.nsc.backend.jvm.BTypes.{InlineInfo, InternalName}
@@ -23,7 +23,7 @@ import scala.tools.nsc.backend.jvm.opt._
  */
 abstract class BTypes {
   val frontendAccess: PostProcessorFrontendAccess
-  import frontendAccess.{frontendSynch, recordPerRunCache}
+  import frontendAccess.{frontendSynch, recordPerRunJavaMapCache}
 
   val coreBTypes: CoreBTypes { val bTypes: BTypes.this.type }
   import coreBTypes._
@@ -36,12 +36,12 @@ abstract class BTypes {
    * name. The method assumes that every class type that appears in the bytecode exists in the map
    */
   def cachedClassBType(internalName: InternalName): Option[ClassBType] =
-    classBTypeCache.get(internalName)
+    Option(classBTypeCache.get(internalName))
 
   // Concurrent maps because stack map frames are computed when in the class writer, which
   // might run on multiple classes concurrently.
   // Note usage should be private to this file, except for tests
-  val classBTypeCache: concurrent.Map[InternalName, ClassBType] = recordPerRunCache(FlatConcurrentHashMap.empty)
+  val classBTypeCache = recordPerRunJavaMapCache(new ConcurrentHashMap[InternalName, ClassBType])
 
   /**
    * A BType is either a primitive type, a ClassBType, an ArrayBType of one of these, or a MethodType
@@ -821,12 +821,11 @@ abstract class BTypes {
       // see comment on def info
       newRes.synchronized {
         classBTypeCache.putIfAbsent(internalName, newRes) match {
-          case None =>
+          case null =>
             newRes._info = init(newRes)
             newRes.checkInfoConsistency()
             newRes
-          case Some(old) =>
-            old
+          case old => old
         }
       }
     }
@@ -1125,9 +1124,4 @@ object BTypes {
 
   // when inlining, local variable names of the callee are prefixed with the name of the callee method
   val InlinedLocalVariablePrefixMaxLenght = 128
-}
-object FlatConcurrentHashMap {
-  import collection.JavaConverters._
-  def empty[K,V]: concurrent.Map[K,V] =
-    new java.util.concurrent.ConcurrentHashMap[K,V].asScala
 }
