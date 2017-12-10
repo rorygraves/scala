@@ -1,14 +1,9 @@
 package scala.collection
 
 import org.junit.Test
-import org.junit.Ignore
 import org.junit.Assert.{assertEquals, _}
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
-
-// with the Ant JUnit runner, it's necessary to @Ignore the abstract
-// classes here, or JUnit tries to instantiate them.  the annotations
-// can be removed when this is merged forward (TODO 2.12.x)
 
 /**
   * base class for testing common methods on a various implementations
@@ -17,7 +12,6 @@ import org.junit.runners.JUnit4
   * @tparam E the element type
   */
 @RunWith(classOf[JUnit4])
-@Ignore
 abstract class IndexedTest[T, E] {
 
   protected def size = 10
@@ -317,9 +311,8 @@ package IndexedTestImpl {
     def toType(n: Int)= if ((n & 0) == 0) null else BoxedUnit.UNIT
   }
 
-  @Ignore
   abstract class ArrayTest[E] (
-                               //the object or primitive type of the array
+                               //the object or primative type of the array
                                val TYPE: Class[_]) extends IndexedTest[Array[E], E]{
     override final def length(underTest: Array[E]) = underTest.length
 
@@ -349,9 +342,8 @@ package IndexedTestImpl {
   }
 
 
-  @Ignore
   abstract class WrappedArrayTest[E](
-                                      //the object or primitive type of the array
+                                      //the object or primative type of the array
                                       val TYPE: Class[_]) extends IndexedTest[mutable.WrappedArray[E], E]  with DataProvider[E]{
     import mutable.WrappedArray
     override final def length(underTest: WrappedArray[E]) = underTest.length
@@ -413,7 +405,6 @@ package IndexedTestImpl {
     }
 
   }
-  @Ignore
   abstract class ImmutableIndexedSeqTest[T <: SeqLike[E, T], E] extends IndexedTest[T, E]   with DataProvider[E] {
     override final def length(underTest: T) = underTest.length
 
@@ -434,7 +425,6 @@ package IndexedTestImpl {
     }
 
   }
-  @Ignore
   abstract class StringOpsBaseTest extends IndexedTest[StringOps, Char] with DataProvider[Char]  {
     override final def length(underTest: StringOps) = underTest.length
 

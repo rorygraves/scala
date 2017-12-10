@@ -13,6 +13,7 @@ package collection
 package mutable
 
 import scala.reflect.ClassTag
+import scala.runtime.ScalaRunTime._
 import scala.runtime.BoxedUnit
 import scala.collection.generic._
 import scala.collection.parallel.mutable.ParArray
@@ -75,6 +76,17 @@ extends AbstractSeq[T]
     else
       super.toArray[U]
   }
+  override def slice(from: Int, until: Int): WrappedArray[T] = {
+    val start = if (from < 0) 0 else from
+    if (until <= start || start >= repr.length)
+      return emptyImpl
+    val end = if (until > length) length else until
+    sliceImpl(start, end)
+  }
+  //retain existing functionallity for existing implementations outside this file
+  protected def emptyImpl: WrappedArray[T] = newBuilder.result()
+  //retain existing functionallity for existing implementations outside this file
+  protected def sliceImpl(from: Int, until: Int): WrappedArray[T] = super.slice(from, until)
 
   override def stringPrefix = "WrappedArray"
 
@@ -91,6 +103,7 @@ extends AbstractSeq[T]
 /** A companion object used to create instances of `WrappedArray`.
  */
 object WrappedArray {
+  import java.util
   // This is reused for all calls to empty.
   private val EmptyWrappedArray  = new ofRef[AnyRef](new Array[AnyRef](0))
   def empty[T <: AnyRef]: WrappedArray[T] = EmptyWrappedArray.asInstanceOf[WrappedArray[T]]
@@ -124,11 +137,23 @@ object WrappedArray {
 
   def newBuilder[A]: Builder[A, IndexedSeq[A]] = new ArrayBuffer
 
+  private val emptyWrappedByte = new ofByte(new Array[Byte](0))
+  private val emptyWrappedShort = new ofShort(new Array[Short](0))
+  private val emptyWrappedInt = new ofInt(new Array[Int](0))
+  private val emptyWrappedLong = new ofLong(new Array[Long](0))
+  private val emptyWrappedFloat = new ofFloat(new Array[Float](0))
+  private val emptyWrappedDouble = new ofDouble(new Array[Double](0))
+  private val emptyWrappedUnit = new ofUnit(new Array[Unit](0))
+  private val emptyWrappedChar = new ofChar(new Array[Char](0))
+  private val emptyWrappedBoolean = new ofBoolean(new Array[Boolean](0))
+
   final class ofRef[T <: AnyRef](val array: Array[T]) extends WrappedArray[T] with Serializable {
     lazy val elemTag = ClassTag[T](array.getClass.getComponentType)
     def length: Int = array.length
     def apply(index: Int): T = array(index).asInstanceOf[T]
     def update(index: Int, elem: T) { array(index) = elem }
+    protected override def emptyImpl = new ofRef(util.Arrays.copyOf[T](array,0))
+    protected override def sliceImpl(from: Int, until: Int) = new ofRef[T](util.Arrays.copyOfRange[T](array, from, until))
     override def hashCode = MurmurHash3.wrappedArrayHash(array)
     override def equals(that: Any) = that match {
       case that: ofRef[_] => Arrays.equals(array.asInstanceOf[Array[AnyRef]], that.array.asInstanceOf[Array[AnyRef]])
@@ -141,6 +166,8 @@ object WrappedArray {
     def length: Int = array.length
     def apply(index: Int): Byte = array(index)
     def update(index: Int, elem: Byte) { array(index) = elem }
+    protected override def emptyImpl = emptyWrappedByte
+    protected override def sliceImpl(from: Int, until: Int) = new ofByte(util.Arrays.copyOfRange(array, from, until))
     override def hashCode = MurmurHash3.wrappedBytesHash(array)
     override def equals(that: Any) = that match {
       case that: ofByte => Arrays.equals(array, that.array)
@@ -153,6 +180,8 @@ object WrappedArray {
     def length: Int = array.length
     def apply(index: Int): Short = array(index)
     def update(index: Int, elem: Short) { array(index) = elem }
+    protected override def emptyImpl = emptyWrappedShort
+    protected override def sliceImpl(from: Int, until: Int) = new ofShort(util.Arrays.copyOfRange(array, from, until))
     override def hashCode = MurmurHash3.wrappedArrayHash(array)
     override def equals(that: Any) = that match {
       case that: ofShort => Arrays.equals(array, that.array)
@@ -165,6 +194,8 @@ object WrappedArray {
     def length: Int = array.length
     def apply(index: Int): Char = array(index)
     def update(index: Int, elem: Char) { array(index) = elem }
+    protected override def emptyImpl = emptyWrappedChar
+    protected override def sliceImpl(from: Int, until: Int) = new ofChar(util.Arrays.copyOfRange(array, from, until))
     override def hashCode = MurmurHash3.wrappedArrayHash(array)
     override def equals(that: Any) = that match {
       case that: ofChar => Arrays.equals(array, that.array)
@@ -177,6 +208,8 @@ object WrappedArray {
     def length: Int = array.length
     def apply(index: Int): Int = array(index)
     def update(index: Int, elem: Int) { array(index) = elem }
+    protected override def emptyImpl = emptyWrappedInt
+    protected override def sliceImpl(from: Int, until: Int) = new ofInt(util.Arrays.copyOfRange(array, from, until))
     override def hashCode = MurmurHash3.wrappedArrayHash(array)
     override def equals(that: Any) = that match {
       case that: ofInt => Arrays.equals(array, that.array)
@@ -189,6 +222,8 @@ object WrappedArray {
     def length: Int = array.length
     def apply(index: Int): Long = array(index)
     def update(index: Int, elem: Long) { array(index) = elem }
+    protected override def emptyImpl = emptyWrappedLong
+    protected override def sliceImpl(from: Int, until: Int) = new ofLong(util.Arrays.copyOfRange(array, from, until))
     override def hashCode = MurmurHash3.wrappedArrayHash(array)
     override def equals(that: Any) = that match {
       case that: ofLong => Arrays.equals(array, that.array)
@@ -201,6 +236,8 @@ object WrappedArray {
     def length: Int = array.length
     def apply(index: Int): Float = array(index)
     def update(index: Int, elem: Float) { array(index) = elem }
+    protected override def emptyImpl = emptyWrappedFloat
+    protected override def sliceImpl(from: Int, until: Int) = new ofFloat(util.Arrays.copyOfRange(array, from, until))
     override def hashCode = MurmurHash3.wrappedArrayHash(array)
     override def equals(that: Any) = that match {
       case that: ofFloat => Arrays.equals(array, that.array)
@@ -213,6 +250,8 @@ object WrappedArray {
     def length: Int = array.length
     def apply(index: Int): Double = array(index)
     def update(index: Int, elem: Double) { array(index) = elem }
+    protected override def emptyImpl = emptyWrappedDouble
+    protected override def sliceImpl(from: Int, until: Int) = new ofDouble(util.Arrays.copyOfRange(array, from, until))
     override def hashCode = MurmurHash3.wrappedArrayHash(array)
     override def equals(that: Any) = that match {
       case that: ofDouble => Arrays.equals(array, that.array)
@@ -225,6 +264,8 @@ object WrappedArray {
     def length: Int = array.length
     def apply(index: Int): Boolean = array(index)
     def update(index: Int, elem: Boolean) { array(index) = elem }
+    protected override def emptyImpl = emptyWrappedBoolean
+    protected override def sliceImpl(from: Int, until: Int) = new ofBoolean(util.Arrays.copyOfRange(array, from, until))
     override def hashCode = MurmurHash3.wrappedArrayHash(array)
     override def equals(that: Any) = that match {
       case that: ofBoolean => Arrays.equals(array, that.array)
@@ -237,6 +278,15 @@ object WrappedArray {
     def length: Int = array.length
     def apply(index: Int): Unit = array(index)
     def update(index: Int, elem: Unit) { array(index) = elem }
+    protected override def emptyImpl = emptyWrappedUnit
+    protected override def sliceImpl(from: Int, until: Int) = {
+      // cant use
+      // new ofUnit(util.Arrays.copyOfRange[Unit](array, from, until)) - Unit is special and doesnt compile
+      // cant use util.Arrays.copyOfRange[Unit](repr, from, until) - Unit is special and doesnt compile
+      val res = new Array[Unit](until-from)
+      System.arraycopy(repr, from, res, 0, until-from)
+      new ofUnit(res)
+    }
     override def hashCode = MurmurHash3.wrappedArrayHash(array)
     override def equals(that: Any) = that match {
       case that: ofUnit => array.length == that.array.length
