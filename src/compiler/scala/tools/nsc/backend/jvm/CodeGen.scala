@@ -1,7 +1,7 @@
 package scala.tools.nsc
 package backend.jvm
 
-import scala.collection.mutable
+import scala.reflect.internal.util.Statistics
 import scala.tools.asm.tree.ClassNode
 
 abstract class CodeGen[G <: Global](val global: G) extends PerRunInit {
@@ -17,21 +17,25 @@ abstract class CodeGen[G <: Global](val global: G) extends PerRunInit {
 
   private[this] lazy val beanInfoCodeGen: LazyVar[CodeGenImpl.JBeanInfoBuilder] = perRunLazy(this)(new CodeGenImpl.JBeanInfoBuilder())
 
-  def genUnit(unit: CompilationUnit): List[GeneratedClass] = {
-    val res = mutable.ListBuffer.empty[GeneratedClass]
+  def genUnit(statistics: Statistics with BackendStats, unit: CompilationUnit, processor: ClassHandler) = {
+    val sourceFile = unit.source
 
     def genClassDef(cd: ClassDef): Unit = try {
       val sym = cd.symbol
-      val sourceFile = unit.source.file
-      res += GeneratedClass(genClass(cd, unit), sourceFile, isArtifact = false)
+      val mainClassNode = genClass(cd, unit)
+      processor.startProcess(GeneratedClass(mainClassNode, sourceFile, isArtifact = false))
       if (bTypes.isTopLevelModuleClass(sym)) {
-        if (sym.companionClass == NoSymbol)
-          res += GeneratedClass(genMirrorClass(sym, unit), sourceFile, isArtifact = true)
+        if (sym.companionClass == NoSymbol) {
+          val mirrorClassNode = genMirrorClass(sym, unit)
+          processor.startProcess(GeneratedClass(mirrorClassNode, sourceFile, isArtifact = true))
+        }
         else
           log(s"No mirror class for module with linked class: ${sym.fullName}")
       }
-      if (sym hasAnnotation coreBTypes.BeanInfoAttr)
-        res += GeneratedClass(genBeanInfoClass(cd, unit), sourceFile, isArtifact = true)
+      if (sym hasAnnotation coreBTypes.BeanInfoAttr) {
+        val beanClassNode = genBeanInfoClass(cd, unit)
+        processor.startProcess(GeneratedClass(beanClassNode, sourceFile, isArtifact = true))
+      }
     } catch {
       case ex: Throwable =>
         ex.printStackTrace()
@@ -41,16 +45,19 @@ abstract class CodeGen[G <: Global](val global: G) extends PerRunInit {
     def genClassDefs(tree: Tree): Unit = tree match {
       case EmptyTree => ()
       case PackageDef(_, stats) => stats foreach genClassDefs
-      case cd: ClassDef => genClassDef(cd)
+      case cd: ClassDef =>  processor.lock.synchronized(genClassDef(cd))
     }
 
-    genClassDefs(unit.body)
-    res.toList
+    statistics.timed(statistics.bcodeGenStat) {
+      genClassDefs(unit.body)
+    }
+    processor.endUnit(sourceFile)
   }
 
   def genClass(cd: ClassDef, unit: CompilationUnit): ClassNode = {
     warnCaseInsensitiveOverwrite(cd)
     addSbtIClassShim(cd)
+
     // TODO: do we need a new builder for each class? could we use one per run? or one per Global compiler instance?
     val b = new CodeGenImpl.SyncAndTryBuilder(unit)
     b.genPlainClass(cd)
