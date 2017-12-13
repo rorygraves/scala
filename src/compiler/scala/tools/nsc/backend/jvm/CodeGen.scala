@@ -45,7 +45,7 @@ abstract class CodeGen[G <: Global](val global: G) extends PerRunInit {
     def genClassDefs(tree: Tree): Unit = tree match {
       case EmptyTree => ()
       case PackageDef(_, stats) => stats foreach genClassDefs
-      case cd: ClassDef =>  processor.lock.synchronized(genClassDef(cd))
+      case cd: ClassDef =>  frontendAccess.frontendSynch(genClassDef(cd))
     }
 
     statistics.timed(statistics.bcodeGenStat) {

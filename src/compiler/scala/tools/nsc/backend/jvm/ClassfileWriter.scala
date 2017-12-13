@@ -6,6 +6,7 @@ import java.nio.channels.{AsynchronousFileChannel, FileChannel}
 import java.nio.charset.StandardCharsets
 import java.nio.file.{FileAlreadyExistsException, Files, Path, Paths, StandardOpenOption}
 import java.util
+import java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy
 import java.util.concurrent.{ConcurrentHashMap, ExecutorService}
 import java.util.jar.Attributes.Name
 import java.util.jar.JarOutputStream
@@ -28,6 +29,10 @@ object ClassfileWriter {
             frontendAccess: PostProcessorFrontendAccess): ClassfileWriter = {
     import frontendAccess.backendReporting
 
+    lazy val javaIoExecutor = settings.YosIoThreads.value match {
+      case 0 => null
+      case maxThreads => asyncHelper.newUnboundedQueueFixedThreadPool(maxThreads, "osExec", Thread.NORM_PRIORITY + 2)
+    }
     def singleWriter(file: AbstractFile): UnderlyingClassfileWriter = {
       if (file hasExtension "jar") {
         import java.util.jar._
@@ -61,7 +66,7 @@ object ClassfileWriter {
       } else if (file.isVirtual) {
         new VirtualClassWriter()
       } else if (file.isDirectory) {
-        new DirClassWriter(frontendAccess)
+        new DirClassWriter(frontendAccess, javaIoExecutor)
       } else {
         throw new IllegalStateException(s"don't know how to handle an output of $file [${file.getClass}]")
       }
@@ -75,11 +80,19 @@ object ClassfileWriter {
     }
     val withStats = if (statistics.enabled) new WithStatsWriter(statistics, basicClassWriter) else basicClassWriter
     val withAdditionalFormats = if (settings.Ygenasmp.valueSetByUser.isEmpty && settings.Ydumpclasses.valueSetByUser.isEmpty) withStats else {
-      val asmp = settings.Ygenasmp.valueSetByUser map {dir:String => new AsmClassWriter(getDirectory(dir), frontendAccess)}
-      val dump = settings.Ydumpclasses.valueSetByUser map {dir:String => new DumpClassWriter(getDirectory(dir), frontendAccess)}
+      val asmp = settings.Ygenasmp.valueSetByUser map {dir:String => new AsmClassWriter(getDirectory(dir), frontendAccess, javaIoExecutor)}
+      val dump = settings.Ydumpclasses.valueSetByUser map {dir:String => new DumpClassWriter(getDirectory(dir), frontendAccess, javaIoExecutor)}
       new AllClassWriter(withStats, asmp, dump)
     }
-    withAdditionalFormats
+
+    val fullWriter = settings.YIoWriterThreads.value match {
+      case 0 => withAdditionalFormats
+      case maxThreads =>
+        val javaExecutor = asyncHelper.newBoundedQueueFixedThreadPool(maxThreads, maxThreads * 5, new CallerRunsPolicy, "cfWriter", Thread.NORM_PRIORITY + 1)
+        new AsyncClassfileWriter(javaExecutor, maxThreads, withAdditionalFormats)
+    }
+    fullWriter
+
   }
   private final class JarClassWriter(storeOnly:Boolean, jarWriter:JarOutputStream) extends UnderlyingClassfileWriter {
 
@@ -101,7 +114,7 @@ object ClassfileWriter {
     override def ensureDirectories(ec: ExecutionContextExecutor, unit: UnitResult): Unit = ()
   }
 
-  private sealed class DirClassWriter(frontendAccess: PostProcessorFrontendAccess) extends UnderlyingClassfileWriter {
+  private sealed class DirClassWriter(frontendAccess: PostProcessorFrontendAccess, fileExecutorService: ExecutorService) extends UnderlyingClassfileWriter {
 
     val sync:Boolean = frontendAccess.compilerSettings.syncFileIO
     val builtPaths = new ConcurrentHashMap[Path, java.lang.Boolean]()
@@ -157,9 +170,9 @@ object ClassfileWriter {
       } else {
         unit.addOperation()
 
-        val os = try AsynchronousFileChannel.open(path, fastOpenOptions, exec)
+        val os = try AsynchronousFileChannel.open(path, fastOpenOptions, fileExecutorService)
         catch {
-          case _: FileAlreadyExistsException => AsynchronousFileChannel.open(path, fallbackOpenOptions, exec)
+          case _: FileAlreadyExistsException => AsynchronousFileChannel.open(path, fallbackOpenOptions, fileExecutorService)
         }
 
         os.write(ByteBuffer.wrap(bytes), 0L, (os, className), unit)
@@ -176,12 +189,18 @@ object ClassfileWriter {
     override def close(): Unit = ()
   }
 
-  private final class AsmClassWriter(val asmOutputPath:Path, frontendAccess: PostProcessorFrontendAccess)  extends DirClassWriter(frontendAccess) {
+  private final class AsmClassWriter(val asmOutputPath:Path,
+                                     frontendAccess: PostProcessorFrontendAccess,
+                                     fileExecutorService: ExecutorService)
+    extends DirClassWriter(frontendAccess, fileExecutorService) {
     override protected def getPath(unit: SourceUnit, className: InternalName) =  asmOutputPath.resolve(className+".asmp")
     override protected def formatData(rawBytes: Array[Byte]) = AsmUtils.textify(AsmUtils.readClass(rawBytes)).getBytes(StandardCharsets.UTF_8)
     override protected def qualifier:String = " [for asmp]"
   }
-  private final class DumpClassWriter(val dumpOutputPath:Path, frontendAccess: PostProcessorFrontendAccess) extends DirClassWriter(frontendAccess) {
+  private final class DumpClassWriter(val dumpOutputPath:Path,
+                                      frontendAccess: PostProcessorFrontendAccess,
+                                      fileExecutorService: ExecutorService)
+    extends DirClassWriter(frontendAccess, fileExecutorService) {
     override protected def getPath(unit: SourceUnit, className: InternalName) =  dumpOutputPath.resolve(className+".class")
     override protected def qualifier:String = " [for dump]"
   }
@@ -259,17 +278,36 @@ object ClassfileWriter {
     override def close(): Unit = underlying.close()
   }
 }
+
+/**
+  * The basic interface to writing classfiles.
+  * ClassHandler calls these methods to generate the directorya nd files that are created, and eventually calls close
+  * then the writing is complete
+  *
+  * The companion object is responsible for constructing a appropriate and optimal implementation for the supplied
+  * settings. Generally this is done by layering the required functionallity from the implementations
+  *
+  * All operations are threadsafe. The ClassFileWriter is not reusable, and all operations behaviors are undefined after
+  * a call to [[close()]]
+  */
 sealed trait ClassfileWriter {
-  /** try to create the directory for the outputs in the compilation unit
-    * if that fails then we ignore the errors.
-    * The main writer will create any directories that are needed and report more fully
-    * any errors that occur
-    * if there is any action to be performed, then it should occur in the specified evaluation context */
+  /** Provides a hint that some directiory  are needed, so the implementation may
+    * try to create the directory for the outputs in the compilation unit
+    * if that fails then any errors are ignored.
+    *
+    * The main write path in [[write()]] will report any errors when the directories are required
+    */
   def ensureDirectories(ec: ExecutionContextExecutor, unit: UnitResult): Unit
 
+  /**
+    * write a classfile
+    */
   def write(unit: SourceUnit, clazz: GeneratedClass, name: InternalName, bytes: Array[Byte])
+
+  /**
+    * close the writer. After calls to this method calls to any method on this interface are undefined
+    */
   def close() : Unit
-  var exec: ExecutorService = null
 }
 sealed trait UnderlyingClassfileWriter extends ClassfileWriter
 class AsyncClassfileWriter(val writingService: ExecutorService, threadCount: Int, underlying: ClassfileWriter) extends ClassfileWriter {

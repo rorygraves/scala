@@ -22,8 +22,6 @@ private[jvm] sealed trait ClassHandler {
 
   def complete(): Unit
 
-  val lock: AnyRef
-
   def endUnit(unit:SourceFile)
 
   def startProcess(clazz: GeneratedClass): Unit
@@ -36,27 +34,13 @@ private[jvm] sealed trait ClassHandler {
 private[jvm] object ClassHandler {
 
   def apply(asyncHelper: AsyncHelper, cfWriter: ClassfileWriter, settings:Settings, postProcessor: PostProcessor) = {
-    val lock = postProcessor.bTypes.frontendAccess.frontendLock
     val unitInfoLookup = settings.outputDirs.getSingleOutput match {
       case Some(dir) => new SingleUnitInfo(postProcessor.bTypes.frontendAccess, dir)
       case None => new LookupUnitInfo(postProcessor.bTypes.frontendAccess)
     }
-
-    val osExec = settings.YosIoThreads.value match {
-      case 0 => null
-      case maxThreads => asyncHelper.newUnboundedQueueFixedThreadPool(maxThreads, "osExec", Thread.NORM_PRIORITY + 2)
-    }
-    cfWriter.exec = osExec
-
-    val realCfWriter = settings.YIoWriterThreads.value match {
-      case 0 => cfWriter
-      case maxThreads =>
-        val javaExecutor = asyncHelper.newBoundedQueueFixedThreadPool(maxThreads, maxThreads * 5, new CallerRunsPolicy, "cfWriter", Thread.NORM_PRIORITY + 1)
-        new AsyncClassfileWriter(javaExecutor, maxThreads, cfWriter)
-    }
     val writer = settings.YaddBackendThreads.value match {
-      case 0 => new SyncWritingClassHandler(true, unitInfoLookup, postProcessor, realCfWriter, lock)
-      case -1 => new SyncWritingClassHandler(false, unitInfoLookup, postProcessor, realCfWriter, lock)
+      case 0 => new SyncWritingClassHandler(true, unitInfoLookup, postProcessor, cfWriter)
+      case -1 => new SyncWritingClassHandler(false, unitInfoLookup, postProcessor, cfWriter)
       case maxThreads =>
         // the queue size is taken to be large enough to ensure that the a 'CallerRun' will not take longer to
         // run that it takes to exhaust the queue for the backend workers
@@ -67,15 +51,16 @@ private[jvm] object ClassHandler {
         // we assign a higher priority to the background workers as they are removing load from the system
         // and they cannot block the main thread indefinitely
         val javaExecutor = asyncHelper.newBoundedQueueFixedThreadPool(maxThreads, queueSize, new CallerRunsPolicy, "non-ast")
-        new AsyncWritingClassHandler(unitInfoLookup, postProcessor, realCfWriter, lock, maxThreads, javaExecutor, javaExecutor.getQueue)
+        val execInfo = ExecutorServiceInfo(maxThreads, javaExecutor, javaExecutor.getQueue)
+        new AsyncWritingClassHandler(unitInfoLookup, postProcessor, cfWriter, execInfo)
     }
 
     if (settings.optInlinerEnabled || settings.optClosureInvocations)
-      new GlobalOptimisingGeneratedClassHandler(postProcessor, writer, lock)
+      new GlobalOptimisingGeneratedClassHandler(postProcessor, writer)
     else writer
   }
 
-  private class GlobalOptimisingGeneratedClassHandler(val postProcessor: PostProcessor, val underlying: WritingClassHandler, val lock:AnyRef) extends ClassHandler {
+  private class GlobalOptimisingGeneratedClassHandler(val postProcessor: PostProcessor, val underlying: WritingClassHandler) extends ClassHandler {
     private val bufferBuilder = List.newBuilder[GeneratedClass]
 
     override def close(): Unit = underlying.close()
@@ -163,7 +148,6 @@ private[jvm] object ClassHandler {
         unitProcess.completedUnit()
       }
     }
-    def depth = ""
 
     override def close(): Unit = cfWriter.close()
 
@@ -197,7 +181,7 @@ private[jvm] object ClassHandler {
     }
     def tryStealing:Option[Runnable]
   }
-  private final class SyncWritingClassHandler(val syncUnit:Boolean, val unitInfoLookup: UnitInfoLookup, val postProcessor: PostProcessor, val cfWriter: ClassfileWriter, val lock:AnyRef) extends WritingClassHandler {
+  private final class SyncWritingClassHandler(val syncUnit:Boolean, val unitInfoLookup: UnitInfoLookup, val postProcessor: PostProcessor, val cfWriter: ClassfileWriter) extends WritingClassHandler {
 
     object javaExecutor extends Executor {
       def execute(r: Runnable): Unit = r.run()
@@ -214,16 +198,19 @@ private[jvm] object ClassHandler {
 
     override def tryStealing: Option[Runnable] = None
   }
+  private final case class ExecutorServiceInfo( maxThreads:Int, javaExecutor : ExecutorService, queue:BlockingQueue[Runnable])
 
-  private final class AsyncWritingClassHandler(val unitInfoLookup: UnitInfoLookup, val postProcessor: PostProcessor, val cfWriter: ClassfileWriter, val lock:AnyRef,
-                                               maxThreads:Int, override val javaExecutor : ExecutorService, queue:BlockingQueue[Runnable]) extends WritingClassHandler {
+  private final class AsyncWritingClassHandler(val unitInfoLookup: UnitInfoLookup,
+                                               val postProcessor: PostProcessor,
+                                               val cfWriter: ClassfileWriter,
+                                               val executorServiceInfo: ExecutorServiceInfo)
+    extends WritingClassHandler {
     val otherJavaExec = Executors.newFixedThreadPool(2,new CommonThreadFactory("scalac-async-nonast", priority = Thread.NORM_PRIORITY -1))
     val otherExec =  ExecutionContext.fromExecutor(otherJavaExec)
-    cfWriter.exec = otherJavaExec
 
-    override def depth = ""+queue.size()
+    override protected val javaExecutor = executorServiceInfo.javaExecutor
 
-    override def toString: String = s"AsyncWriting[additional threads:$maxThreads writer:$cfWriter]"
+    override def toString: String = s"AsyncWriting[additional threads:${executorServiceInfo.maxThreads} writer:$cfWriter]"
 
     override protected def ensureDirectories(unitProcess: UnitResult): Unit = {
       cfWriter.ensureDirectories(otherExec, unitProcess)
@@ -235,7 +222,7 @@ private[jvm] object ClassHandler {
       otherJavaExec.shutdownNow()
     }
 
-    override def tryStealing: Option[Runnable] = Option(queue.poll())
+    override def tryStealing: Option[Runnable] = Option(executorServiceInfo.queue.poll())
   }
 
 }
