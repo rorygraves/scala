@@ -81,6 +81,7 @@ object PostProcessorFrontendAccess {
   trait BackendReporting {
     def inlinerWarning(pos: Position, message: String): Unit
     def error(pos: Position, message: String): Unit
+    def warning(pos: Position, message: String): Unit
     def inform(message: String): Unit
     def log(message: String): Unit
   }
@@ -159,6 +160,9 @@ object PostProcessorFrontendAccess {
       }
       def error(pos: Position, message: String): Unit = frontendSynch {
         reporter.error(pos, message)
+      }
+      def warning(pos: Position, message: String): Unit = frontendSynch {
+        global.warning(pos, message)
       }
       def inform(message: String): Unit = frontendSynch {
         global.inform(message)

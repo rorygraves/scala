@@ -10,8 +10,6 @@ abstract class CodeGen[G <: Global](val global: G) extends PerRunInit {
   import global._
   import bTypes._
 
-  private val caseInsensitively = perRunCaches.newMap[String, Symbol]()
-
   // TODO: do we really need a new instance per run? Is there state that depends on the compiler frontend (symbols, types, settings)?
   private[this] lazy val mirrorCodeGen: LazyVar[CodeGenImpl.JMirrorBuilder] = perRunLazy(this)(new CodeGenImpl.JMirrorBuilder())
 
@@ -55,7 +53,6 @@ abstract class CodeGen[G <: Global](val global: G) extends PerRunInit {
   }
 
   def genClass(cd: ClassDef, unit: CompilationUnit): ClassNode = {
-    warnCaseInsensitiveOverwrite(cd)
     addSbtIClassShim(cd)
 
     // TODO: do we need a new builder for each class? could we use one per run? or one per Global compiler instance?
@@ -71,22 +68,6 @@ abstract class CodeGen[G <: Global](val global: G) extends PerRunInit {
   def genBeanInfoClass(cd: ClassDef, unit: CompilationUnit): ClassNode = {
     val sym = cd.symbol
     beanInfoCodeGen.get.genBeanInfoClass(sym, unit, CodeGenImpl.fieldSymbols(sym), CodeGenImpl.methodSymbols(cd))
-  }
-
-  private def warnCaseInsensitiveOverwrite(cd: ClassDef): Unit = {
-    val sym = cd.symbol
-    // GenASM checks this before classfiles are emitted, https://github.com/scala/scala/commit/e4d1d930693ac75d8eb64c2c3c69f2fc22bec739
-    val lowercaseJavaClassName = sym.javaClassName.toLowerCase
-    caseInsensitively.get(lowercaseJavaClassName) match {
-      case None =>
-        caseInsensitively.put(lowercaseJavaClassName, sym)
-      case Some(dupClassSym) =>
-        reporter.warning(
-          sym.pos,
-          s"Class ${sym.javaClassName} differs only in case from ${dupClassSym.javaClassName}. " +
-            "Such classes will overwrite one another on case-insensitive filesystems."
-        )
-    }
   }
 
   private def addSbtIClassShim(cd: ClassDef): Unit = {

@@ -317,6 +317,9 @@ final class UnitResult(unitInfoLookup: UnitInfoLookup, classes_ : List[Generated
   override def error(pos: Position, message: String): Unit =
     this.synchronized(bufferedReports ::= new ReportError(pos, message))
 
+  override def warning(pos: Position, message: String): Unit =
+    this.synchronized(bufferedReports ::= new ReportWarning(pos, message))
+
   override def inform(message: String): Unit =
     this.synchronized(bufferedReports ::= new ReportInform(message))
 
@@ -335,6 +338,11 @@ final class UnitResult(unitInfoLookup: UnitInfoLookup, classes_ : List[Generated
   private class ReportError(pos: Position, message: String) extends Report {
     override def relay(reporting: BackendReporting): Unit =
       reporting.error(pos, message)
+  }
+
+  private class ReportWarning(pos: Position, message: String) extends Report {
+    override def relay(reporting: BackendReporting): Unit =
+      reporting.warning(pos, message)
   }
 
   private class ReportInform(message: String) extends Report {

@@ -1,6 +1,8 @@
 package scala.tools.nsc
 package backend.jvm
 
+import java.util.concurrent.ConcurrentHashMap
+
 import scala.collection.mutable.ListBuffer
 import scala.reflect.internal.util.{NoPosition, Statistics}
 import scala.tools.asm.ClassWriter
@@ -18,7 +20,7 @@ abstract class PostProcessor(statistics: Statistics with BackendStats) extends P
   val bTypes: BTypes
 
   import bTypes._
-  import frontendAccess.{backendReporting, compilerSettings, recordPerRunCache}
+  import frontendAccess.{backendReporting, compilerSettings, recordPerRunJavaMapCache}
 
   val backendUtils        : BackendUtils        { val postProcessor: self.type } = new { val postProcessor: self.type = self } with BackendUtils
   val byteCodeRepository  : ByteCodeRepository  { val postProcessor: self.type } = new { val postProcessor: self.type = self } with ByteCodeRepository
@@ -29,7 +31,7 @@ abstract class PostProcessor(statistics: Statistics with BackendStats) extends P
   val callGraph           : CallGraph           { val postProcessor: self.type } = new { val postProcessor: self.type = self } with CallGraph
   val bTypesFromClassfile : BTypesFromClassfile { val postProcessor: self.type } = new { val postProcessor: self.type = self } with BTypesFromClassfile
 
-  lazy val generatedClasses = recordPerRunCache(new ListBuffer[GeneratedClass])
+  private val caseInsensitively = recordPerRunJavaMapCache(new ConcurrentHashMap[String, String])
 
   override def initialize(): Unit = {
     super.initialize()
@@ -39,7 +41,9 @@ abstract class PostProcessor(statistics: Statistics with BackendStats) extends P
   }
 
   def sendToDisk(unit:SourceUnit, clazz: GeneratedClass, writer: ClassfileWriter): Unit = {
+
     val GeneratedClass(classNode, sourceFile, isArtifact) = clazz
+    warnCaseInsensitiveOverwrite(classNode.name)
     val bytes = try {
       if (!isArtifact) {
         localOptimizations(classNode)
@@ -66,6 +70,17 @@ abstract class PostProcessor(statistics: Statistics with BackendStats) extends P
         AsmUtils.traceClass(bytes)
 
       writer.write(unit, clazz, classNode.name, bytes)
+    }
+  }
+  private def warnCaseInsensitiveOverwrite(name: String): Unit = {
+    val lowercaseJavaClassName = name.toLowerCase
+    val duplicate = caseInsensitively.putIfAbsent(lowercaseJavaClassName, name)
+    if (duplicate != null) {
+      backendReporting.warning(
+        NoPosition,
+          s"Class ${name} differs only in case from ${duplicate}. " +
+            "Such classes will overwrite one another on case-insensitive filesystems."
+        )
     }
   }
 
