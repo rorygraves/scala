@@ -248,7 +248,10 @@ trait MethodSynthesis {
 
         val rhs =
           if (noFieldFor(tree, owner)) tree.rhs // context.unit.transformed.getOrElse(tree.rhs, tree.rhs)
-          else Select(This(tree.symbol.enclClass), tree.symbol)
+          else {
+            val symbol = tree.symbol
+            Select(This(symbol.enclClass), symbol)
+          }
 
         newDefDef(derivedSym, rhs)(tparams = Nil, vparamss = Nil, tpt = tpt)
       }
@@ -279,7 +282,10 @@ trait MethodSynthesis {
 
         val rhs =
           if (noFieldFor(tree, owner)) EmptyTree
-          else Assign(Select(This(tree.symbol.enclClass), tree.symbol), Ident(setterParam))
+          else {
+            val symbol = tree.symbol
+            Assign(Select(This(symbol.enclClass), symbol), Ident(setterParam))
+          }
 
         newDefDef(derivedSym, rhs)(tparams = Nil, vparamss = List(vparams), tpt = tpt)
 

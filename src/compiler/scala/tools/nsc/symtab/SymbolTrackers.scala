@@ -40,7 +40,10 @@ trait SymbolTrackers {
   )
 
   object SymbolTracker {
-    def containsSymbol(t: Tree) = t.symbol != null && t.symbol != NoSymbol
+    def containsSymbol(t: Tree) = {
+      val symbol = t.symbol
+      symbol != null && symbol != NoSymbol
+    }
 
     // This is noise reduction only.
     def dropSymbol(sym: Symbol) = sym.ownerChain exists (_ hasFlag Flags.SPECIALIZED)

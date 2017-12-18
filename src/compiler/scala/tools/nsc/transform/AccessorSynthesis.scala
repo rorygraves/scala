@@ -56,18 +56,18 @@ trait AccessorSynthesis extends Transform with ast.TreeDSL {
         * removing any abstract method definitions in `stats` that are
         * matched by some symbol defined by a tree previously passed to `addDef`.
         */
-      def implementWithNewDefs(stats: List[Tree]): List[Tree] = {
-        val newDefs = _newDefs.toList
-        val newSyms = newDefs map (_.symbol)
-        def isNotDuplicate(tree: Tree) = tree match {
-          case DefDef(_, _, _, _, _, _) =>
-            val sym = tree.symbol
-            !(sym.isDeferred &&
-              (newSyms exists (nsym => nsym.name == sym.name && (nsym.tpe matches sym.tpe))))
-          case _ => true
-        }
-        if (newDefs.isEmpty) stats
-        else newDefs ::: (stats filter isNotDuplicate)
+      def implementWithNewDefs(stats: List[Tree]): List[Tree] =
+        if (_newDefs.isEmpty) stats else {
+          val newDefs = _newDefs.toList
+          val newSyms = newDefs map (_.symbol)
+          def isNotDuplicate(tree: Tree) = tree match {
+            case DefDef(_, _, _, _, _, _) =>
+              val sym = tree.symbol
+              !(sym.isDeferred &&
+                (newSyms exists (nsym => nsym.name == sym.name && (nsym.tpe matches sym.tpe))))
+            case _ => true
+          }
+          newDefs ::: (stats filter isNotDuplicate)
       }
 
       def accessorBody(sym: Symbol) =

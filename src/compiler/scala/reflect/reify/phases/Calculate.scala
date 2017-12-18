@@ -38,15 +38,23 @@ trait Calculate {
         try super.traverse(tree)
         finally currMetalevel += 1
       case tree if tree.isDef =>
-        if (reifyDebug) println("boundSym: %s of type %s".format(tree.symbol, (tree.productIterator.toList collect { case tt: TypeTree => tt }).headOption.getOrElse(TypeTree(tree.tpe))))
-        registerLocalSymbol(tree.symbol, currMetalevel)
+        val symbol = tree.symbol
+        if (reifyDebug) println("boundSym: %s of type %s".format(symbol, (tree.productIterator.toList collect { case tt: TypeTree => tt }).headOption.getOrElse(TypeTree(tree.tpe))))
+        registerLocalSymbol(symbol, currMetalevel)
 
-        bindRelatedSymbol(tree.symbol.sourceModule, "sourceModule")
-        bindRelatedSymbol(tree.symbol.moduleClass, "moduleClass")
-        bindRelatedSymbol(tree.symbol.companionClass, "companionClass")
-        bindRelatedSymbol(tree.symbol.companionModule, "companionModule")
-        Some(tree.symbol) collect { case termSymbol: TermSymbol => bindRelatedSymbol(termSymbol.referenced, "referenced") }
-        Some(tree) collect { case labelDef: LabelDef => labelDef.params foreach (param => bindRelatedSymbol(param.symbol, "labelParam")) }
+        bindRelatedSymbol(symbol.sourceModule, "sourceModule")
+        bindRelatedSymbol(symbol.moduleClass, "moduleClass")
+        bindRelatedSymbol(symbol.companionClass, "companionClass")
+        bindRelatedSymbol(symbol.companionModule, "companionModule")
+        if (symbol ne null) symbol match {
+          case termSymbol: TermSymbol => bindRelatedSymbol(termSymbol.referenced, "referenced")
+          case _ =>
+        }
+
+        tree match {
+          case labelDef: LabelDef => labelDef.params foreach (param => bindRelatedSymbol(param.symbol, "labelParam"))
+          case _ =>
+        }
         def bindRelatedSymbol(related: Symbol, name: String): Unit =
           if (related != null && related != NoSymbol) {
             if (reifyDebug) println("boundSym (" + name + "): " + related)

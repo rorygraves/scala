@@ -1209,8 +1209,9 @@ trait Infer extends Checkable {
       else intersect(pt, pattp)
     }
 
-    def inferModulePattern(pat: Tree, pt: Type) =
-      if ((pat.symbol ne null) && pat.symbol.isModule && !(pat.tpe <:< pt)) {
+    def inferModulePattern(pat: Tree, pt: Type) = {
+      val symbol = pat.symbol
+      if ((symbol ne null) && symbol.isModule && !(pat.tpe <:< pt)) {
         val ptparams = freeTypeParamsOfTerms(pt)
         debuglog("free type params (2) = " + ptparams)
         val ptvars = ptparams map freshVar
@@ -1220,6 +1221,7 @@ trait Infer extends Checkable {
         else
           PatternTypeIncompatibleWithPtError2(pat, pt1, pt)
       }
+    }
 
     object toOrigin extends TypeMap {
       def apply(tp: Type): Type = tp match {

@@ -153,7 +153,8 @@ trait GenTrees {
         else mirrorCall(nme.Ident, reify(name))
 
       case Select(qual, name) =>
-        if (qual.symbol != null && qual.symbol.hasPackageFlag) {
+        val qualSym = qual.symbol
+        if (qualSym != null && qualSym.hasPackageFlag) {
           mirrorBuildCall(nme.mkIdent, reify(sym))
         } else {
           val effectiveName = if (sym != null && sym != NoSymbol) sym.name else name

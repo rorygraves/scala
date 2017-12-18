@@ -179,13 +179,16 @@ trait Printers extends api.Printers { self: SymbolTable =>
 
     def printOpt(prefix: String, tree: Tree) = if (tree.nonEmpty) { print(prefix, tree) }
 
-    def printModifiers(tree: Tree, mods: Modifiers): Unit = printFlags(
-      if (tree.symbol == NoSymbol) mods.flags else tree.symbol.flags, "" + (
-        if (tree.symbol == NoSymbol) mods.privateWithin
-        else if (tree.symbol.hasAccessBoundary) tree.symbol.privateWithin.name
-        else ""
+    def printModifiers(tree: Tree, mods: Modifiers): Unit = {
+      val symbol = tree.symbol
+      printFlags(
+        if (symbol == NoSymbol) mods.flags else symbol.flags, "" + (
+          if (symbol == NoSymbol) mods.privateWithin
+          else if (symbol.hasAccessBoundary) symbol.privateWithin.name
+          else ""
+          )
       )
-    )
+    }
 
     def printFlags(flags: Long, privateWithin: String) = {
       val mask: Long = if (settings.debug) -1L else PrintableFlags
@@ -287,14 +290,15 @@ trait Printers extends api.Printers { self: SymbolTable =>
       print("(")
       printValueParams
       print(" => ", body, ")")
-      if (printIds && tree.symbol != null)
+      val symbol = tree.symbol
+      if (printIds && symbol != null)
         comment{
-          print("#" + tree.symbol.id)
+          print("#" + symbol.id)
         }
 
-      if (printOwners && tree.symbol != null)
+      if (printOwners && symbol != null)
         comment{
-          print("@" + tree.symbol.owner.id)
+          print("@" + symbol.owner.id)
         }
     }
 

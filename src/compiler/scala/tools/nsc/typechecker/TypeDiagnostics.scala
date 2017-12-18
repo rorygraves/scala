@@ -162,7 +162,7 @@ trait TypeDiagnostics {
     def overloadedMessage = s"overloaded method $sym with alternatives:\n" + alternativesString(tree)
     def moduleMessage     = "" + sym
     def defaultMessage    = moduleMessage + preResultString + tree.tpe
-    def applyMessage      = defaultMessage + tree.symbol.locationString
+    def applyMessage      = defaultMessage + sym.locationString
 
     if (!tree.hasExistingSymbol) {
       if (isTyperInPattern) patternMessage
@@ -502,7 +502,7 @@ trait TypeDiagnostics {
         override def traverse(t: Tree): Unit = {
           val sym = t.symbol
           t match {
-            case m: MemberDef if qualifies(t.symbol)   =>
+            case m: MemberDef if qualifies(sym)   =>
               defnTrees += m
               t match {
                 case DefDef(mods@_, name@_, tparams@_, vparamss, tpt@_, rhs@_) if !sym.isAbstract && !sym.isDeprecated && !sym.isMacro =>

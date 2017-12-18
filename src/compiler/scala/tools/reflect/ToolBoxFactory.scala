@@ -164,7 +164,8 @@ abstract class ToolBoxFactory[U <: JavaUniverse](val u: U) { factorySelf =>
                   super.transform(tree)
               }
           }.transform(transformed)
-          new TreeTypeSubstituter(binders map (_.symbol), binders map (b => SingleType(NoPrefix, invertedIndex(b.symbol.name.toTermName)))).traverse(indexed)
+          val symbols = binders map (_.symbol)
+          new TreeTypeSubstituter(symbols, symbols map (s => SingleType(NoPrefix, invertedIndex(s.name.toTermName)))).traverse(indexed)
           indexed
         }
       }

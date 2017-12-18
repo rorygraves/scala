@@ -24,7 +24,10 @@ trait MatchTranslation {
   private def setVarInfo(sym: Symbol, info: Type) =
     sym setInfo debug.patmatResult(s"changing ${sym.defString} to")(repeatedToSeq(info))
 
-  private def hasSym(t: Tree) = t.symbol != null && t.symbol != NoSymbol
+  private def hasSym(t: Tree) = {
+    val symbol = t.symbol
+    symbol != null && symbol != NoSymbol
+  }
 
   trait MatchTranslator extends TreeMakers with TreeMakerWarnings {
     import typer.context

@@ -119,9 +119,9 @@ abstract class Reifier extends States
       val untyped = brutallyResetAttrs(result, leaveAlone = {
         case ValDef(_, u, _, _) if u == nme.UNIVERSE_SHORT => true
         case ValDef(_, m, _, _) if m == nme.MIRROR_SHORT => true
-        case tree if symtab.syms contains tree.symbol => true
-        case tree if isImportantSymbol(tree.symbol) => true
-        case _ => false
+        case tree =>
+          val symbol = tree.symbol
+          (symtab.syms contains symbol) || isImportantSymbol(symbol)
       })
 
       if (reifyCopypaste) {

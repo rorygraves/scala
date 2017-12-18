@@ -299,22 +299,23 @@ abstract class TreeBrowsers {
           str.append("tree.id: ").append(t.id)
           str.append("\ntree.pos: ").append(t.pos)
           str.append("\nSymbol: ").append(TreeInfo.symbolText(t))
+          val symbol = t.symbol
           str.append("\nSymbol owner: ").append(
-            if ((t.symbol ne null) && t.symbol != NoSymbol)
-              t.symbol.owner.toString
+            if ((symbol ne null) && symbol != NoSymbol)
+              symbol.owner.toString
             else
               "NoSymbol has no owner")
-          if ((t.symbol ne null) && t.symbol.isType) {
-            str.append("\ntermSymbol: " + t.symbol.tpe.termSymbol
-                     + "\ntypeSymbol: " + t.symbol.tpe.typeSymbol)
-          if (t.symbol.isTypeSkolem)
-            str.append("\nSkolem of: " + t.symbol.deSkolemize)
+          if ((symbol ne null) && symbol.isType) {
+            str.append("\ntermSymbol: " + symbol.tpe.termSymbol
+                     + "\ntypeSymbol: " + symbol.tpe.typeSymbol)
+          if (symbol.isTypeSkolem)
+            str.append("\nSkolem of: " + symbol.deSkolemize)
           }
           str.append("\nSymbol tpe: ")
-          if (t.symbol ne null) {
-            str.append(t.symbol.tpe).append("\n")
+          if (symbol ne null) {
+            str.append(symbol.tpe).append("\n")
             buf = new StringWriter()
-            TypePrinter.toDocument(t.symbol.tpe).format(getWidth() / getColumnWidth(), buf)
+            TypePrinter.toDocument(symbol.tpe).format(getWidth() / getColumnWidth(), buf)
             str.append(buf.toString)
           }
           str.append("\n\nSymbol info: \n")

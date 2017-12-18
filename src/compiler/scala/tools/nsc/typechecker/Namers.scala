@@ -524,6 +524,8 @@ trait Namers extends MethodSynthesis {
       val base = expr.tpe
 
       def checkNotRedundant(pos: Position, from: Name, to0: Name) {
+        val symbol = tree.symbol
+
         def check(to: Name) = {
           val e = context.scope.lookupEntry(to)
 
@@ -536,7 +538,10 @@ trait Namers extends MethodSynthesis {
             defSym andAlso (typer.permanentlyHiddenWarning(pos, to0, _))
           }
         }
-        if (!tree.symbol.isSynthetic && expr.symbol != null && !expr.symbol.isInterpreterWrapper) {
+        if (!symbol.isSynthetic && {
+          val expSym = expr.symbol
+          expSym != null && !expSym.isInterpreterWrapper
+        }) {
           if (base.member(from) != NoSymbol)
             check(to0)
           if (base.member(from.toTypeName) != NoSymbol)
@@ -722,8 +727,9 @@ trait Namers extends MethodSynthesis {
       else assignAndEnterFinishedSymbol(tree)
 
       if (isEnumConstant(tree)) {
-        tree.symbol setInfo ConstantType(Constant(tree.symbol))
-        tree.symbol.owner.linkedClassOfClass addChild tree.symbol
+        val symbol = tree.symbol
+        symbol setInfo ConstantType(Constant(symbol))
+        symbol.owner.linkedClassOfClass addChild symbol
       }
     }
 

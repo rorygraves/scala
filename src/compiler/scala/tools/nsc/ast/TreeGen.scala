@@ -339,10 +339,10 @@ abstract class TreeGen extends scala.reflect.internal.TreeGen with TreeDSL {
     */
   final def mkStatic(orig: DefDef, newName: Name, maybeClone: Symbol => Symbol): DefDef = {
     assert(phase.erasedTypes, phase)
-    assert(!orig.symbol.hasFlag(SYNCHRONIZED), orig.symbol.defString)
     val origSym = orig.symbol
-    val origParams = orig.symbol.info.params
-    val newSym = maybeClone(orig.symbol)
+    assert(!origSym.hasFlag(SYNCHRONIZED), origSym.defString)
+    val origParams = origSym.info.params
+    val newSym = maybeClone(origSym)
     newSym.setName(newName)
     newSym.setFlag(STATIC)
     // Add an explicit self parameter
@@ -357,7 +357,8 @@ abstract class TreeGen extends scala.reflect.internal.TreeGen with TreeDSL {
   }
 
   def expandFunction(localTyper: analyzer.Typer)(fun: Function, inConstructorFlag: Long): Tree = {
-    val anonClass = fun.symbol.owner newAnonymousFunctionClass(fun.pos, inConstructorFlag)
+    val funSym = fun.symbol
+    val anonClass = funSym.owner newAnonymousFunctionClass(fun.pos, inConstructorFlag)
     val parents = if (isFunctionType(fun.tpe)) {
       anonClass addAnnotation SerialVersionUIDAnnotation
       addSerializable(abstractFunctionType(fun.vparams.map(_.symbol.tpe), fun.body.tpe.deconst))
@@ -371,7 +372,7 @@ abstract class TreeGen extends scala.reflect.internal.TreeGen with TreeDSL {
     // The original owner is used in the backend for the EnclosingMethod attribute. If fun is
     // nested in a value-class method, its owner was already changed to the extension method.
     // Saving the original owner allows getting the source structure from the class symbol.
-    defineOriginalOwner(anonClass, fun.symbol.originalOwner)
+    defineOriginalOwner(anonClass, funSym.originalOwner)
 
     val samDef = mkMethodFromFunction(localTyper)(anonClass, fun)
     anonClass.info.decls enter samDef.symbol
