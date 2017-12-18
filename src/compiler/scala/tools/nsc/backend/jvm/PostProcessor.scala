@@ -1,7 +1,6 @@
 package scala.tools.nsc
 package backend.jvm
 
-import scala.collection.mutable.ListBuffer
 import scala.reflect.internal.util.{NoPosition, Statistics}
 import scala.reflect.io.AbstractFile
 import scala.tools.asm.ClassWriter
@@ -17,6 +16,7 @@ abstract class PostProcessor(statistics: Statistics with BackendStats) extends P
   self =>
   val bTypes: BTypes
 
+  import scala.collection.mutable.ListBuffer
   import bTypes._
   import frontendAccess.{backendReporting, compilerSettings, recordPerRunCache}
 
@@ -38,7 +38,6 @@ abstract class PostProcessor(statistics: Statistics with BackendStats) extends P
   override def initialize(): Unit = {
     super.initialize()
     backendUtils.initialize()
-    byteCodeRepository.initialize()
     inlinerHeuristics.initialize()
   }
 

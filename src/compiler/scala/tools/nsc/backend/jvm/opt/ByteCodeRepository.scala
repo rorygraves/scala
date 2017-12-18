@@ -54,12 +54,7 @@ abstract class ByteCodeRepository {
    * Contains the internal names of all classes that are defined in Java source files of the current
    * compilation run (mixed compilation). Used for more detailed error reporting.
    */
-  val javaDefinedClasses: mutable.Set[InternalName] = recordPerRunCache(mutable.Set.empty)
-
-
-  def initialize(): Unit = {
-    javaDefinedClasses ++= frontendAccess.javaDefinedClasses
-  }
+  private val javaDefinedClasses = Lazy.withLock(frontendAccess.javaDefinedClasses)
 
   def add(classNode: ClassNode, sourceFilePath: Option[String]) = sourceFilePath match {
     case Some(path) if path != "<no file>" => compilingClasses(classNode.name) = (classNode, path)
@@ -273,7 +268,7 @@ abstract class ByteCodeRepository {
       classNode
     } match {
       case Some(node) => Right(node)
-      case None       => Left(ClassNotFound(internalName, javaDefinedClasses(internalName)))
+      case None       => Left(ClassNotFound(internalName, javaDefinedClasses.force(internalName)))
     }
   }
 }
