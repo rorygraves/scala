@@ -72,7 +72,8 @@ abstract class TreeCheckers extends Analyzer {
   }
 
   private def beststr(t: Tree) = "<" + {
-    if (t.symbol != null && t.symbol != NoSymbol) "sym=" + ownerstr(t.symbol)
+    val symbol = t.symbol
+    if (symbol != null && symbol != NoSymbol) "sym=" + ownerstr(symbol)
     else if (t.tpe.isComplete) "tpe=" + typestr(t.tpe)
     else t match {
       case x: DefTree => "name=" + x.name
@@ -361,7 +362,10 @@ abstract class TreeCheckers extends Analyzer {
       }
 
       private def checkSymbolRefsRespectScope(enclosingMemberDefs: List[MemberDef], tree: Tree) {
-        def symbolOf(t: Tree): Symbol  = if (t.symbol eq null) NoSymbol else t.symbol
+        def symbolOf(t: Tree): Symbol  = {
+          val symbol = t.symbol
+          if (symbol eq null) NoSymbol else symbol
+        }
         def typeOf(t: Tree): Type      = if (t.tpe eq null) NoType else t.tpe
         def infoOf(t: Tree): Type      = symbolOf(t).info
         def referencesInType(tp: Type) = tp collect { case TypeRef(_, sym, _) => sym }
