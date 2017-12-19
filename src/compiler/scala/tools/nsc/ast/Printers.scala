@@ -18,18 +18,21 @@ trait Printers extends scala.reflect.internal.Printers { this: Global =>
       case tree: Tree =>
         printPosition(tree)
         printTree(
-            if (tree.isDef && tree.symbol != NoSymbol && tree.symbol.isInitialized) {
-              tree match {
-                case ClassDef(_, _, _, impl @ Template(ps, noSelfType, body))
-                if (tree.symbol.thisSym != tree.symbol) =>
-                  ClassDef(tree.symbol, Template(ps, ValDef(tree.symbol.thisSym), body))
-                case ClassDef(_, _, _, impl)           => ClassDef(tree.symbol, impl)
-                case ModuleDef(_, _, impl)             => ModuleDef(tree.symbol, impl)
-                case ValDef(_, _, _, rhs)              => ValDef(tree.symbol, rhs)
-                case DefDef(_, _, _, vparamss, _, rhs) => DefDef(tree.symbol, vparamss, rhs)
-                case TypeDef(_, _, _, rhs)             => TypeDef(tree.symbol, rhs)
-                case _ => tree
-              }
+            if (tree.isDef) {
+              val symbol = tree.symbol
+              if (symbol != NoSymbol && symbol.isInitialized) {
+                tree match {
+                  case ClassDef(_, _, _, impl @ Template(ps, noSelfType, body))
+                  if (symbol.thisSym != symbol) =>
+                    ClassDef(symbol, Template(ps, ValDef(symbol.thisSym), body))
+                  case ClassDef(_, _, _, impl)           => ClassDef(symbol, impl)
+                  case ModuleDef(_, _, impl)             => ModuleDef(symbol, impl)
+                  case ValDef(_, _, _, rhs)              => ValDef(symbol, rhs)
+                  case DefDef(_, _, _, vparamss, _, rhs) => DefDef(symbol, vparamss, rhs)
+                  case TypeDef(_, _, _, rhs)             => TypeDef(symbol, rhs)
+                  case _ => tree
+                }
+              } else tree
             } else tree)
       case unit: CompilationUnit =>
         print("// Scala source: " + unit.source + "\n")
