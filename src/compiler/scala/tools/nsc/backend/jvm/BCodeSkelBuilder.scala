@@ -497,7 +497,7 @@ abstract class BCodeSkelBuilder extends BCodeHelpers {
                 val selfParam :: realParams = dd1.vparamss.head.map(_.symbol)
                 deriveDefDef(dd1)(_ =>
                   atPos(dd1.pos)(
-                    Apply(Select(global.gen.mkAttributedIdent(selfParam).setType(sym.owner.typeConstructor), dd.symbol),
+                    Apply(Select(global.gen.mkAttributedIdent(selfParam).setType(sym.owner.typeConstructor), sym),
                     realParams.map(global.gen.mkAttributedIdent)).updateAttachment(UseInvokeSpecial))
                 )
               }
@@ -589,9 +589,9 @@ abstract class BCodeSkelBuilder extends BCodeHelpers {
        * but the same vars (given by the LabelDef's params) can be reused,
        * because no LabelDef ends up nested within itself after such duplication.
        */
-      for(ld <- labelDefsAtOrUnder.getOrElse(dd.rhs, Nil); ldp <- ld.params; if !locals.contains(ldp.symbol)) {
+      for(ld <- labelDefsAtOrUnder.getOrElse(dd.rhs, Nil); ldp <- ld.params; symbol = ldp.symbol; if !locals.contains(symbol)) {
         // the tail-calls xform results in symbols shared btw method-params and labelDef-params, thus the guard above.
-        locals.makeLocal(ldp.symbol)
+        locals.makeLocal(symbol)
       }
 
       if (!isAbstractMethod && !isNative) {
