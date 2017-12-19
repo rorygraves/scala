@@ -104,7 +104,10 @@ trait GenTypes {
   }
 
   private def spliceAsManifest(tpe: Type): Tree = {
-    def isSynthetic(manifest: Tree) = manifest exists (sub => sub.symbol != null && (sub.symbol == FullManifestModule || sub.symbol.owner == FullManifestModule))
+    def isSynthetic(manifest: Tree) = manifest exists {sub =>
+      val symbol = sub.symbol
+      symbol != null && (symbol == FullManifestModule || symbol.owner == FullManifestModule)
+    }
     def searchForManifest(typer: analyzer.Typer): Tree =
       analyzer.inferImplicitByTypeSilent(
         appliedType(FullManifestClass.toTypeConstructor, List(tpe)),
