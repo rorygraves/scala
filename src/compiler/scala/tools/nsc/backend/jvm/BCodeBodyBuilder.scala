@@ -61,13 +61,14 @@ abstract class BCodeBodyBuilder extends BCodeSkelBuilder {
       lineNumber(tree)
       tree match {
         case Assign(lhs @ Select(qual, _), rhs) =>
-          val isStatic = lhs.symbol.isStaticMember
+          val symbol = lhs.symbol
+          val isStatic = symbol.isStaticMember
           if (!isStatic) { genLoadQualifier(lhs) }
-          genLoad(rhs, symInfoTK(lhs.symbol))
+          genLoad(rhs, symInfoTK(symbol))
           lineNumber(tree)
           // receiverClass is used in the bytecode to access the field. using sym.owner may lead to IllegalAccessError, scala/bug#4283
           val receiverClass = qual.tpe.typeSymbol
-          fieldStore(lhs.symbol, receiverClass)
+          fieldStore(symbol, receiverClass)
 
         case Assign(lhs, rhs) =>
           val s = lhs.symbol
@@ -300,17 +301,20 @@ abstract class BCodeBodyBuilder extends BCodeSkelBuilder {
           val (staticArgs, dynamicArgs) = staticAndDynamicArgs.splitAt(numStaticArgs)
           val bootstrapDescriptor = staticHandleFromSymbol(bootstrapMethodRef)
           val bootstrapArgs = staticArgs.map({case t @ Literal(c: Constant) => bootstrapMethodArg(c, t.pos)})
-          val descriptor = methodBTypeFromMethodType(qual.symbol.info, false)
-          genLoadArguments(dynamicArgs, qual.symbol.info.params.map(param => typeToBType(param.info)))
-          mnode.visitInvokeDynamicInsn(qual.symbol.name.encoded, descriptor.descriptor, bootstrapDescriptor, bootstrapArgs : _*)
+          val symbol = qual.symbol
+          val info = symbol.info
+          val descriptor = methodBTypeFromMethodType(info, false)
+          genLoadArguments(dynamicArgs, info.params.map(param => typeToBType(param.info)))
+          mnode.visitInvokeDynamicInsn(symbol.name.encoded, descriptor.descriptor, bootstrapDescriptor, bootstrapArgs : _*)
 
         case ApplyDynamic(qual, args) => sys.error("No invokedynamic support yet.")
 
         case This(qual) =>
-          val symIsModuleClass = tree.symbol.isModuleClass
-          assert(tree.symbol == claszSymbol || symIsModuleClass,
-                 s"Trying to access the this of another class: tree.symbol = ${tree.symbol}, class symbol = $claszSymbol compilation unit: $cunit")
-          if (symIsModuleClass && tree.symbol != claszSymbol) {
+          val symbol = tree.symbol
+          val symIsModuleClass = symbol.isModuleClass
+          assert(symbol == claszSymbol || symIsModuleClass,
+                 s"Trying to access the this of another class: symbol = ${symbol}, class symbol = $claszSymbol compilation unit: $cunit")
+          if (symIsModuleClass && symbol != claszSymbol) {
             generatedType = genLoadModule(tree)
           }
           else {
@@ -319,7 +323,7 @@ abstract class BCodeBodyBuilder extends BCodeSkelBuilder {
             // is `[Object` (computed by typeToBType, the type of This(Array) is `Array[T]`). If we would set
             // the generatedType to `Array` below, the call to adapt at the end would fail. The situation is
             // similar for primitives (`I` vs `Int`).
-            if (tree.symbol != ArrayClass && !definitions.isPrimitiveValueClass(tree.symbol)) {
+            if (symbol != ArrayClass && !definitions.isPrimitiveValueClass(symbol)) {
               generatedType = classBTypeFromSymbol(claszSymbol)
             }
           }
@@ -556,11 +560,13 @@ abstract class BCodeBodyBuilder extends BCodeSkelBuilder {
           generatedType = genTypeApply()
 
         case Apply(fun @ Select(sup @ Super(superQual, _), _), args) =>
+          val symbol = fun.symbol
+
           def initModule() {
             // we initialize the MODULE$ field immediately after the super ctor
             if (!isModuleInitialized &&
               jMethodName == INSTANCE_CONSTRUCTOR_NAME &&
-              fun.symbol.javaSimpleName.toString == INSTANCE_CONSTRUCTOR_NAME &&
+              symbol.javaSimpleName.toString == INSTANCE_CONSTRUCTOR_NAME &&
               isStaticModuleClass(claszSymbol)) {
               isModuleInitialized = true
               mnode.visitVarInsn(asm.Opcodes.ALOAD, 0)
@@ -576,7 +582,7 @@ abstract class BCodeBodyBuilder extends BCodeSkelBuilder {
           // scala/bug#10290: qual can be `this.$outer()` (not just `this`), so we call genLoad (not jsut ALOAD_0)
           genLoad(superQual)
           genLoadArguments(args, paramTKs(app))
-          generatedType = genCallMethod(fun.symbol, InvokeStyle.Super, app.pos, sup.tpe.typeSymbol)
+          generatedType = genCallMethod(symbol, InvokeStyle.Super, app.pos, sup.tpe.typeSymbol)
           initModule()
 
         // 'new' constructor call: Note: since constructors are
@@ -936,9 +942,10 @@ abstract class BCodeBodyBuilder extends BCodeSkelBuilder {
     }
 
     def genLoadModule(tree: Tree): BType = {
+      val symbol = tree.symbol
       val module = (
-        if (!tree.symbol.isPackageClass) tree.symbol
-        else tree.symbol.info.packageObject match {
+        if (!symbol.isPackageClass) symbol
+        else symbol.info.packageObject match {
           case NoSymbol => abort(s"scala/bug#5604: Cannot use package as value: $tree")
           case s        => abort(s"scala/bug#5604: found package class where package object expected: $tree")
         }
@@ -1103,8 +1110,9 @@ abstract class BCodeBodyBuilder extends BCodeSkelBuilder {
      */
     def liftStringConcat(tree: Tree): List[Tree] = tree match {
       case Apply(fun @ Select(larg, method), rarg) =>
-        if (isPrimitive(fun.symbol) &&
-            scalaPrimitives.getPrimitive(fun.symbol) == scalaPrimitives.CONCAT)
+        val symbol = fun.symbol
+        if (isPrimitive(symbol) &&
+            scalaPrimitives.getPrimitive(symbol) == scalaPrimitives.CONCAT)
           liftStringConcat(larg) ::: rarg
         else
           tree :: Nil
