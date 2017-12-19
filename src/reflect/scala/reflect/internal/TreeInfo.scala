@@ -134,8 +134,10 @@ abstract class TreeInfo {
 
   /** Is `tree`'s type volatile? (Ignored if its symbol has the @uncheckedStable annotation.)
    */
-  def hasVolatileType(tree: Tree): Boolean =
-    symOk(tree.symbol) && tree.tpe.isVolatile && !tree.symbol.hasAnnotation(uncheckedStableClass)
+  def hasVolatileType(tree: Tree): Boolean = {
+    val symbol = tree.symbol
+    symOk(symbol) && tree.tpe.isVolatile && !symbol.hasAnnotation(uncheckedStableClass)
+  }
 
   /** Is `tree` either a non-volatile type,
    *  or a path that does not include any of:
@@ -190,7 +192,8 @@ abstract class TreeInfo {
       // Apply(function, Nil) trees. To prevent them from being treated as pure,
       // we check that the callee is a method.
       // The callee might also be a Block, which has a null symbol, so we guard against that (scala/bug#7185)
-      fn.symbol != null && fn.symbol.isMethod && !fn.symbol.isLazy && isExprSafeToInline(fn)
+      val symbol = fn.symbol
+      symbol != null && symbol.isMethod && !symbol.isLazy && isExprSafeToInline(fn)
     case Typed(expr, _) =>
       isExprSafeToInline(expr)
     case Block(stats, expr) =>
