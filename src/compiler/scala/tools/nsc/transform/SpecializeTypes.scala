@@ -124,8 +124,9 @@ abstract class SpecializeTypes extends InfoTransform with TypingTransformers {
     }
   }
   private def hasNewParents(tree: Tree) = {
-    val parents = tree.symbol.info.parents
-    val prev    = enteringPrevPhase(tree.symbol.info.parents)
+    val symbol = tree.symbol
+    val parents = symbol.info.parents
+    val prev    = enteringPrevPhase(symbol.info.parents)
     (parents != prev) && {
       debuglog(s"$tree parents changed from: $prev to: $parents")
       true
@@ -1466,12 +1467,13 @@ abstract class SpecializeTypes extends InfoTransform with TypingTransformers {
     class CollectMethodBodies extends Traverser {
       override def traverse(tree: Tree) = tree match {
         case DefDef(_, _, _, vparams :: Nil, _, rhs) =>
-          if (concreteSpecMethods(tree.symbol) || tree.symbol.isConstructor) {
+          val symbol = tree.symbol
+          if (concreteSpecMethods(symbol) || symbol.isConstructor) {
             // debuglog("!!! adding body of a defdef %s, symbol %s: %s".format(tree, tree.symbol, rhs))
-            body(tree.symbol) = rhs
+            body(symbol) = rhs
             //          body(tree.symbol) = tree // whole method
-            parameters(tree.symbol) = vparams.map(_.symbol)
-            concreteSpecMethods -= tree.symbol
+            parameters(symbol) = vparams.map(_.symbol)
+            concreteSpecMethods -= symbol
           } // no need to descend further down inside method bodies
 
         case ValDef(mods, name, tpt, rhs) if concreteSpecMethods(tree.symbol) =>
