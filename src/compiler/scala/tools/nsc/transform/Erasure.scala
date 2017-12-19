@@ -683,34 +683,36 @@ abstract class Erasure extends InfoTransform
           }
             tree
         case Select(qual, name) =>
-          if (tree.symbol == NoSymbol) {
+          val symbol = tree.symbol
+          if (symbol == NoSymbol) {
             tree
           } else if (name == nme.CONSTRUCTOR) {
-            if (tree.symbol.owner == AnyValClass) tree.symbol = ObjectClass.primaryConstructor
+            if (symbol.owner == AnyValClass) tree.symbol = ObjectClass.primaryConstructor
             tree
-          } else if (tree.symbol == Any_asInstanceOf)
+          } else if (symbol == Any_asInstanceOf)
             adaptMember(atPos(tree.pos)(Select(qual, Object_asInstanceOf)))
-          else if (tree.symbol == Any_isInstanceOf)
+          else if (symbol == Any_isInstanceOf)
             adaptMember(atPos(tree.pos)(Select(qual, Object_isInstanceOf)))
-          else if (tree.symbol.owner == AnyClass)
-            adaptMember(atPos(tree.pos)(Select(qual, getMember(ObjectClass, tree.symbol.name))))
+          else if (symbol.owner == AnyClass)
+            adaptMember(atPos(tree.pos)(Select(qual, getMember(ObjectClass, symbol.name))))
           else {
             var qual1 = typedQualifier(qual)
-            if ((isPrimitiveValueType(qual1.tpe) && !isPrimitiveValueMember(tree.symbol)) ||
+            if ((isPrimitiveValueType(qual1.tpe) && !isPrimitiveValueMember(symbol)) ||
                  isErasedValueType(qual1.tpe))
               qual1 = box(qual1)
-            else if (!isPrimitiveValueType(qual1.tpe) && isPrimitiveValueMember(tree.symbol))
-              qual1 = unbox(qual1, tree.symbol.owner.tpe)
+            else if (!isPrimitiveValueType(qual1.tpe) && isPrimitiveValueMember(symbol))
+              qual1 = unbox(qual1, symbol.owner.tpe)
 
             def selectFrom(qual: Tree) = treeCopy.Select(tree, qual, name)
 
-            if (isPrimitiveValueMember(tree.symbol) && !isPrimitiveValueType(qual1.tpe)) {
+            if (isPrimitiveValueMember(symbol) && !isPrimitiveValueType(qual1.tpe)) {
               tree.symbol = NoSymbol
               selectFrom(qual1)
             } else if (isMethodTypeWithEmptyParams(qual1.tpe)) { // see also adaptToType in TypeAdapter
-              assert(qual1.symbol.isStable, qual1.symbol)
+              val qualSymbol = qual1.symbol
+              assert(qualSymbol.isStable, qualSymbol)
               adaptMember(selectFrom(applyMethodWithEmptyParams(qual1)))
-            } else if (!qual1.isInstanceOf[Super] && (!isJvmAccessible(qual1.tpe.typeSymbol, context) || !qual1.tpe.typeSymbol.isSubClass(tree.symbol.owner))) {
+            } else if (!qual1.isInstanceOf[Super] && (!isJvmAccessible(qual1.tpe.typeSymbol, context) || !qual1.tpe.typeSymbol.isSubClass(symbol.owner))) {
               // A selection requires a cast:
               //   - In `(foo: Option[String]).get.trim`, the qualifier has type `Object`. We cast
               //     to the owner of `trim` (`String`), unless the owner is a non-accessible Java
@@ -727,7 +729,7 @@ abstract class Erasure extends InfoTransform
               // legal code. Instead there's a special case in `typedSelectInternal`.
               val qualTpe = tree.getAndRemoveAttachment[QualTypeSymAttachment] match {
                 case Some(a) => a.sym.tpe
-                case None => tree.symbol.owner.tpe
+                case None => symbol.owner.tpe
               }
               selectFrom(cast(qual1, qualTpe))
             } else {
@@ -1246,7 +1248,8 @@ abstract class Erasure extends InfoTransform
         //
         // What the heck is array_this? See preTransformer in this file:
         //   gen.mkRuntimeCall("array_"+name, qual :: args)
-        if (tree.symbol == ArrayClass && !tree.isType) tree
+        val symbol = tree.symbol
+        if (symbol == ArrayClass && !tree.isType) tree
         else {
           val tree1 = preErase(tree)
           tree1 match {
@@ -1261,11 +1264,14 @@ abstract class Erasure extends InfoTransform
                 tree1, elemtpt setType specialScalaErasure.applyInArray(elemtpt.tpe), trees map transform).clearType()
             case DefDef(_, _, _, _, tpt, _) =>
               // TODO: move this in some post-processing transform in the fields phase?
-              if (fields.symbolAnnotationsTargetFieldAndGetter(tree.symbol))
-                fields.dropFieldAnnotationsFromGetter(tree.symbol)
+              if (fields.symbolAnnotationsTargetFieldAndGetter(symbol))
+                fields.dropFieldAnnotationsFromGetter(symbol)
 
               try super.transform(tree1).clearType()
-              finally tpt setType specialErasure(tree1.symbol)(tree1.symbol.tpe).resultType
+              finally {
+                val symbol = tree1.symbol
+                tpt setType specialErasure(symbol)(symbol.tpe).resultType
+              }
             case ApplyDynamic(qual, Literal(Constant(bootstrapMethodRef: Symbol)) :: _) =>
               tree
             case _ =>
