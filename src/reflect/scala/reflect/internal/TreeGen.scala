@@ -183,7 +183,9 @@ abstract class TreeGen {
     if (!treeInfo.admitsTypeSelection(tree)) NoType
     else tree match {
       case This(_)         => ThisType(tree.symbol)
-      case Ident(_)        => singleType(tree.symbol.owner.thisType, tree.symbol)
+      case Ident(_)        =>
+        val symbol = tree.symbol
+        singleType(symbol.owner.thisType, symbol)
       case Select(qual, _) => singleType(qual.tpe, tree.symbol)
       case _               => NoType
     }
@@ -203,8 +205,10 @@ abstract class TreeGen {
     Ident(sym.name) setSymbol sym setType sym.tpeHK
 
   def mkAttributedSelect(qual: Tree, sym: Symbol): RefTree = {
+
     // Tests involving the repl fail without the .isEmptyPackage condition.
-    if (qual.symbol != null && (qual.symbol.isEffectiveRoot || qual.symbol.isEmptyPackage))
+    val symbol = qual.symbol
+    if (symbol != null && (symbol.isEffectiveRoot || symbol.isEmptyPackage))
       mkAttributedIdent(sym)
     else {
       // Have to recognize anytime a selection is made on a package
@@ -214,7 +218,7 @@ abstract class TreeGen {
       // the Typers method "isInPackageObject", used in typedIdent.
       val qualsym = (
         if (qual.tpe ne null) qual.tpe.typeSymbol
-        else if (qual.symbol ne null) qual.symbol
+        else if (symbol ne null) symbol
         else NoSymbol
       )
       val needsPackageQualifier = (
