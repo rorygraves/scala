@@ -126,7 +126,9 @@ trait Contexts { self: Analyzer =>
   def resetContexts() {
     startContext.enclosingContextChain foreach { context =>
       context.tree match {
-        case Import(qual, _) => qual setType singleType(qual.symbol.owner.thisType, qual.symbol)
+        case Import(qual, _) =>
+          val symbol = qual.symbol
+          qual setType singleType(symbol.owner.thisType, symbol)
         case _               =>
       }
       context.reporter.clearAll()
