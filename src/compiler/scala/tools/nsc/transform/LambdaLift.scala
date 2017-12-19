@@ -192,7 +192,7 @@ abstract class LambdaLift extends InfoTransform {
         val sym = tree.symbol
         tree match {
           case ClassDef(_, _, _, _) =>
-            liftedDefs(tree.symbol) = Nil
+            liftedDefs(sym) = Nil
             if (sym.isLocalToBlock) {
               renamable += sym
             }
