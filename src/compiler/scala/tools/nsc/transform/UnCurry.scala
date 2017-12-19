@@ -439,10 +439,11 @@ abstract class UnCurry extends InfoTransform
               treeCopy.ValDef(p, p.mods, p.name, p.tpt, EmptyTree)
             })
 
-            if (dd.symbol hasAnnotation VarargsClass) validateVarargs(dd)
+            val symbol = dd.symbol
+            if (symbol hasAnnotation VarargsClass) validateVarargs(dd)
 
             withNeedLift(needLift = false) {
-              if (dd.symbol.isClassConstructor) {
+              if (symbol.isClassConstructor) {
                 atOwner(sym) {
                   val rhs1 = (rhs: @unchecked) match {
                     case Block(stats, expr) =>
