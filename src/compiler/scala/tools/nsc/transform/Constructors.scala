@@ -61,8 +61,9 @@ abstract class Constructors extends Statics with Transform with TypingTransforme
           case vd: ValDef      =>
             // doing this first allows self-referential vals, which to be a conservative
             // warner we will do because it's possible though difficult for it to be useful.
-            uninitializedVals -= vd.symbol.accessedOrSelf
-            if (!vd.symbol.isLazy)
+            val symbol = vd.symbol
+            uninitializedVals -= symbol.accessedOrSelf
+            if (!symbol.isLazy)
               check(vd.rhs)
           case _: MemberDef    => // skip other member defs
           case t               => check(t) // constructor body statement
@@ -735,7 +736,9 @@ abstract class Constructors extends Statics with Transform with TypingTransforme
       def splitAtSuper(stats: List[Tree]) = {
         def isConstr(tree: Tree): Boolean = tree match {
           case Block(_, expr) => isConstr(expr) // scala/bug#6481 account for named argument blocks
-          case _              => (tree.symbol ne null) && tree.symbol.isConstructor
+          case _              =>
+            val symbol = tree.symbol
+            (symbol ne null) && symbol.isConstructor
         }
         val (pre, rest0)       = stats span (!isConstr(_))
         val (supercalls, rest) = rest0 span (isConstr(_))
