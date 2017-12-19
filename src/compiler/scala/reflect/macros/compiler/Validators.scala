@@ -182,13 +182,13 @@ trait Validators {
 
         def makeParam(name: Name, pos: Position, tpe: Type, flags: Long) =
           macroDef.newValueParameter(name.toTermName, pos, flags) setInfo tpe
-        def param(tree: Tree): Symbol = (
-          cache.getOrElseUpdate(tree.symbol, {
-            val sym = tree.symbol
+        def param(tree: Tree): Symbol = {
+          val sym = tree.symbol
+          cache.getOrElseUpdate(sym, {
             assert(sym.isTerm, s"sym = $sym, tree = $tree")
             makeParam(sym.name, sym.pos, sigma(increaseMetalevel(ctxPrefix, sym.tpe)), sym.flags)
           })
-        )
+        }
       }
 
       import SigGenerator._
