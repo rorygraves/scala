@@ -266,10 +266,12 @@ abstract class Delambdafy extends Transform with TypingTransformers with ast.Tre
       case Template(_, _, _) =>
         def pretransform(tree: Tree): Tree = tree match {
           case dd: DefDef if dd.symbol.isDelambdafyTarget =>
-            if (!dd.symbol.hasFlag(STATIC) && methodReferencesThis(dd.symbol)) {
-              gen.mkStatic(dd, dd.symbol.name, sym => sym)
+
+            val symbol = dd.symbol
+            if (!symbol.hasFlag(STATIC) && methodReferencesThis(symbol)) {
+              gen.mkStatic(dd, symbol.name, sym => sym)
             } else {
-              dd.symbol.setFlag(STATIC)
+              symbol.setFlag(STATIC)
               dd
             }
           case t => t
@@ -280,11 +282,12 @@ abstract class Delambdafy extends Transform with TypingTransformers with ast.Tre
           Template(parents, self, body ++ boxingBridgeMethods)
         } finally boxingBridgeMethods.clear()
       case dd: DefDef if dd.symbol.isLiftedMethod && !dd.symbol.isDelambdafyTarget =>
+        val symbol = dd.symbol
         // scala/bug#9390 emit lifted methods that don't require a `this` reference as STATIC
         // delambdafy targets are excluded as they are made static by `transformFunction`.
-        if (!dd.symbol.hasFlag(STATIC) && !methodReferencesThis(dd.symbol)) {
-          dd.symbol.setFlag(STATIC)
-          dd.symbol.removeAttachment[mixer.NeedStaticImpl.type]
+        if (!symbol.hasFlag(STATIC) && !methodReferencesThis(symbol)) {
+          symbol.setFlag(STATIC)
+          symbol.removeAttachment[mixer.NeedStaticImpl.type]
         }
         super.transform(tree)
       case Apply(fun, outer :: rest) if shouldElideOuterArg(fun.symbol, outer) =>
