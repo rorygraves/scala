@@ -5,7 +5,7 @@ package scala.reflect.internal.util;
  * an option is enabled or not. This class is used for configuration purposes
  * (see scala.reflect.internal.util.Statistics).
  */
-class BooleanContainer {
+public class BooleanContainer {
   private final boolean value;
 
   public BooleanContainer(boolean value) {
@@ -16,14 +16,14 @@ class BooleanContainer {
     return value;
   }
 
-  protected final static class TrueContainer extends BooleanContainer {
-    TrueContainer() {
+  public final static class TrueContainer extends BooleanContainer {
+    public TrueContainer() {
         super(true);
     }
   }
 
-  protected final static class FalseContainer extends BooleanContainer {
-    FalseContainer() {
+  public final static class FalseContainer extends BooleanContainer {
+    public FalseContainer() {
         super(false);
     }
   }

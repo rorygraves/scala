@@ -572,7 +572,7 @@ trait Macros extends MacroRuntimes with Traces with Helpers {
     protected def expand(desugared: Tree): Tree = {
       def showDetailed(tree: Tree) = showRaw(tree, printIds = true, printTypes = true)
       def summary() = s"expander = $this, expandee = ${showDetailed(expandee)}, desugared = ${if (expandee == desugared) () else showDetailed(desugared)}"
-      if (macroDebugVerbose) println(s"macroExpand: ${summary()}")
+      macroLogVerbose(println(s"macroExpand: ${summary()}"))
       linkExpandeeAndDesugared(expandee, desugared)
 
       val start = if (StatisticsStatics.areSomeColdStatsEnabled) statistics.startTimer(statistics.macroExpandNanos) else null
@@ -638,11 +638,11 @@ trait Macros extends MacroRuntimes with Traces with Helpers {
       def typecheck(label: String, tree: Tree, pt: Type): Tree = {
         if (tree.isErrorTyped) tree
         else {
-          if (macroDebugVerbose) println(s"$label (against pt = $pt): $tree")
+          macroLogVerbose( println(s"$label (against pt = $pt): $tree"))
           // `macroExpandApply` is called from `adapt`, where implicit conversions are disabled
           // therefore we need to re-enable the conversions back temporarily
           val result = typer.context.withImplicitsEnabled(typer.typed(tree, mode, pt))
-          if (result.isErrorTyped && macroDebugVerbose) println(s"$label has failed: ${typer.context.reporter.errors}")
+          if (result.isErrorTyped) macroLogVerbose(println(s"$label has failed: ${typer.context.reporter.errors}"))
           result
         }
       }
@@ -874,11 +874,11 @@ trait Macros extends MacroRuntimes with Traces with Helpers {
   private val undetparams = perRunCaches.newSet[Int]()
   def notifyUndetparamsAdded(newUndets: List[Symbol]): Unit = {
     undetparams ++= newUndets map (_.id)
-    if (macroDebugVerbose) newUndets foreach (sym => println("undetParam added: %s".format(sym)))
+    macroLogVerbose( newUndets foreach (sym => println("undetParam added: %s".format(sym))))
   }
   def notifyUndetparamsInferred(undetNoMore: List[Symbol], inferreds: List[Type]): Unit = {
     undetparams --= undetNoMore map (_.id)
-    if (macroDebugVerbose) (undetNoMore zip inferreds) foreach { case (sym, tpe) => println("undetParam inferred: %s as %s".format(sym, tpe))}
+    macroLogVerbose( (undetNoMore zip inferreds) foreach { case (sym, tpe) => println("undetParam inferred: %s as %s".format(sym, tpe))})
     if (!delayed.isEmpty)
       delayed.toList foreach {
         case (expandee, undetparams) if !undetparams.isEmpty =>

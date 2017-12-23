@@ -3,6 +3,7 @@ package compiler
 
 import scala.compat.Platform.EOL
 import scala.reflect.macros.util.Traces
+import scala.tools.nsc.settings.StaticSettings
 
 trait Errors extends Traces {
   self: DefaultMacroCompiler =>
@@ -90,7 +91,7 @@ trait Errors extends Traces {
     // not exactly an error generator, but very related
     // and I dearly wanted to push it away from Macros.scala
     private def checkConforms(slot: String, rtpe: Type, atpe: Type) = {
-      val verbose = macroDebugVerbose
+      def verbose = StaticSettings.macroDebugVerboseEnabled() && macroDebugVerbose
 
       def check(rtpe: Type, atpe: Type): Boolean = {
         def success() = { if (verbose) println(rtpe + " <: " + atpe + "?" + EOL + "true"); true }

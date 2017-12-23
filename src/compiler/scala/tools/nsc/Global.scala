@@ -286,8 +286,9 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
     if (settings.debug)
       body
   }
+  import scala.tools.nsc.settings.StaticSettings
 
-  override protected def isDeveloper = settings.developer || super.isDeveloper
+  @inline override protected final def isDeveloper = (StaticSettings.developerEnabled || StaticSettings.debugEnabled) && (settings.developer || super.isDeveloper)
 
   /** This is for WARNINGS which should reach the ears of scala developers
    *  whenever they occur, but are not useful for normal users. They should
@@ -306,7 +307,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
 
   def logError(msg: String, t: Throwable): Unit = ()
 
-  override def shouldLogAtThisPhase = settings.log.isSetByUser && (
+  override def shouldLogAtThisPhase = StaticSettings.phaseLogEnabled() && settings.log.isSetByUser && (
     (settings.log containsPhase globalPhase) || (settings.log containsPhase phase)
   )
   // Over 200 closure objects are eliminated by inlining this.
