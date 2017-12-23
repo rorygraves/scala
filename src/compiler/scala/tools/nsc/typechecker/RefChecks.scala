@@ -7,12 +7,9 @@ package scala.tools.nsc
 package typechecker
 
 import scala.language.postfixOps
-
 import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
-import scala.tools.nsc.settings.ScalaVersion
-import scala.tools.nsc.settings.NoScalaVersion
-
+import scala.tools.nsc.settings.{NoScalaVersion, ScalaVersion, StaticSettings}
 import symtab.Flags._
 import transform.Transform
 
@@ -163,7 +160,7 @@ abstract class RefChecks extends Transform {
       }
 
       // This has become noisy with implicit classes.
-      if (settings.warnPolyImplicitOverload && settings.developer) {
+      if (StaticSettings.developerEnabled() && settings.warnPolyImplicitOverload && settings.developer) {
         clazz.info.decls.foreach(sym => if (sym.isImplicit && sym.typeParams.nonEmpty) {
           // implicit classes leave both a module symbol and a method symbol as residue
           val alts = clazz.info.decl(sym.name).alternatives filterNot (_.isModule)

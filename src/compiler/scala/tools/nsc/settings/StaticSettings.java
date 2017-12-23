@@ -65,6 +65,17 @@ public class StaticSettings{
             throw new AssertionError(e.getMessage(), e);
         }
     }
+    private static final AlmostFinalValue<BooleanContainer> VERBOSE = new AlmostFinalBooleanValue();
+
+    private static final MethodHandle VERBOSE_GETTER = VERBOSE.createGetter();
+
+    public static boolean verboseEnabled() {
+        try {
+            return ((BooleanContainer) (Object) VERBOSE_GETTER.invokeExact()).isEnabledNow();
+        } catch (Throwable e) {
+            throw new AssertionError(e.getMessage(), e);
+        }
+    }
     private static final AlmostFinalValue<BooleanContainer> XX = new AlmostFinalBooleanValue();
 
     private static final MethodHandle XX_GETTER = XX.createGetter();
