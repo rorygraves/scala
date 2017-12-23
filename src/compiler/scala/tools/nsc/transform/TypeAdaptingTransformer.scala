@@ -104,7 +104,7 @@ trait TypeAdaptingTransformer { self: TreeDSL =>
       *  @pre pt eq pt.normalize
      */
     final def cast(tree: Tree, pt: Type): Tree = {
-      if (settings.debug && (tree.tpe ne null) && !(tree.tpe =:= ObjectTpe)) {
+      ifDebug (if ((tree.tpe ne null) && !(tree.tpe =:= ObjectTpe)) {
         def word =
           if (tree.tpe <:< pt) "upcast"
           else if (pt <:< tree.tpe) "downcast"
@@ -112,7 +112,7 @@ trait TypeAdaptingTransformer { self: TreeDSL =>
           else if (tree.tpe weak_<:< pt) "widen"
           else "cast"
         log(s"erasure ${word}s from ${tree.tpe} to $pt")
-      }
+      })
       if (pt =:= UnitTpe) {
         // See scala/bug#4731 for one example of how this occurs.
         log("Attempted to cast to Unit: " + tree)

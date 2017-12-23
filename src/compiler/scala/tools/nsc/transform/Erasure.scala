@@ -7,10 +7,11 @@ package scala.tools.nsc
 package transform
 
 import scala.reflect.internal.ClassfileConstants._
-import scala.collection.{ mutable, immutable }
+import scala.collection.{immutable, mutable}
 import symtab._
 import Flags._
 import scala.reflect.internal.Mode._
+import scala.tools.nsc.settings.StaticSettings
 
 abstract class Erasure extends InfoTransform
                           with scala.reflect.internal.transform.Erasure
@@ -69,7 +70,7 @@ abstract class Erasure extends InfoTransform
     }
   }
 
-  override protected def verifyJavaErasure = settings.Xverify || settings.debug
+  override protected def verifyJavaErasure = settings.Xverify || (StaticSettings.debugEnabled() && settings.debug)
   private def needsJavaSig(tp: Type, throwsArgs: List[Type]) = !settings.Ynogenericsig && {
     def needs(tp: Type) = NeedsSigCollector.collect(tp)
     needs(tp) || throwsArgs.exists(needs)
@@ -504,13 +505,13 @@ abstract class Erasure extends InfoTransform
         clashErrors += Tuple2(pos, msg)
       }
       for (bc <- root.baseClasses) {
-        if (settings.debug)
+        ifDebug (
           exitingPostErasure(println(
             sm"""check bridge overrides in $bc
                 |${bc.info.nonPrivateDecl(bridge.name)}
                 |${site.memberType(bridge)}
                 |${site.memberType(bc.info.nonPrivateDecl(bridge.name) orElse IntClass)}
-                |${(bridge.matchingSymbol(bc, site))}"""))
+                |${(bridge.matchingSymbol(bc, site))}""")) )
 
         def overriddenBy(sym: Symbol) =
           sym.matchingSymbol(bc, site).alternatives filter (sym => !sym.isBridge)

@@ -8,6 +8,7 @@ package symtab
 
 import scala.language.implicitConversions
 import scala.language.postfixOps
+import scala.tools.nsc.settings.StaticSettings
 
 /** Printing the symbol graph (for those symbols attached to an AST node)
  *  after each phase.
@@ -127,7 +128,7 @@ trait SymbolTrackers {
           else " (" + Flags.flagsToString(masked) + ")"
       }
       def symString(sym: Symbol) = (
-        if (settings.debug && sym.hasCompleteInfo) {
+        if (StaticSettings.debugEnabled() && settings.debug && sym.hasCompleteInfo) {
           val s = sym.defString take 240
           if (s.length == 240) s + "..." else s
         }

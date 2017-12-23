@@ -9,6 +9,7 @@ package reporters
 import scala.collection.mutable
 import scala.tools.nsc.Settings
 import scala.reflect.internal.util.Position
+import scala.tools.nsc.settings.StaticSettings
 
 /**
  * This reporter implements filtering.
@@ -27,10 +28,10 @@ abstract class AbstractReporter extends Reporter {
     messages.clear()
   }
 
-  private def isVerbose   = settings.verbose.value
+  private def isVerbose   = StaticSettings.verboseEnabled() &&settings.verbose.value
   private def noWarnings  = settings.nowarnings.value
   private def isPromptSet = settings.prompt.value
-  private def isDebug     = settings.debug
+  private def isDebug     = StaticSettings.debugEnabled() && settings.debug
 
   protected def info0(pos: Position, msg: String, severity: Severity, force: Boolean) {
     if (severity == INFO) {

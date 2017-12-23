@@ -11,6 +11,7 @@ import scala.collection.mutable
 import symtab.Flags._
 import scala.language.postfixOps
 import scala.reflect.internal.util.ListOfNil
+import scala.tools.nsc.settings.StaticSettings
 
 /** This trait declares methods to create symbols and to enter them into scopes.
  *
@@ -1813,7 +1814,7 @@ trait Namers extends MethodSynthesis {
     }
 
     class LogTransitions[S](onEnter: S => String, onExit: S => String) {
-      val enabled = settings.debug.value
+      def enabled = StaticSettings.debugEnabled() && settings.debug.value
       @inline final def apply[T](entity: S)(body: => T): T = {
         if (enabled) log(onEnter(entity))
         try body

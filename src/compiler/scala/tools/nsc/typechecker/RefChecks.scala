@@ -342,7 +342,7 @@ abstract class RefChecks extends Transform {
                 infoStringWithLocation(other),
                 infoStringWithLocation(member)
               )
-            else if (settings.debug)
+            else if (StaticSettings.debugEnabled() && settings.debug)
               analyzer.foundReqMsg(member.tpe, other.tpe)
             else ""
 

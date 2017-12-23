@@ -6,12 +6,14 @@
 package scala.tools.nsc
 package typechecker
 
-import java.lang.{ reflect => r }
+import java.lang.{reflect => r}
 import r.TypeVariable
+
 import scala.reflect.NameTransformer
 import NameTransformer._
 import scala.reflect.runtime.{universe => ru}
 import scala.reflect.{ClassTag, classTag}
+import scala.tools.nsc.settings.StaticSettings
 
 /** A more principled system for turning types into strings.
  */
@@ -50,7 +52,7 @@ trait StructuredTypeStrings extends DestructureTypes {
     else block(level, grouping)(name, nodes)
   }
   private def shortClass(x: Any) = {
-    if (settings.debug) {
+    if (StaticSettings.debugEnabled() && settings.debug) {
       val name   = (x.getClass.getName split '.').last
       val str    = if (TypeStrings.isAnonClass(x.getClass)) name else (name split '$').last
 

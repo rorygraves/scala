@@ -10,6 +10,7 @@ package nsc
 import java.io.{File, FileNotFoundException, IOException}
 import java.net.URL
 import java.nio.charset.{Charset, CharsetDecoder, IllegalCharsetNameException, UnsupportedCharsetException}
+
 import scala.collection.{immutable, mutable}
 import io.{AbstractFile, Path, SourceReader}
 import reporters.Reporter
@@ -26,12 +27,13 @@ import typechecker._
 import transform.patmat.PatternMatching
 import transform._
 import backend.{JavaPlatform, ScalaPrimitives}
-import backend.jvm.{GenBCode, BackendStats}
+import backend.jvm.{BackendStats, GenBCode}
 import scala.concurrent.Future
 import scala.language.postfixOps
 import scala.tools.nsc.ast.{TreeGen => AstTreeGen}
 import scala.tools.nsc.classpath._
 import scala.tools.nsc.profile.Profiler
+import scala.tools.nsc.settings.StaticSettings
 
 class Global(var currentSettings: Settings, var reporter: Reporter)
     extends SymbolTable
@@ -283,7 +285,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
   }
 
   @inline final def ifDebug(body: => Unit) {
-    if (settings.debug)
+    if (StaticSettings.debugEnabled && settings.debug)
       body
   }
   import scala.tools.nsc.settings.StaticSettings
@@ -317,8 +319,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
   }
 
   @inline final override def debuglog(msg: => String) {
-    if (settings.debug)
-      log(msg)
+    ifDebug (log(msg))
   }
 
   @deprecated("Renamed to reportThrowable", "2.10.1")
@@ -414,8 +415,8 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
       if ((unit ne null) && unit.exists)
         lastSeenSourceFile = unit.source
 
-      if (settings.debug && (settings.verbose || currentRun.size < 5))
-        inform("[running phase " + name + " on " + unit + "]")
+      ifDebug( if (settings.verbose || currentRun.size < 5)
+        inform("[running phase " + name + " on " + unit + "]"))
       if (!cancelled(unit)) {
         currentRun.informUnitStarting(this, unit)
         try withCurrentUnitNoLog(unit)(task)

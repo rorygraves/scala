@@ -9,6 +9,7 @@ package typechecker
 import scala.collection.mutable
 import scala.reflect.internal.util.shortClassOfInstance
 import scala.reflect.internal.util.StringOps._
+import scala.tools.nsc.settings.StaticSettings
 
 abstract class TreeCheckers extends Analyzer {
   import global._
@@ -123,7 +124,7 @@ abstract class TreeCheckers extends Analyzer {
       // new symbols
       if (newSyms.nonEmpty) {
         informFn(newSyms.size + " new symbols.")
-        val toPrint = if (settings.debug) sortedNewSyms mkString " " else ""
+        val toPrint = if (StaticSettings.debugEnabled() && settings.debug) sortedNewSyms mkString " " else ""
 
         newSyms.clear()
         if (toPrint != "")
@@ -169,8 +170,8 @@ abstract class TreeCheckers extends Analyzer {
   def errorFn(pos: Position, msg: Any): Unit = reporter.warning(pos, "[check: %s] %s".format(phase.prev, msg))
   def errorFn(msg: Any): Unit                = errorFn(NoPosition, msg)
 
-  def informFn(msg: Any) {
-    if (settings.verbose || settings.debug)
+  @inline def informFn(msg: => Any) {
+    if ((StaticSettings.debugEnabled() || StaticSettings.verboseEnabled()) && (settings.verbose || settings.debug))
       println("[check: %s] %s".format(phase.prev, msg))
   }
 

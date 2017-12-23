@@ -7,6 +7,7 @@ package scala.tools.nsc
 package typechecker
 
 import Mode._
+import scala.tools.nsc.settings.StaticSettings
 
 trait TypersTracking {
   self: Analyzer =>
@@ -22,7 +23,7 @@ trait TypersTracking {
 
   def fullSiteString(context: Context): String = {
     def owner_long_s = (
-      if (settings.debug.value) {
+      if (StaticSettings.debugEnabled() && settings.debug.value) {
         def flags_s = context.owner.debugFlagString match {
           case "" => ""
           case s  => " with flags " + inLightMagenta(s)
@@ -61,6 +62,7 @@ trait TypersTracking {
     }
     private def resetIfEmpty(s: String) = if (trees.isEmpty) resetColor(s) else s
 
+    //***** FIX THIS
     private def truncAndOneLine(s: String): String = {
       val s1 = s.replaceAll("\\s+", " ")
       if (s1.length < 60 || settings.debug.value) s1 else s1.take(57) + "..."
