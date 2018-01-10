@@ -3,7 +3,6 @@ package backend.jvm
 
 import java.util.concurrent.ConcurrentHashMap
 
-import scala.collection.mutable.ListBuffer
 import scala.reflect.internal.util.{NoPosition, Statistics}
 import scala.tools.asm.ClassWriter
 import scala.tools.asm.tree.ClassNode
@@ -36,7 +35,6 @@ abstract class PostProcessor(statistics: Statistics with BackendStats) extends P
   override def initialize(): Unit = {
     super.initialize()
     backendUtils.initialize()
-    byteCodeRepository.initialize()
     inlinerHeuristics.initialize()
   }
 
