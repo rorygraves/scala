@@ -529,6 +529,7 @@ trait SeqLike[+A, +Repr] extends Any with IterableLike[A, Repr] with GenSeqLike[
       b.result()
     }
   }
+
   def distinctSimple: Repr = {
     val size = this.sizeHintIfCheap
     if (size == 0 || size == 1 || (size == -1 && isEmpty)) repr
@@ -542,20 +543,82 @@ trait SeqLike[+A, +Repr] extends Any with IterableLike[A, Repr] with GenSeqLike[
       if (different) b.result() else repr
     }
   }
-  def distinctSimpleWhile: Repr = {
+
+  def distinctSimpleJavaHashSet: Repr = {
     val size = this.sizeHintIfCheap
     if (size == 0 || size == 1 || (size == -1 && isEmpty)) repr
+    else {
+      val b = newBuilder
+      val seen = new java.util.LinkedHashSet[A]
+      var different = false
+      for (x <- this) {
+        if (seen.add(x)) b += x else different = true
+      }
+      if (different) b.result() else repr
+    }
+  }
+
+  def distinctSimpleWhile: Repr = {
+    val size = this.sizeHintIfCheap
+    if (size == 0 || size == 1 || isEmpty) repr
     else {
       val b = newBuilder
       val seen = new mutable.HashSet[A]()
       var current = thisCollection
       var different = false
-      do {
+      while (!current.isEmpty) {
         val next = current.head
         if (seen.add(next)) b += next else different = true
         current = current.tail
-      } while (!current.isEmpty)
+      }
       if (different) b.result() else repr
+    }
+  }
+
+  def distinctSimpleWhileJavaHashSet: Repr = {
+    val size = this.sizeHintIfCheap
+    if (size == 0 || size == 1 || isEmpty) repr
+    else {
+      val b = newBuilder
+      val seen = new java.util.HashSet[A]
+      var current = thisCollection
+      var different = false
+      while (!current.isEmpty) {
+        val next = current.head
+        if (seen.add(next)) b += next else different = true
+        current = current.tail
+      }
+      if (different) b.result() else repr
+    }
+  }
+
+  def distinctSimpleWhileJavaHashSetIterator: Repr = {
+    val size = this.sizeHintIfCheap
+    if (size == 0 || size == 1 || isEmpty) repr
+    else {
+      val b = newBuilder
+      var it = this.iterator
+      val seen = new java.util.HashSet[A]
+      var different = false
+      while (it.hasNext) {
+        val next = it.next()
+        if (seen.add(next)) b += next else different = true
+      }
+      if (different) b.result() else repr
+    }
+  }
+
+  def distinctSimpleWhileIteratorOneAdd: Repr = {
+    val size = this.sizeHintIfCheap
+    if (size == 0 || size == 1 || isEmpty) repr
+    else {
+      var it = this.iterator
+      val seen = new mutable.HashSet[A]
+      var different = false
+      while (it.hasNext) {
+        if (!seen.add(it.next())) different = true
+      }
+      if (different) (newBuilder ++= seen).result() else repr
     }
   }
 
@@ -785,16 +848,16 @@ trait SeqLike[+A, +Repr] extends Any with IterableLike[A, Repr] with GenSeqLike[
         current = current.tail
         actualSize += 1
 
-        val hash = current.##
+        val hash = next.##
         var i = 0
         var found = false
         while (i < distinctSize && !found) {
-          found = hashes(i) == hash && values(i) == current
+          found = hashes(i) == hash && values(i) == next
           if (!found) i += 1
         }
         if (!found) {
-          distinctSize = i
           if (i < 8) {
+            distinctSize = i + 1
             hashes(i) = hash
             values(i) = next.asInstanceOf[AnyRef]
           }
