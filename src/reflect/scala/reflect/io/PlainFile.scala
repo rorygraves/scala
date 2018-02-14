@@ -7,6 +7,11 @@ package scala
 package reflect
 package io
 
+import java.nio.channels.Channels
+import java.nio.file.attribute.FileAttribute
+import java.nio.file.spi.FileSystemProvider
+import java.util
+
 /** ''Note:  This library is considered experimental and should not be used unless you know what you are doing.'' */
 class PlainDirectory(givenPath: Directory) extends PlainFile(givenPath) {
   override def isDirectory = true
@@ -94,8 +99,14 @@ class PlainFile(val givenPath: Path) extends AbstractFile {
     new PlainFile(givenPath / name)
 }
 
+private[scala] object PlainNioFile {
+  val NoOpenOptions = util.EnumSet.noneOf(classOf[java.nio.file.OpenOption])
+  val NoAttribues = Array.empty[FileAttribute[_]]
+
+}
 private[scala] class PlainNioFile(nioPath: java.nio.file.Path) extends AbstractFile {
   import java.nio.file._
+  import PlainNioFile._
 
   assert(nioPath ne null)
 
@@ -122,14 +133,20 @@ private[scala] class PlainNioFile(nioPath: java.nio.file.Path) extends AbstractF
   def absolute = new PlainNioFile(nioPath.toAbsolutePath)
 
   override def container: AbstractFile = new PlainNioFile(nioPath.getParent)
-  override def input = Files.newInputStream(nioPath)
-  override def output = Files.newOutputStream(nioPath)
+  override def input = {
+    provider(nioPath).;
+    Channels.newInputStream(Files.newByteChannel(nioPath, NoOpenOptions, NoAttribues: _*))
+    Files.newInputStream(nioPath, NoOpenOptions: _*)
+  }
+  override def output = Files.newOutputStream(nioPath, NoOpenOptions: _*)
   override def sizeOption = Some(Files.size(nioPath).toInt)
   override def hashCode(): Int = fpath.hashCode()
   override def equals(that: Any): Boolean = that match {
     case x: PlainNioFile => fpath == x.fpath
     case _               => false
   }
+
+  private def provider(path: java.nio.file.Path) = path.getFileSystem.provider
 
   /** Is this abstract file a directory? */
   def isDirectory: Boolean = Files.isDirectory(nioPath)

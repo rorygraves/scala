@@ -10,10 +10,11 @@ package nsc
 import java.io.{File, FileNotFoundException, IOException}
 import java.net.URL
 import java.nio.charset.{Charset, CharsetDecoder, IllegalCharsetNameException, UnsupportedCharsetException}
+
 import scala.collection.{immutable, mutable}
-import io.{AbstractFile, Path, SourceReader}
+import io.{AbstractFile, Path, SourceReader, SourceReaderPool}
 import reporters.Reporter
-import util.{ClassPath, returning}
+import util.{ClassPath, NioInputFile, returning}
 import scala.reflect.ClassTag
 import scala.reflect.internal.util.{BatchSourceFile, NoSourceFile, ScalaClassLoader, ScriptSourceFile, SourceFile, StatisticsStatics}
 import scala.reflect.internal.pickling.PickleBuffer
@@ -26,8 +27,9 @@ import typechecker._
 import transform.patmat.PatternMatching
 import transform._
 import backend.{JavaPlatform, ScalaPrimitives}
-import backend.jvm.{GenBCode, BackendStats}
-import scala.concurrent.Future
+import backend.jvm.{BackendStats, GenBCode}
+import scala.concurrent.duration.Duration
+import scala.concurrent.{Await, ExecutionContext, Future}
 import scala.language.postfixOps
 import scala.tools.nsc.ast.{TreeGen => AstTreeGen}
 import scala.tools.nsc.classpath._
@@ -327,7 +329,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
 
 // ------------ File interface -----------------------------------------
 
-  private val reader: SourceReader = {
+  private val reader: SourceReaderPool = {
     val defaultEncoding = Properties.sourceEncoding
 
     def loadCharset(name: String) =
@@ -346,10 +348,14 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
       Charset.forName(defaultEncoding)
     }
 
-    def loadReader(name: String): Option[SourceReader] = {
-      def ccon = Class.forName(name).getConstructor(classOf[CharsetDecoder], classOf[Reporter])
+    def loadReader(name: String): Option[SourceReaderPool] = {
+      def ccon = Class.forName(name).asSubclass(classOf[SourceReader]).
+        getConstructor(classOf[CharsetDecoder], classOf[Reporter])
 
-      try Some(ccon.newInstance(charset.newDecoder(), reporter).asInstanceOf[SourceReader])
+      try {
+        val reader = ccon.newInstance(charset.newDecoder(), reporter)
+        Some(new SourceReaderPool(1, reader))
+      }
       catch { case ex: Throwable =>
         globalError("exception while trying to instantiate source reader '" + name + "'")
         None
@@ -357,7 +363,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
     }
 
     settings.sourceReader.valueSetByUser flatMap loadReader getOrElse {
-      new SourceReader(charset.newDecoder(), reporter)
+      new SourceReaderPool(10, new SourceReader(charset.newDecoder(), reporter))
     }
   }
 
@@ -367,10 +373,10 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
       s"[search path for class files: ${classPath.asClassPathString}]"
     )
 
-  def getSourceFile(f: AbstractFile): BatchSourceFile = new BatchSourceFile(f, reader read f)
+  def getSourceFile(f: AbstractFile): BatchSourceFile = new BatchSourceFile(f, reader.withReader( _ read f))
 
   def getSourceFile(name: String): SourceFile = {
-    val f = AbstractFile.getFile(name)
+    val f = NioInputFile(name)
     if (f eq null) throw new FileNotFoundException(
       "source file '" + name + "' could not be found")
     getSourceFile(f)
@@ -1421,12 +1427,12 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
         warnDeprecatedAndConflictingSettings()
         reporting.summarizeErrors()
       }
-
-      val units = sources map scripted map (new CompilationUnit(_))
-
-      units match {
-        case Nil => checkDeprecations()   // nothing to compile, report deprecated options
-        case _   => compileUnits(units, firstPhase)
+      if (sources isEmpty)  checkDeprecations()   // nothing to compile, report deprecated options
+      else {
+        val units =
+          (if (settings.script.isSetByUser) sources map scripted else sources).
+            map (new CompilationUnit(_))
+        compileUnits(units, firstPhase)
       }
     }
 
@@ -1523,9 +1529,11 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
 
     /** Compile list of abstract files. */
     def compileFiles(files: List[AbstractFile]) {
+
       try {
         val snap = profiler.beforePhase(Global.InitPhase)
-        val sources = files map getSourceFile
+        val sourceFutures = files map { file => Future(getSourceFile(file))(ExecutionContext.global)}
+        val sources = sourceFutures map {f => Await.result(f, Duration.Inf)}
         profiler.afterPhase(Global.InitPhase, snap)
         compileSources(sources)
       }
@@ -1539,7 +1547,10 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
 
         val sources: List[SourceFile] =
           if (settings.script.isSetByUser && filenames.size > 1) returning(Nil)(_ => globalError("can only compile one script at a time"))
-          else filenames map getSourceFile
+          else {
+            val sourceFutures = filenames map {name => Future.successful(getSourceFile(name))}
+            sourceFutures map {f => Await.result(f, Duration.Inf)}
+          }
 
         profiler.afterPhase(Global.InitPhase, snap)
         compileSources(sources)

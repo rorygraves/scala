@@ -7,12 +7,25 @@
 package scala.tools.nsc
 package io
 
-import java.io.{ FileInputStream, IOException }
+import java.io.{FileInputStream, IOException}
 import java.nio.{ByteBuffer, CharBuffer}
-import java.nio.channels.{ ReadableByteChannel, Channels }
+import java.nio.channels.{Channels, ReadableByteChannel}
 import java.nio.charset.{CharsetDecoder, CoderResult}
+import java.util.concurrent.ArrayBlockingQueue
+
 import scala.tools.nsc.reporters._
 
+class SourceReaderPool(size:Int, fn: => SourceReader) {
+  private val pool = new ArrayBlockingQueue[SourceReader](size)
+  while (pool.size() < size) pool.add(fn)
+
+  def withReader[T](fn: SourceReader => T) = {
+    val reader = pool.take()
+    try fn(reader)
+    finally pool.add(reader)
+  }
+
+}
 /** This class implements methods to read and decode source files. */
 class SourceReader(decoder: CharsetDecoder, reporter: Reporter) {
 
