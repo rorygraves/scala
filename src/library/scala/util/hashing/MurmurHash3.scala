@@ -163,7 +163,7 @@ private[hashing] class MurmurHash3 {
     var n = 0
     var h = seed
     var elems = xs
-    while (!elems.isEmpty) {
+    while (elems ne Nil) {
       val head = elems.head
       val tail = elems.tail
       h = mix(h, head.##)
