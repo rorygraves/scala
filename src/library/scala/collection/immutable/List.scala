@@ -123,8 +123,8 @@ sealed abstract class List[+A] extends AbstractSeq[A]
    *    {{{List(1, 2) ::: List(3, 4) = List(3, 4).:::(List(1, 2)) = List(1, 2, 3, 4)}}}
    */
   def :::[B >: A](prefix: List[B]): List[B] =
-    if (isEmpty) prefix
-    else if (prefix.isEmpty) this
+    if (this eq Nil) prefix
+    else if (prefix eq Nil) this
     else (new ListBuffer[B] ++= prefix).prependToList(this)
 
   /** Adds the elements of a given list in reverse order in front of this list.
@@ -140,7 +140,7 @@ sealed abstract class List[+A] extends AbstractSeq[A]
   def reverse_:::[B >: A](prefix: List[B]): List[B] = {
     var these: List[B] = this
     var pres = prefix
-    while (!pres.isEmpty) {
+    while (pres ne Nil) {
       these = pres.head :: these
       pres = pres.tail
     }
@@ -164,7 +164,7 @@ sealed abstract class List[+A] extends AbstractSeq[A]
     // If any successful optimization attempts or other changes are made, please rehash them there too.
     @tailrec
     def loop(mappedHead: List[B] = Nil, mappedLast: ::[B], unchanged: List[A], pending: List[A]): List[B] =
-    if (pending.isEmpty) {
+    if (pending eq Nil) {
       if (mappedHead eq null) unchanged
       else {
         mappedLast.tl = unchanged
@@ -213,12 +213,12 @@ sealed abstract class List[+A] extends AbstractSeq[A]
 
   override def toList: List[A] = this
 
-  override def take(n: Int): List[A] = if (isEmpty || n <= 0) Nil else {
+  override def take(n: Int): List[A] = if ((this eq Nil) || n <= 0) Nil else {
     val h = new ::(head, Nil)
     var t = h
     var rest = tail
     var i = 1
-    while ({if (rest.isEmpty) return this; i < n}) {
+    while ({if (rest eq Nil) return this; i < n}) {
       i += 1
       val nx = new ::(rest.head, Nil)
       t.tl = nx
@@ -231,7 +231,7 @@ sealed abstract class List[+A] extends AbstractSeq[A]
   override def drop(n: Int): List[A] = {
     var these = this
     var count = n
-    while (!these.isEmpty && count > 0) {
+    while ((these ne Nil) && count > 0) {
       these = these.tail
       count -= 1
     }
@@ -250,7 +250,7 @@ sealed abstract class List[+A] extends AbstractSeq[A]
    */
   override def slice(from: Int, until: Int): List[A] = {
     val lo = scala.math.max(from, 0)
-    if (until <= lo || isEmpty) Nil
+    if (until <= lo || (this eq Nil)) Nil
     else this drop lo take (until - lo)
   }
 
@@ -269,7 +269,7 @@ sealed abstract class List[+A] extends AbstractSeq[A]
     val b = new ListBuffer[A]
     var i = 0
     var these = this
-    while (!these.isEmpty && i < n) {
+    while ((these ne Nil) && i < n) {
       i += 1
       b += these.head
       these = these.tail
@@ -355,7 +355,7 @@ sealed abstract class List[+A] extends AbstractSeq[A]
   @inline final override def takeWhile(p: A => Boolean): List[A] = {
     val b = new ListBuffer[A]
     var these = this
-    while (!these.isEmpty && p(these.head)) {
+    while ((these ne Nil) && p(these.head)) {
       b += these.head
       these = these.tail
     }
@@ -365,7 +365,7 @@ sealed abstract class List[+A] extends AbstractSeq[A]
   @inline final override def dropWhile(p: A => Boolean): List[A] = {
     @tailrec
     def loop(xs: List[A]): List[A] =
-      if (xs.isEmpty || !p(xs.head)) xs
+      if ((xs eq Nil) || !p(xs.head)) xs
       else loop(xs.tail)
 
     loop(this)
@@ -374,7 +374,7 @@ sealed abstract class List[+A] extends AbstractSeq[A]
   @inline final override def span(p: A => Boolean): (List[A], List[A]) = {
     val b = new ListBuffer[A]
     var these = this
-    while (!these.isEmpty && p(these.head)) {
+    while ((these ne Nil) && p(these.head)) {
       b += these.head
       these = these.tail
     }
@@ -385,7 +385,7 @@ sealed abstract class List[+A] extends AbstractSeq[A]
   // solely so it can be finalized and thus inlinable.
   @inline final override def foreach[U](f: A => U) {
     var these = this
-    while (!these.isEmpty) {
+    while (these ne Nil) {
       f(these.head)
       these = these.tail
     }
@@ -394,7 +394,7 @@ sealed abstract class List[+A] extends AbstractSeq[A]
   override def reverse: List[A] = {
     var result: List[A] = Nil
     var these = this
-    while (!these.isEmpty) {
+    while (these ne Nil) {
       result = these.head :: result
       these = these.tail
     }
@@ -407,7 +407,7 @@ sealed abstract class List[+A] extends AbstractSeq[A]
   override def stringPrefix = "List"
 
   override def toStream : Stream[A] =
-    if (isEmpty) Stream.Empty
+    if (this eq Nil) Stream.Empty
     else new Stream.Cons(head, tail.toStream)
 
   // Create a proxy for Java serialization that allows us to avoid mutation
@@ -476,7 +476,7 @@ object List extends SeqFactory[List] {
     private def writeObject(out: ObjectOutputStream) {
       out.defaultWriteObject()
       var xs: List[A] = orig
-      while (!xs.isEmpty) {
+      while (xs ne Nil) {
         out.writeObject(xs.head)
         xs = xs.tail
       }
