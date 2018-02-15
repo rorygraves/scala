@@ -14,7 +14,26 @@ import Flags._
 import scala.annotation.tailrec
 import scala.reflect.io.{ AbstractFile, NoAbstractFile }
 import Variance._
+import java.io._
 
+object SymStats {
+  var m: Map[String, List[Int]] = Map().withDefault(_ => List.empty[Int])
+  var cnt = 0
+  object ownerChain {
+    def add(caller: String, chainSize: Int) {
+      cnt += 1
+      val l = m(caller)
+      m = m + ((caller, chainSize :: l))
+      if (cnt % 100 == 0) {
+        val pw = new PrintWriter(new File("d:\\tmp\\chains.txt"))
+        m.foreach { case (k, v) =>
+          pw.write(s"${k},${v.size},${v.min},${v.max},${v.sum/v.size}\n")
+        }
+        pw.close
+      }
+    }
+  }
+}
 trait Symbols extends api.Symbols { self: SymbolTable =>
   import definitions._
   import statistics._
@@ -243,7 +262,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     // Syncnote: need not be protected, as only assignment happens in owner_=, which is not exposed to api
     // The null check is for NoSymbol, which can't pass a reference to itself to the constructor and also
     // can't call owner_= due to an assertion it contains.
-    private[this] var _rawowner = if (initOwner eq null) this else initOwner
+    private[Symbol] var _rawowner = if (initOwner eq null) this else initOwner
     private[this] var _rawflags: Long = _
 
     def rawowner = _rawowner
@@ -1231,6 +1250,12 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
       private var current = Symbol.this
       def hasNext = current ne NoSymbol
       def next = { val r = current; current = current.owner; r }
+    }
+
+    def hasOwner(sym: Symbol): Boolean = {
+      var o = this
+      while ((o ne sym) && (o ne NoSymbol)) o = o._rawowner
+      (o eq sym)
     }
 
     /** Same as `ownerChain contains sym` but more efficient, and
