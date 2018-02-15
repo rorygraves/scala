@@ -433,6 +433,8 @@ case object Nil extends List[Nothing] {
     case that1: scala.collection.GenSeq[_] => that1.isEmpty
     case _ => false
   }
+
+  override val hashCode: Int = super.hashCode()
 }
 
 /** A non empty list characterized by a head and a tail.
