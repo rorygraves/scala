@@ -435,6 +435,8 @@ case object Nil extends List[Nothing] {
   }
 
   override val hashCode: Int = super.hashCode()
+
+  override def iterator: Iterator[Nothing] = Iterator.empty
 }
 
 /** A non empty list characterized by a head and a tail.
