@@ -527,15 +527,15 @@ trait TypeDiagnostics {
           // Only record type references which don't originate within the
           // definition of the class being referenced.
           if (t.tpe ne null) {
-            for (tp <- t.tpe if !treeTypes(tp) && !currentOwner.ownerChain.contains(tp.typeSymbol)) {
+            for (tp <- t.tpe) {
               tp match {
                 case NoType | NoPrefix    =>
                 case NullaryMethodType(_) =>
                 case MethodType(_, _)     =>
                 case SingleType(_, _)     =>
                 case _                    =>
-                  log(s"$tp referenced from $currentOwner")
-                  treeTypes += tp
+                  if (!currentOwner.ownerChain.contains(tp.typeSymbol) && treeTypes.add(tp)) 
+                    log(s"$tp referenced from $currentOwner")
               }
             }
             // e.g. val a = new Foo ; new a.Bar ; don't let a be reported as unused.
