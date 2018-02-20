@@ -521,7 +521,7 @@ trait TypeDiagnostics {
                                                           }
             case _: RefTree if sym ne null             => targets += sym
             case Assign(lhs, _) if lhs.symbol != null  => setVars += lhs.symbol
-            case Bind(_, _) if atBounded(t)            => atBounds += sym
+            case _: Bind if atBounded(t)            => atBounds += sym
             case _                                     =>
           }
           // Only record type references which don't originate within the
@@ -531,9 +531,9 @@ trait TypeDiagnostics {
               if (!currentOwner.ownerChain.contains(tp.typeSymbol)) {
                 tp match {
                   case NoType | NoPrefix    =>
-                  case NullaryMethodType(_) =>
-                  case MethodType(_, _)     =>
-                  case SingleType(_, _)     =>
+                  case _: NullaryMethodType =>
+                  case _: MethodType        =>
+                  case _: SingleType        =>
                   case _                    =>
                     if (!treeTypes.isDefinedAt(tp)) {
                       treeTypes += ((tp, false))
