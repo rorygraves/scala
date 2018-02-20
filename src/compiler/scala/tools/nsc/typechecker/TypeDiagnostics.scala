@@ -528,14 +528,15 @@ trait TypeDiagnostics {
           // definition of the class being referenced.
           if (t.tpe ne null) {
             for (tp <- t.tpe) {
-              tp match {
-                case NoType | NoPrefix    =>
-                case NullaryMethodType(_) =>
-                case MethodType(_, _)     =>
-                case SingleType(_, _)     =>
-                case _                    =>
-                  if (!currentOwner.ownerChain.contains(tp.typeSymbol) && treeTypes.add(tp)) 
-                    log(s"$tp referenced from $currentOwner")
+              if (!currentOwner.ownerChain.contains(tp.typeSymbol)) {
+                tp match {
+                  case NoType | NoPrefix    =>
+                  case NullaryMethodType(_) =>
+                  case MethodType(_, _)     =>
+                  case SingleType(_, _)     =>
+                  case _                    =>
+                    if (treeTypes.add(tp))  log(s"$tp referenced from $currentOwner")
+                }
               }
             }
             // e.g. val a = new Foo ; new a.Bar ; don't let a be reported as unused.
