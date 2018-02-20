@@ -477,7 +477,7 @@ trait TypeDiagnostics {
         val defnTrees = ListBuffer[MemberDef]()
         val targets   = mutable.Set[Symbol]()
         val setVars   = mutable.Set[Symbol]()
-        val treeTypes = mutable.Set[Type]()
+        val treeTypes = mutable.AnyRefMap[Type, Boolean]()
         val atBounds  = mutable.Set[Symbol]()
         val params    = mutable.Set[Symbol]()
         val patvars   = mutable.Set[Symbol]()
@@ -535,7 +535,10 @@ trait TypeDiagnostics {
                   case MethodType(_, _)     =>
                   case SingleType(_, _)     =>
                   case _                    =>
-                    if (treeTypes.add(tp))  log(s"$tp referenced from $currentOwner")
+                    if (!treeTypes.isDefinedAt(tp)) {
+                      treeTypes += ((tp, false))
+                      log(s"$tp referenced from $currentOwner")
+                    }
                 }
               }
             }
@@ -551,7 +554,7 @@ trait TypeDiagnostics {
               m.isType
           && !m.isTypeParameterOrSkolem // would be nice to improve this
           && (m.isPrivate || m.isLocalToBlock)
-          && !(treeTypes.exists(tp => tp exists (t => t.typeSymbolDirect == m)))
+          && !(treeTypes.exists { case (tp, v) => tp exists (t => t.typeSymbolDirect == m) } )
         )
         def isSyntheticWarnable(sym: Symbol) = (
           sym.isDefaultGetter 
@@ -565,7 +568,7 @@ trait TypeDiagnostics {
           && !(m.name == nme.WILDCARD)              // e.g. val _ = foo
           && (m.isValueParameter || !ignoreNames(m.name.toTermName)) // serialization methods
           && !isConstantType(m.info.resultType)     // subject to constant inlining
-          && !treeTypes.exists(_ contains m)        // e.g. val a = new Foo ; new a.Bar
+          && !treeTypes.exists { case (tp, v) => tp contains m }        // e.g. val a = new Foo ; new a.Bar
           //&& !(m.isVal && m.info.resultType =:= typeOf[Unit])      // Unit val is uninteresting
         )
         def isUnusedParam(m: Symbol): Boolean = (
