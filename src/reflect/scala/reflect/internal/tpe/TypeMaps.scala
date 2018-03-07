@@ -96,6 +96,14 @@ private[internal] trait TypeMaps {
     def variance_=(x: Variance) = { assert(trackVariance, this) ; _variance = x }
     def variance = _variance
 
+    def traverseOverFunc(tp: Type): Unit = {
+      var i = 0
+      while (i < 5) {
+        traverseOver(tp)
+        i += 1
+      }
+    }
+
     def traverseOver(tp: Type): Unit = {
       tp match {
         case TypeRef(pre, _, args) =>
@@ -105,7 +113,7 @@ private[internal] trait TypeMaps {
         case SingleType(pre, sym) =>
           if (!sym.isPackageClass) this(pre)
         case MethodType(params, result) =>
-          traverseOver(params)
+          traverseOverFunc(params)
           this(result)
         case TypeBounds(lo, hi) =>
           this(lo)
@@ -117,15 +125,15 @@ private[internal] trait TypeMaps {
           this(thistp)
           this(supertp)
         case PolyType(tparams, result) =>
-          traverseOver(tparams)
+          traverseOverFunc(tparams)
           this(result)
         case BoundedWildcardType(bounds) =>
           this(bounds)
         case RefinedType(parents, decls) =>
           parents foreach this
-          traverseOver(decls.toList)
+          traverseOverFunc(decls.toList)
         case ExistentialType(tparams, result) =>
-          traverseOver(tparams)
+          traverseOverFunc(tparams)
           this(result)
         case OverloadedType(pre, alts) =>
           if (!pre.isInstanceOf[ClassInfoType]) this(pre)
@@ -139,16 +147,16 @@ private[internal] trait TypeMaps {
           annots foreach { annot: AnnotationInfo =>
             val AnnotationInfo(atp, args, _) = annot
             traverseOver(atp)
-            args foreach traverseOver
+            args foreach traverseOverFunc
           }
           this(atp)
         case _ =>
       }
     }
 
-    def traverseOver(symbols: List[Symbol]) = for { sym <- symbols } this(sym.info)
+    def traverseOverFunc(symbols: List[Symbol]) = for {sym <- symbols } this(sym.info)
 
-    def traverseOver(tree: Tree) = (new TypeMapTraverser).traverse(tree)
+    def traverseOverFunc(tree: Tree) = (new TypeMapTraverser).traverse(tree)
 
     class TypeMapTraverser extends Traverser {
       override def traverse(tree: Tree) = {
@@ -397,6 +405,7 @@ private[internal] trait TypeMaps {
     }
   }
   /***
+    *
     *@M: I think this is more desirable, but Martin prefers to leave raw-types as-is as much as possible
     object rawToExistentialInJava extends TypeMap {
       def apply(tp: Type): Type = tp match {
@@ -1114,15 +1123,15 @@ private[internal] trait TypeMaps {
             //
             // We can just map over the components and wait until we see the underlying type before we call
             // normalize.
-            traverseOver(tp)
+            traverseOverFunc(tp)
           case _ =>
             tp.normalize match {
               case TypeRef(_, sym1, _) if (sym == sym1) => result = true
               case refined: RefinedType =>
-                traverseOver(tp.prefix)
-                traverseOver(refined)
+                traverseOverFunc(tp.prefix)
+                traverseOverFunc(refined)
               case SingleType(_, sym1) if (sym == sym1) => result = true
-              case _ => traverseOver(tp)
+              case _ => traverseOverFunc(tp)
             }
         }
       }
@@ -1144,7 +1153,7 @@ private[internal] trait TypeMaps {
 
     def traverse(tp: Type) {
       if (p(tp)) result ::= tp
-      traverseOver(tp)
+      traverseOverFunc(tp)
     }
   }
 
@@ -1154,14 +1163,14 @@ private[internal] trait TypeMaps {
 
     def traverse(tp: Type) {
       if (pf.isDefinedAt(tp)) result ::= pf(tp)
-      traverseOver(tp)
+      traverseOverFunc(tp)
     }
   }
 
   class ForEachTypeTraverser(f: Type => Unit) extends TypeTraverser {
     def traverse(tp: Type) {
       f(tp)
-      traverseOver(tp)
+      traverseOverFunc(tp)
     }
   }
 
@@ -1170,7 +1179,7 @@ private[internal] trait TypeMaps {
     def traverse(tp: Type) {
       if (result.isEmpty) {
         if (p(tp)) result = Some(tp)
-        traverseOver(tp)
+        traverseOverFunc(tp)
       }
     }
   }
@@ -1180,7 +1189,7 @@ private[internal] trait TypeMaps {
     def traverse(tp: Type) {
       if (!result) {
         result = tp.isError
-        traverseOver(tp)
+        traverseOverFunc(tp)
       }
     }
   }
