@@ -99,7 +99,7 @@ private[internal] trait TypeMaps {
     def traverseOverFunc(tp: Type): Unit = {
       var i = 0
       while (i < 5) {
-        traverseOver(tp)
+        mapOver(tp)
         i += 1
       }
     }
