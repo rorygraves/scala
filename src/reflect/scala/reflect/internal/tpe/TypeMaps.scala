@@ -90,6 +90,7 @@ private[internal] trait TypeMaps {
   abstract class TypeMap(val trackVariance: Boolean) extends (Type => Type) {
     def this() = this(trackVariance = false)
     def apply(tp: Type): Type
+    def traverseOver(tp: Type): Type = apply(tp)
 
     private[this] var _variance: Variance = if (trackVariance) Covariant else Invariant
 
@@ -136,6 +137,11 @@ private[internal] trait TypeMaps {
       loop(origSyms)
     }
 
+    /** Traverse this function over given scope */
+    def traverseOver(scope: Scope): Unit = {
+      traverseOver(scope.toList)
+    }
+
     /** Map this function over given scope */
     def mapOver(scope: Scope): Scope = {
       val elems = scope.toList
@@ -144,12 +150,23 @@ private[internal] trait TypeMaps {
       else newScopeWith(elems1: _*)
     }
 
+    /** Traverse this function over given list of symbols */
+    def traverseOver(origSyms: List[Symbol]): Unit = {
+      origSyms.foreach(sym => this(sym.info))
+    }
+
     /** Map this function over given list of symbols */
     def mapOver(origSyms: List[Symbol]): List[Symbol] = {
       // fast path in case nothing changes due to map
       if (noChangeToSymbols(origSyms)) origSyms
       // map is not the identity --> do cloning properly
       else cloneSymbolsAndModify(origSyms, TypeMap.this)
+    }
+
+    def traverseOver(annot: AnnotationInfo): Unit = {
+      val AnnotationInfo(atp, args, assocs) = annot
+      atp.traverseOver(this)
+      args.foreach(tree => (new TypeMapTransformer).transform(tree)) // TODO TypeMapTransformer should have traverse variant
     }
 
     def mapOver(annot: AnnotationInfo): AnnotationInfo = {
@@ -246,18 +263,19 @@ private[internal] trait TypeMaps {
     }
   }
   /***
+    *
     *@M: I think this is more desirable, but Martin prefers to leave raw-types as-is as much as possible
-    object rawToExistentialInJava extends TypeMap {
-      def apply(tp: Type): Type = tp match {
-        // any symbol that occurs in a java sig, not just java symbols
-        // see https://github.com/scala/bug/issues/2454#issuecomment-292371833
-        case TypeRef(pre, sym, List()) if !sym.typeParams.isEmpty =>
-          val eparams = typeParamsToExistentials(sym, sym.typeParams)
-          existentialAbstraction(eparams, TypeRef(pre, sym, eparams map (_.tpe)))
-        case _ =>
-          mapOver(tp)
-      }
-    }
+    *    object rawToExistentialInJava extends TypeMap {
+    *    def apply(tp: Type): Type = tp match {
+    *    // any symbol that occurs in a java sig, not just java symbols
+    *    // see https://github.com/scala/bug/issues/2454#issuecomment-292371833
+    *    case TypeRef(pre, sym, List()) if !sym.typeParams.isEmpty =>
+    *    val eparams = typeParamsToExistentials(sym, sym.typeParams)
+    *    existentialAbstraction(eparams, TypeRef(pre, sym, eparams map (_.tpe)))
+    *    case _ =>
+    *    mapOver(tp)
+    *    }
+    *    }
     */
 
   /** Used by existentialAbstraction.
@@ -821,7 +839,7 @@ private[internal] trait TypeMaps {
   object IsDependentCollector extends TypeCollector(false) {
     def traverse(tp: Type) {
       if (tp.isImmediatelyDependent) result = true
-      else if (!result) tp.dealias.mapOver(this)
+      else if (!result) tp.dealias.traverseOver(this)
     }
   }
 
@@ -963,17 +981,17 @@ private[internal] trait TypeMaps {
             //
             // We can just map over the components and wait until we see the underlying type before we call
             // normalize.
-            tp.mapOver(this)
+            tp.traverseOver(this)
           case TypeRef(_, sym1, _) if (sym == sym1) => result = true // catch aliases before normalization
           case _ =>
             tp.normalize match {
               case TypeRef(_, sym1, _) if (sym == sym1) => result = true
               case refined: RefinedType =>
-                tp.prefix.mapOver(this) // Assumption is that tp was a TypeRef prior to normalization so we should
+                tp.prefix.traverseOver(this) // Assumption is that tp was a TypeRef prior to normalization so we should
                                         // mapOver its prefix
                 refined.mapOver(this)
               case SingleType(_, sym1) if (sym == sym1) => result = true
-              case _ => tp.mapOver(this)
+              case _ => tp.traverseOver(this)
             }
         }
       }
@@ -995,7 +1013,7 @@ private[internal] trait TypeMaps {
 
     def traverse(tp: Type) {
       if (p(tp)) result ::= tp
-      tp.mapOver(this)
+      tp.traverseOver(this)
     }
   }
 
@@ -1005,14 +1023,14 @@ private[internal] trait TypeMaps {
 
     def traverse(tp: Type) {
       if (pf.isDefinedAt(tp)) result ::= pf(tp)
-      tp.mapOver(this)
+      tp.traverseOver(this)
     }
   }
 
   class ForEachTypeTraverser(f: Type => Unit) extends TypeTraverser {
     def traverse(tp: Type) {
       f(tp)
-      tp.mapOver(this)
+      tp.traverseOver(this)
     }
   }
 
@@ -1021,7 +1039,7 @@ private[internal] trait TypeMaps {
     def traverse(tp: Type) {
       if (result.isEmpty) {
         if (p(tp)) result = Some(tp)
-        tp.mapOver(this)
+        tp.traverseOver(this)
       }
     }
   }
@@ -1031,7 +1049,7 @@ private[internal] trait TypeMaps {
     def traverse(tp: Type) {
       if (!result) {
         result = tp.isError
-        tp.mapOver(this)
+        tp.traverseOver(this)
       }
     }
   }
