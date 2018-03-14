@@ -204,7 +204,10 @@ private[internal] trait TypeMaps {
 
   abstract class TypeTraverser extends TypeMap {
     def traverse(tp: Type): Unit
-    def apply(tp: Type): Type = { traverse(tp); tp }
+    def apply(tp: Type): Type = {
+      for (i <- 1 to 6) traverse(tp)
+      tp
+    }
   }
 
   abstract class TypeTraverserWithResult[T] extends TypeTraverser {
