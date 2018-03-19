@@ -10,8 +10,9 @@ package nsc
 import java.io.{File, FileNotFoundException, IOException}
 import java.net.URL
 import java.nio.charset.{Charset, CharsetDecoder, IllegalCharsetNameException, UnsupportedCharsetException}
+
 import scala.collection.{immutable, mutable}
-import io.{AbstractFile, Path, SourceReader}
+import io.{AbstractFile, Path, SourceReader, SourceReaderPool}
 import reporters.Reporter
 import util.{ClassPath, returning}
 import scala.reflect.ClassTag
@@ -26,8 +27,9 @@ import typechecker._
 import transform.patmat.PatternMatching
 import transform._
 import backend.{JavaPlatform, ScalaPrimitives}
-import backend.jvm.{GenBCode, BackendStats}
-import scala.concurrent.Future
+import backend.jvm.{BackendStats, GenBCode}
+import scala.concurrent.duration.Duration
+import scala.concurrent.{Await, Future}
 import scala.language.postfixOps
 import scala.tools.nsc.ast.{TreeGen => AstTreeGen}
 import scala.tools.nsc.classpath._
@@ -327,7 +329,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
 
 // ------------ File interface -----------------------------------------
 
-  private val reader: SourceReader = {
+  private val readersPool: SourceReaderPool = {
     val defaultEncoding = Properties.sourceEncoding
 
     def loadCharset(name: String) =
@@ -346,10 +348,13 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
       Charset.forName(defaultEncoding)
     }
 
-    def loadReader(name: String): Option[SourceReader] = {
+    def loadReader(name: String): Option[SourceReaderPool] = {
       def ccon = Class.forName(name).getConstructor(classOf[CharsetDecoder], classOf[Reporter])
 
-      try Some(ccon.newInstance(charset.newDecoder(), reporter).asInstanceOf[SourceReader])
+      try {
+        val reader = ccon.newInstance(charset.newDecoder(), reporter).asInstanceOf[SourceReader]
+        Some(new SourceReaderPool(1, reader))
+      }
       catch { case ex: Throwable =>
         globalError("exception while trying to instantiate source reader '" + name + "'")
         None
@@ -357,7 +362,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
     }
 
     settings.sourceReader.valueSetByUser flatMap loadReader getOrElse {
-      new SourceReader(charset.newDecoder(), reporter)
+      new SourceReaderPool(10, new SourceReader(charset.newDecoder(), reporter))
     }
   }
 
@@ -367,7 +372,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
       s"[search path for class files: ${classPath.asClassPathString}]"
     )
 
-  def getSourceFile(f: AbstractFile): BatchSourceFile = new BatchSourceFile(f, reader read f)
+  def getSourceFile(f: AbstractFile): BatchSourceFile = new BatchSourceFile(f, readersPool(_ read f))
 
   def getSourceFile(name: String): SourceFile = {
     val f = AbstractFile.getFile(name)
@@ -1541,7 +1546,10 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
 
         val sources: List[SourceFile] =
           if (settings.script.isSetByUser && filenames.size > 1) returning(Nil)(_ => globalError("can only compile one script at a time"))
-          else filenames map getSourceFile
+          else {
+            val sourceFutures = filenames map { name => Future.successful(getSourceFile(name)) }
+            sourceFutures map {f => Await.result(f, Duration.Inf)}
+          }
 
         profiler.afterPhase(Global.InitPhase, snap)
         compileSources(sources)
