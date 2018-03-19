@@ -7,94 +7,19 @@ package scala
 package reflect
 package io
 
-/** ''Note:  This library is considered experimental and should not be used unless you know what you are doing.'' */
-class PlainDirectory(givenPath: Directory) extends PlainFile(givenPath) {
-  override def isDirectory = true
-  override def iterator = givenPath.list filter (_.exists) map (x => new PlainFile(x))
-  override def delete(): Unit = givenPath.deleteRecursively()
+import java.io.{File => JFile}
+import java.nio.file.{Paths, Path => JPath}
+
+import scala.language.implicitConversions
+
+object PlainFile {
+  def apply(nioPath: JPath): PlainFile = new PlainFile(nioPath)
+  def apply(file: JFile): PlainFile = new PlainFile(file.toPath)
+  def apply(file: String): PlainFile = new PlainFile(Paths.get(file))
 }
 
-/** This class implements an abstract file backed by a File.
- *
- * ''Note:  This library is considered experimental and should not be used unless you know what you are doing.''
- */
-class PlainFile(val givenPath: Path) extends AbstractFile {
-  assert(path ne null)
-
-  val file = givenPath.jfile
-
-  override lazy val canonicalPath = super.canonicalPath
-
-  override def underlyingSource = Some(this)
-
-  private val fpath = givenPath.toAbsolute
-
-  /** Returns the name of this abstract file. */
-  def name = givenPath.name
-
-  /** Returns the path of this abstract file. */
-  def path = givenPath.path
-
-  /** The absolute file. */
-  def absolute = new PlainFile(givenPath.toAbsolute)
-
-  override def container: AbstractFile = new PlainFile(givenPath.parent)
-  override def input = givenPath.toFile.inputStream()
-  override def output = givenPath.toFile.outputStream()
-  override def sizeOption = Some(givenPath.length.toInt)
-
-  override def hashCode(): Int = fpath.hashCode()
-  override def equals(that: Any): Boolean = that match {
-    case x: PlainFile => fpath == x.fpath
-    case _            => false
-  }
-
-  /** Is this abstract file a directory? */
-  def isDirectory: Boolean = givenPath.isDirectory
-
-  /** Returns the time that this abstract file was last modified. */
-  def lastModified: Long = givenPath.lastModified
-
-  /** Returns all abstract subfiles of this abstract directory. */
-  def iterator: Iterator[AbstractFile] = {
-    // Optimization: Assume that the file was not deleted and did not have permissions changed
-    // between the call to `list` and the iteration. This saves a call to `exists`.
-    def existsFast(path: Path) = path match {
-      case (_: Directory | _: io.File) => true
-      case _                           => path.exists
-    }
-    if (!isDirectory) Iterator.empty
-    else givenPath.toDirectory.list filter existsFast map (new PlainFile(_))
-  }
-
-  /**
-   * Returns the abstract file in this abstract directory with the
-   * specified name. If there is no such file, returns null. The
-   * argument "directory" tells whether to look for a directory or
-   * or a regular file.
-   */
-  def lookupName(name: String, directory: Boolean): AbstractFile = {
-    val child = givenPath / name
-    if ((child.isDirectory && directory) || (child.isFile && !directory)) new PlainFile(child)
-    else null
-  }
-
-  /** Does this abstract file denote an existing file? */
-  def create(): Unit = if (!exists) givenPath.createFile()
-
-  /** Delete the underlying file or directory (recursively). */
-  def delete(): Unit =
-    if (givenPath.isFile) givenPath.delete()
-    else if (givenPath.isDirectory) givenPath.toDirectory.deleteRecursively()
-
-  /** Returns a plain file with the given name. It does not
-   *  check that it exists.
-   */
-  def lookupNameUnchecked(name: String, directory: Boolean): AbstractFile =
-    new PlainFile(givenPath / name)
-}
-
-private[scala] class PlainNioFile(nioPath: java.nio.file.Path) extends AbstractFile {
+/** This class implements an abstract file backed by a File. */
+class PlainFile(nioPath: java.nio.file.Path) extends AbstractFile {
   import java.nio.file._
 
   assert(nioPath ne null)
@@ -110,6 +35,8 @@ private[scala] class PlainNioFile(nioPath: java.nio.file.Path) extends AbstractF
 
   override def underlyingSource  = Some(this)
 
+  override def toByteArray: Array[Byte] = Files.readAllBytes(nioPath)
+
   private val fpath = nioPath.toAbsolutePath.toString
 
   /** Returns the name of this abstract file. */
@@ -119,15 +46,15 @@ private[scala] class PlainNioFile(nioPath: java.nio.file.Path) extends AbstractF
   def path = nioPath.toString
 
   /** The absolute file. */
-  def absolute = new PlainNioFile(nioPath.toAbsolutePath)
+  def absolute = new PlainFile(nioPath.toAbsolutePath)
 
-  override def container: AbstractFile = new PlainNioFile(nioPath.getParent)
+  override def container: AbstractFile = new PlainFile(nioPath.getParent)
   override def input = Files.newInputStream(nioPath)
   override def output = Files.newOutputStream(nioPath)
   override def sizeOption = Some(Files.size(nioPath).toInt)
   override def hashCode(): Int = fpath.hashCode()
   override def equals(that: Any): Boolean = that match {
-    case x: PlainNioFile => fpath == x.fpath
+    case x: PlainFile => fpath == x.fpath
     case _               => false
   }
 
@@ -142,7 +69,7 @@ private[scala] class PlainNioFile(nioPath: java.nio.file.Path) extends AbstractF
     try {
       import scala.collection.JavaConverters._
       val it = Files.newDirectoryStream(nioPath).iterator()
-      it.asScala.map(new PlainNioFile(_))
+      it.asScala.map(new PlainFile(_))
     } catch {
       case _: NotDirectoryException => Iterator.empty
     }
@@ -156,7 +83,7 @@ private[scala] class PlainNioFile(nioPath: java.nio.file.Path) extends AbstractF
     */
   def lookupName(name: String, directory: Boolean): AbstractFile = {
     val child = nioPath.resolve(name)
-    if ((Files.isDirectory(child) && directory) || (Files.isRegularFile(child) && !directory)) new PlainNioFile(child)
+    if ((Files.isDirectory(child) && directory) || (Files.isRegularFile(child) && !directory)) new PlainFile(child)
     else null
   }
 
@@ -172,5 +99,5 @@ private[scala] class PlainNioFile(nioPath: java.nio.file.Path) extends AbstractF
     *  check that it exists.
     */
   def lookupNameUnchecked(name: String, directory: Boolean): AbstractFile =
-    new PlainNioFile(nioPath.resolve(name))
+    new PlainFile(nioPath.resolve(name))
 }

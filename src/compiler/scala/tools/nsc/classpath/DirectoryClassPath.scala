@@ -4,13 +4,10 @@
 package scala.tools.nsc.classpath
 
 import java.io.File
-import java.net.{URI, URL}
-import java.nio.file.{FileSystems, Files, SimpleFileVisitor}
-import java.util.function.IntFunction
+import java.net.{URL}
 import java.util
-import java.util.Comparator
 
-import scala.reflect.io.{AbstractFile, PlainFile, PlainNioFile}
+import scala.reflect.io.{AbstractFile, PlainFile}
 import scala.tools.nsc.util.{ClassPath, ClassRepresentation}
 import FileUtils._
 import scala.collection.JavaConverters._
@@ -114,7 +111,7 @@ trait JFileDirectoryLookup[FileEntryType <: ClassRepresentation] extends Directo
     listing
   }
   protected def getName(f: File): String = f.getName
-  protected def toAbstractFile(f: File): AbstractFile = new PlainFile(new scala.reflect.io.File(f))
+  protected def toAbstractFile(f: File): AbstractFile = PlainFile(f)
   protected def isPackage(f: File): Boolean = f.isPackage
 
   assert(dir != null, "Directory file in DirectoryFileLookup cannot be null")
@@ -172,7 +169,7 @@ final class JrtClassPath(fs: java.nio.file.FileSystem) extends ClassPath with No
     else {
       packageToModuleBases.getOrElse(inPackage, Nil).flatMap(x =>
         Files.list(x.resolve(inPackage.replace('.', '/'))).iterator().asScala.filter(_.getFileName.toString.endsWith(".class"))).map(x =>
-        ClassFileEntryImpl(new PlainNioFile(x))).toVector
+        ClassFileEntryImpl(new PlainFile(x))).toVector
     }
   }
 
@@ -191,7 +188,7 @@ final class JrtClassPath(fs: java.nio.file.FileSystem) extends ClassPath with No
       val inPackage = packageOf(className)
       packageToModuleBases.getOrElse(inPackage, Nil).iterator.flatMap{x =>
         val file = x.resolve(className.replace('.', '/') + ".class")
-        if (Files.exists(file)) new scala.reflect.io.PlainNioFile(file) :: Nil else Nil
+        if (Files.exists(file)) PlainFile(file) :: Nil else Nil
       }.take(1).toList.headOption
     }
   }
@@ -205,11 +202,7 @@ case class DirectoryClassPath(dir: File) extends JFileDirectoryLookup[ClassFileE
   def findClassFile(className: String): Option[AbstractFile] = {
     val relativePath = FileUtils.dirPath(className)
     val classFile = new File(s"$dir/$relativePath.class")
-    if (classFile.exists) {
-      val wrappedClassFile = new scala.reflect.io.File(classFile)
-      val abstractClassFile = new PlainFile(wrappedClassFile)
-      Some(abstractClassFile)
-    } else None
+    if (classFile.exists) Some(PlainFile(classFile)) else None
   }
 
   protected def createFileEntry(file: AbstractFile): ClassFileEntryImpl = ClassFileEntryImpl(file)
@@ -232,11 +225,7 @@ case class DirectorySourcePath(dir: File) extends JFileDirectoryLookup[SourceFil
       .map(ext => new File(s"$dir/$relativePath.$ext"))
       .collectFirst { case file if file.exists() => file }
 
-    sourceFile.map { file =>
-      val wrappedSourceFile = new scala.reflect.io.File(file)
-      val abstractSourceFile = new PlainFile(wrappedSourceFile)
-      abstractSourceFile
-    }
+    sourceFile.map(PlainFile(_))
   }
 
   private[nsc] def sources(inPackage: String): Seq[SourceFileEntry] = files(inPackage)

@@ -8,11 +8,12 @@ package scala.tools
 package nsc
 package settings
 
-import io.{ AbstractFile, Jar, Path, PlainFile, VirtualDirectory }
+import io.{AbstractFile, Jar, Path, PlainFile, VirtualDirectory}
 import scala.collection.generic.Clearable
 import scala.io.Source
 import scala.reflect.internal.util.StringOps
-import scala.reflect.{ ClassTag, classTag }
+import scala.reflect.io.PlainFile
+import scala.reflect.{ClassTag, classTag}
 
 /** A mutable Settings object.
  */
@@ -273,7 +274,7 @@ class MutableSettings(val errorFn: String => Unit)
       if (dir != null && dir.isDirectory)
         dir
       else if (allowJar && dir == null && Jar.isJarOrZip(name, examineFile = false))
-        new PlainFile(Path(name))
+        PlainFile(name)
       else
         throw new FatalError(name + " does not exist or is not a directory")
     )

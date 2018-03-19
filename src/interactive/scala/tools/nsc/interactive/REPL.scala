@@ -7,6 +7,7 @@ package tools.nsc
 package interactive
 
 import scala.reflect.internal.util._
+import scala.reflect.io.PlainFile
 import scala.tools.nsc.reporters._
 import scala.tools.nsc.io._
 
@@ -148,7 +149,7 @@ object REPL {
     }
   }
 
-  def toSourceFile(name: String) = new BatchSourceFile(new PlainFile(new java.io.File(name)))
+  def toSourceFile(name: String) = new BatchSourceFile(PlainFile(name))
 
   def using[T, U](svar: Response[T])(op: T => U): Option[U] = {
     val res = svar.get match {

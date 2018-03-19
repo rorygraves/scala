@@ -6,13 +6,14 @@ package scala.tools.nsc
 package interactive
 
 import util.InterruptReq
-import scala.reflect.internal.util.{ SourceFile, BatchSourceFile }
-import io.{ AbstractFile, PlainFile }
+import scala.reflect.internal.util.{BatchSourceFile, SourceFile}
+import io.{AbstractFile, PlainFile}
 import util.EmptyAction
 import scala.reflect.internal.util.Position
 import Pickler._
 import scala.collection.mutable
 import mutable.ListBuffer
+import scala.reflect.io.PlainFile
 
 trait Picklers { self: Global =>
 
@@ -31,7 +32,7 @@ trait Picklers { self: Global =>
 
   implicit def abstractFile: Pickler[AbstractFile] =
     pkl[String]
-      .wrapped[AbstractFile] { new PlainFile(_) } { _.path }
+      .wrapped[AbstractFile] { PlainFile(_) } { _.path }
       .asClass (classOf[PlainFile])
 
   private val sourceFilesSeen = new mutable.HashMap[AbstractFile, Array[Char]] {

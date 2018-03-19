@@ -30,7 +30,7 @@ object AbstractFile {
    * abstract regular file backed by it. Otherwise, returns `null`.
    */
   def getFile(file: File): AbstractFile =
-    if (file.isFile) new PlainFile(file) else null
+    if (file.isFile) PlainFile(file.jfile) else null
 
   /** Returns "getDirectory(new File(path))". */
   def getDirectory(path: Path): AbstractFile = getDirectory(path.toFile)
@@ -41,7 +41,7 @@ object AbstractFile {
    * backed by it. Otherwise, returns `null`.
    */
   def getDirectory(file: File): AbstractFile =
-    if (file.isDirectory) new PlainFile(file)
+    if (file.isDirectory) PlainFile(file.jfile)
     else if (file.isFile && Path.isExtensionJarOrZip(file.jfile)) ZipArchive fromFile file
     else null
 
@@ -236,7 +236,7 @@ abstract class AbstractFile extends Iterable[AbstractFile] {
     else {
       val jfile = new JFile(file, name)
       if (isDir) jfile.mkdirs() else jfile.createNewFile()
-      new PlainFile(jfile)
+      PlainFile(jfile)
     }
   }
 

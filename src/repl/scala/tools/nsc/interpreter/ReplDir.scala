@@ -8,16 +8,16 @@ package interpreter
 
 import java.io.PrintWriter
 
-import io.VirtualDirectory
+import io.{PlainFile, VirtualDirectory}
 import settings.MutableSettings
-import scala.reflect.io.{AbstractFile, Directory, PlainDirectory}
+import scala.reflect.io.{AbstractFile, Directory}
 import scala.collection.generic.Clearable
 
 /** Directory to save .class files to. */
 trait ReplDir extends AbstractFile with Clearable { }
 
 private class ReplVirtualDir() extends VirtualDirectory("(memory)", None) with ReplDir { }
-private class ReplRealDir(dir: Directory) extends PlainDirectory(dir) with ReplDir {
+private class ReplRealDir(dir: Directory) extends PlainFile(dir.jfile.toPath) with ReplDir {
   def clear() = {
     dir.deleteRecursively()
     dir.createDirectory()
