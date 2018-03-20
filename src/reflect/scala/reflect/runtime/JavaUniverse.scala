@@ -2,8 +2,7 @@ package scala
 package reflect
 package runtime
 
-import scala.reflect.internal.{TreeInfo, SomePhase}
-import scala.reflect.internal.{SymbolTable => InternalSymbolTable}
+import scala.reflect.internal.{ReflectProperties, SomePhase, TreeInfo, SymbolTable => InternalSymbolTable}
 import scala.reflect.runtime.{SymbolTable => RuntimeSymbolTable}
 import scala.reflect.internal.util.Statistics
 import scala.reflect.api.{TypeCreator, Universe}
@@ -21,8 +20,7 @@ class JavaUniverse extends InternalSymbolTable with JavaUniverseForce with Refle
   lazy val settings = new Settings
 
   override final val statistics = new Statistics(JavaUniverse.this, settings) with ReflectStats
-  private val isLogging = sys.props contains "scala.debug.reflect"
-  def log(msg: => AnyRef): Unit = if (isLogging) Console.err.println("[reflect] " + msg)
+  def log(msg: => AnyRef): Unit = if (ReflectProperties.JavaUniverse_isLogging) Console.err.println("[reflect] " + msg)
 
   // TODO: why put output under isLogging? Calls to inform are already conditional on debug/verbose/...
   import scala.reflect.internal.{Reporter, ReporterImpl}

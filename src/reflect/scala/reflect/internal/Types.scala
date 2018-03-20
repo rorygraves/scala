@@ -92,11 +92,6 @@ trait Types
   private final val emptySymbolSet = immutable.Set.empty[Symbol]
 
   private final val breakCycles = settings.breakCycles.value
-  /** In case anyone wants to turn on type parameter bounds being used
-   *  to seed type constraints.
-   */
-  private final val propagateParameterBoundsToTypeVars = sys.props contains "scalac.debug.prop-constraints"
-  private final val sharperSkolems = sys.props contains "scalac.experimental.sharper-skolems"
 
   /** Caching the most recent map has a 75-90% hit rate. */
   private object substTypeMapCache {
@@ -2736,7 +2731,7 @@ trait Types
         owner.newExistentialSkolem(quant.name.toTypeName, skolemInfo, quant.flags, quant.pos, origin)
       }
 
-      val canSharpenBounds = (underlying.typeSymbol.isJavaDefined || sharperSkolems) && isStraightApplication
+      val canSharpenBounds = (ReflectProperties.Types_sharperSkolems || underlying.typeSymbol.isJavaDefined) && isStraightApplication
 
       if (canSharpenBounds) deriveType2(quantified, tpars, newSharpenedSkolem)(underlying)
       else deriveType(quantified, newSkolem)(underlying)
@@ -2908,7 +2903,7 @@ trait Types
        * the complexity of the search even if it doesn't improve
        * any results.
        */
-      if (propagateParameterBoundsToTypeVars) {
+      if (ReflectProperties.Types_propagateParameterBoundsToTypeVars) {
         val exclude = bounds.isEmptyBounds || (bounds exists typeIsNonClassType)
 
         if (exclude) new TypeConstraint

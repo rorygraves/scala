@@ -8,7 +8,7 @@ trait TraceSymbolActivity {
   val global: SymbolTable
   import global._
 
-  private[this] var enabled = traceSymbolActivity
+  private[this] var enabled = ReflectProperties.SymbolTable_traceSymbolActivity
   if (enabled && global.isCompilerUniverse)
     scala.sys addShutdownHook showAllSymbols()
 

@@ -258,7 +258,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
 
     private[this] var _validTo: Period = NoPeriod
 
-    if (traceSymbolActivity)
+    if (ReflectProperties.SymbolTable_traceSymbolActivity)
       traceSymbols.recordNewSymbol(this)
 
     def validTo = _validTo
@@ -1217,7 +1217,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     def owner_=(owner: Symbol) {
       saveOriginalOwner(this)
       assert(isCompilerUniverse, "owner_= is not thread-safe; cannot be run in reflexive code")
-      if (traceSymbolActivity)
+      if (ReflectProperties.SymbolTable_traceSymbolActivity)
         traceSymbols.recordNewSymbolOwner(this, owner)
       _rawowner = owner
     }

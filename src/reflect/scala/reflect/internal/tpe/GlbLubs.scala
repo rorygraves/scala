@@ -14,7 +14,6 @@ private[internal] trait GlbLubs {
   import definitions._
   import statistics._
 
-  private final val printLubs = scala.sys.props contains "scalac.debug.lub"
   private final val strictInference = settings.strictInference
 
   /** In case anyone wants to turn off lub verification without reverting anything. */
@@ -147,7 +146,7 @@ private[internal] trait GlbLubs {
           // lather, rinse, repeat
           val sym    = minSym(ts0)
           val newtps = tsBts map (ts => if (ts.head.typeSymbol == sym) ts.tail else ts)
-          if (printLubs) {
+          if (ReflectProperties.GlbLubs_printLubs) {
             val str = (newtps.zipWithIndex map { case (tps, idx) =>
               tps.map("        " + _ + "\n").mkString("   (" + idx + ")\n", "", "\n")
             }).mkString("")
@@ -162,7 +161,7 @@ private[internal] trait GlbLubs {
     }
 
     val initialBTSes = ts map (_.baseTypeSeq.toList)
-    if (printLubs)
+    if (ReflectProperties.GlbLubs_printLubs)
       printLubMatrix((ts zip initialBTSes).toMap, depth)
 
     loop(Nil, initialBTSes)
@@ -373,7 +372,7 @@ private[internal] trait GlbLubs {
             // parameters are not handled correctly.
             val ok = ts forall { t =>
               isSubType(t, lubRefined, depth) || {
-                if (settings.debug || printLubs) {
+                if (settings.debug || ReflectProperties.GlbLubs_printLubs) {
                   Console.println(
                     "Malformed lub: " + lubRefined + "\n" +
                       "Argument " + t + " does not conform.  Falling back to " + lubBase
@@ -392,14 +391,14 @@ private[internal] trait GlbLubs {
       // the likely and maybe only spot they escape, so fixing here for 2.10.1.
       existentialAbstraction(tparams, dropIllegalStarTypes(lubType))
     }
-    if (printLubs) {
+    if (ReflectProperties.GlbLubs_printLubs) {
       println(indent + "lub of " + ts + " at depth "+depth)//debug
       indent = indent + "  "
       assert(indent.length <= 100)
     }
     if (StatisticsStatics.areSomeColdStatsEnabled) statistics.incCounter(nestedLubCount)
     val res = lub0(ts)
-    if (printLubs) {
+    if (ReflectProperties.GlbLubs_printLubs) {
       indent = indent stripSuffix "  "
       println(indent + "lub of " + ts + " is " + res)//debug
     }
