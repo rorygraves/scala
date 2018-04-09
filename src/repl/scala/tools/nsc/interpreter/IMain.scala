@@ -140,7 +140,7 @@ class IMain(val settings: Settings, parentClassLoaderOverride: Option[ClassLoade
       // if this crashes, REPL will hang its head in shame
       val run = new compiler.Run()
       assert(run.typerPhase != NoPhase, "REPL requires a typer phase.")
-      run compileSources List(new BatchSourceFile("<init>", "class $repl_$init { }"))
+      run compileSources Iterator(new BatchSourceFile("<init>", "class $repl_$init { }"))
 
       // there shouldn't be any errors yet; just in case, print them if we're debugging
       if (reporter.isDebug)
@@ -419,7 +419,7 @@ class IMain(val settings: Settings, parentClassLoaderOverride: Option[ClassLoade
     val run = new Run()
     assert(run.typerPhase != NoPhase, "REPL requires a typer phase.")
     reporter.reset()
-    run compileSources sources.toList
+    run compileSources sources.toIterator
     (!reporter.hasErrors, run)
   }
 

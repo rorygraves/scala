@@ -1421,18 +1421,16 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
      *  unless there is a problem already,
      *  such as a plugin was passed a bad option.
      */
-    def compileSources(sources: List[SourceFile]): Unit = if (!reporter.hasErrors) {
+    def compileSources(sources: Iterator[SourceFile]): Unit = if (!reporter.hasErrors) {
+      val units = sources map scripted map (new CompilationUnit(_))
+      import concurrent._
+      import ExecutionContext.Implicits.global
 
-      def checkDeprecations() = {
+      if (units.nonEmpty) compileUnits(Await.result(Future.traverse(units)(Future(_)), Duration.Inf).toList)
+      else {
+        // nothing to compile, report deprecated options
         warnDeprecatedAndConflictingSettings()
         reporting.summarizeErrors()
-      }
-
-      val units = sources map scripted map (new CompilationUnit(_))
-
-      units match {
-        case Nil => checkDeprecations()   // nothing to compile, report deprecated options
-        case _   => compileUnits(units)
       }
     }
 
@@ -1441,6 +1439,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
 
     def compileUnits(units: List[CompilationUnit], fromPhase: Phase = firstPhase): Unit =
       compileUnitsInternal(units, fromPhase)
+
     private def compileUnitsInternal(units: List[CompilationUnit], fromPhase: Phase) {
       units foreach addUnit
       reporter.reset()
@@ -1529,7 +1528,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
     }
 
     /** Compile list of abstract files. */
-    def compileFiles(files: List[AbstractFile]) {
+    def compileFiles(files: Iterator[AbstractFile]) {
       try {
         val snap = profiler.beforePhase(Global.InitPhase)
         val sources = files map getSourceFile
@@ -1544,12 +1543,21 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
       try {
         val snap = profiler.beforePhase(Global.InitPhase)
 
-        val sources: List[SourceFile] =
-          if (settings.script.isSetByUser && filenames.size > 1) returning(Nil)(_ => globalError("can only compile one script at a time"))
-          else {
-            val sourceFutures = filenames map { name => Future.successful(getSourceFile(name)) }
-            sourceFutures map {f => Await.result(f, Duration.Inf)}
+        val sources: Iterator[SourceFile] = new Iterator[SourceFile] {
+          private var files: List[String] = filenames
+          private val hasManyScripts: Boolean = settings.script.isSetByUser && filenames.size > 1
+
+          override def hasNext: Boolean = {
+            if (hasManyScripts) globalError("can only compile one script at a time")
+            files.nonEmpty && !hasManyScripts
           }
+
+          override def next(): SourceFile =  {
+            val source = getSourceFile(files.head)
+            files = files.tail
+            source
+          }
+        }
 
         profiler.afterPhase(Global.InitPhase, snap)
         compileSources(sources)

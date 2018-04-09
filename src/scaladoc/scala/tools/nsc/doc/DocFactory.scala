@@ -43,7 +43,7 @@ class DocFactory(val reporter: Reporter, val settings: doc.Settings) { processor
       case Left(files) =>
         new compiler.Run() compile files
       case Right(sourceCode) =>
-        new compiler.Run() compileSources List(new BatchSourceFile("newSource", sourceCode))
+        new compiler.Run() compileSources Iterator(new BatchSourceFile("newSource", sourceCode))
     }
 
     if (reporter.hasErrors)
