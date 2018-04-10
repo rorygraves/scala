@@ -7,6 +7,8 @@ package scala.tools.nsc
 package ast.parser
 
 import javac._
+import scala.concurrent.duration.Duration
+import scala.concurrent.{Await, ExecutionContext, Future}
 
 /** An nsc sub-component.
  */
@@ -90,6 +92,13 @@ abstract class SyntaxAnalyzer extends SubComponent with Parsers with MarkupParse
   class ParserPhase(prev: Phase) extends StdPhase(prev) {
     override val checkable = false
     override val keepsTypeParams = false
+
+    override def run() {
+      echoPhaseSummary(this)
+      implicit val ec: ExecutionContext = scala.concurrent.ExecutionContext.Implicits.global
+      val result = Future.traverse(currentRun.units)(unit => Future(applyPhase(unit)))
+      Await.result(result, Duration.Inf)
+    }
 
     def apply(unit: CompilationUnit) {
       informProgress("parsing " + unit)
