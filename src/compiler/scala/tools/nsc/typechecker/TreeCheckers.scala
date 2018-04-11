@@ -196,11 +196,11 @@ abstract class TreeCheckers extends Analyzer {
 
   def runWithUnit[T](unit: CompilationUnit)(body: => Unit): Unit = {
     val unit0 = currentUnit
-    currentRun.currentUnit = unit
+    currentRun.currentUnit.set(unit)
     body
     currentRun.advanceUnit()
     assertFn(currentUnit == unit, "currentUnit is " + currentUnit + ", but unit is " + unit)
-    currentRun.currentUnit = unit0
+    currentRun.currentUnit.set(unit0)
   }
   def check(unit: CompilationUnit) {
     informProgress("checking "+unit)

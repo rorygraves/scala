@@ -107,7 +107,7 @@ abstract class BrowsingLoaders extends GlobalSymbolLoaders {
 
 //    System.out.println("Browsing "+src)
     val source = getSourceFile(src) // this uses the current encoding
-    val body = new OutlineParser(source).parse()
+    val body = new OutlineParser(new CompilationUnit(source)).parse()
 //    System.out.println(body)
     val browser = new BrowserTraverser
     browser.traverse(body)

@@ -27,6 +27,6 @@ trait Enclosures {
   val enclosingMethod: Tree                       = lenientEnclosure[DefDef]
   def enclosingDef: DefDef                        = strictEnclosure[DefDef]
   val enclosingPosition: Position                 = if (enclPoses.isEmpty) NoPosition else enclPoses.head.pos
-  val enclosingUnit: CompilationUnit              = universe.currentRun.currentUnit
+  val enclosingUnit: CompilationUnit              = universe.currentRun.currentUnit.get()
   val enclosingRun: Run                           = universe.currentRun
 }

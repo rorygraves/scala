@@ -49,7 +49,7 @@ trait Parsers { self: Quasiquotes =>
 
     def entryPoint: QuasiquoteParser => Tree
 
-    class QuasiquoteParser(source0: SourceFile) extends SourceFileParser(source0) { parser =>
+    class QuasiquoteParser(source0: SourceFile) extends SourceFileParser(new CompilationUnit(source0)) { parser =>
       def isHole: Boolean = isIdent && isHole(in.name)
 
       def isHole(name: Name): Boolean = holeMap.contains(name)

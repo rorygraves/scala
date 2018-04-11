@@ -10,6 +10,8 @@ package nsc
 import java.io.{File, FileNotFoundException, IOException}
 import java.net.URL
 import java.nio.charset.{Charset, CharsetDecoder, IllegalCharsetNameException, UnsupportedCharsetException}
+import java.util.function.Supplier
+
 import scala.collection.{immutable, mutable}
 import io.{AbstractFile, Path, SourceReader}
 import reporters.Reporter
@@ -26,7 +28,7 @@ import typechecker._
 import transform.patmat.PatternMatching
 import transform._
 import backend.{JavaPlatform, ScalaPrimitives}
-import backend.jvm.{GenBCode, BackendStats}
+import backend.jvm.{BackendStats, GenBCode}
 import scala.concurrent.Future
 import scala.language.postfixOps
 import scala.tools.nsc.ast.{TreeGen => AstTreeGen}
@@ -410,9 +412,6 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
     }
 
     final def withCurrentUnit(unit: CompilationUnit)(task: => Unit) {
-      if ((unit ne null) && unit.exists)
-        lastSeenSourceFile = unit.source
-
       if (settings.debug && (settings.verbose || currentRun.size < 5))
         inform("[running phase " + name + " on " + unit + "]")
       if (!cancelled(unit)) {
@@ -425,11 +424,11 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
     final def withCurrentUnitNoLog(unit: CompilationUnit)(task: => Unit) {
       val unit0 = currentUnit
       try {
-        currentRun.currentUnit = unit
+        currentRun.currentUnit.set(unit)
         task
       } finally {
         //assert(currentUnit == unit)
-        currentRun.currentUnit = unit0
+        currentRun.currentUnit.set(unit0)
       }
     }
 
@@ -956,13 +955,6 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
     val global: Global.this.type = Global.this
   } with typechecker.StructuredTypeStrings
 
-  /** There are common error conditions where when the exception hits
-   *  here, currentRun.currentUnit is null.  This robs us of the knowledge
-   *  of what file was being compiled when it broke.  Since I really
-   *  really want to know, this hack.
-   */
-  protected var lastSeenSourceFile: SourceFile = NoSourceFile
-
   /** Let's share a lot more about why we crash all over the place.
    *  People will be very grateful.
    */
@@ -971,8 +963,8 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
   /** The currently active run
    */
   def currentRun: Run              = curRun
-  def currentUnit: CompilationUnit = if (currentRun eq null) NoCompilationUnit else currentRun.currentUnit
-  def currentSource: SourceFile    = if (currentUnit.exists) currentUnit.source else lastSeenSourceFile
+  def currentUnit: CompilationUnit = if (currentRun eq null) NoCompilationUnit else currentRun.currentUnit.get()
+  def currentSource: SourceFile    = if (currentUnit.exists) currentUnit.source else NoSourceFile
   def currentFreshNameCreator      = currentUnit.fresh
 
   def isGlobalInitialized = (
@@ -1095,7 +1087,9 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
      */
     var isDefined = false
     /** The currently compiled unit; set from GlobalPhase */
-    var currentUnit: CompilationUnit = NoCompilationUnit
+    var currentUnit: ThreadLocal[CompilationUnit] = new ThreadLocal[CompilationUnit] {
+      override def initialValue(): CompilationUnit = NoCompilationUnit
+    }
 
     val profiler: Profiler = Profiler(settings)
     keepPhaseStack = settings.log.isSetByUser

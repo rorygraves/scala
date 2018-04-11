@@ -136,7 +136,7 @@ self =>
     def precedence = Precedence(operator.toString)
   }
 
-  class SourceFileParser(val source: SourceFile) extends Parser {
+  class SourceFileParser(val unit: CompilationUnit) extends Parser {
 
     /** The parse starting point depends on whether the source file is self-contained:
      *  if not, the AST will be supplemented.
@@ -149,8 +149,6 @@ self =>
 
     val in = newScanner()
     in.init()
-
-    def unit = global.currentUnit
 
     // suppress warnings; silent abort on errors
     def warning(offset: Offset, msg: String): Unit = ()
@@ -177,7 +175,7 @@ self =>
     def xmlLiteralPattern() : Tree = xmlp.xLiteralPattern
   }
 
-  class OutlineParser(source: SourceFile) extends SourceFileParser(source) {
+  class OutlineParser(unit: CompilationUnit) extends SourceFileParser(unit) {
 
     def skipBraces[T](body: T): T = {
       accept(LBRACE)
@@ -198,7 +196,7 @@ self =>
     override def templateBody(isPre: Boolean) = skipBraces((noSelfType, EmptyTree.asList))
   }
 
-  class UnitParser(override val unit: global.CompilationUnit, patches: List[BracePatch]) extends SourceFileParser(unit.source) { uself =>
+  class UnitParser(override val unit: global.CompilationUnit, patches: List[BracePatch]) extends SourceFileParser(unit) { uself =>
     def this(unit: global.CompilationUnit) = this(unit, Nil)
 
     override def newScanner() = new UnitScanner(unit, patches)
@@ -270,7 +268,7 @@ self =>
   abstract class Parser extends ParserCommon { parser =>
     val in: Scanner
     def unit: CompilationUnit
-    def source: SourceFile
+    def source: SourceFile = unit.source
 
     /** Scoping operator used to temporarily look into the future.
      *  Backs up scanner data before evaluating a block and restores it after.
