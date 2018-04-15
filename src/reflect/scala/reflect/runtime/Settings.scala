@@ -2,7 +2,8 @@ package scala
 package reflect
 package runtime
 
-import scala.reflect.internal.settings.MutableSettings
+import scala.reflect.internal.settings.UsuallyFalseValues.UsuallyFalse
+import scala.reflect.internal.settings.{MutableSettings, UsuallyFalseValues}
 
 /** The Settings class for runtime reflection.
  *  This should be refined, so that settings are settable via command
@@ -16,6 +17,9 @@ private[reflect] class Settings extends MutableSettings {
     type T = Boolean
     protected var v: Boolean = x
     override def value: Boolean = v
+  }
+  class UsuallyFalseBooleanSetting(guard: UsuallyFalse) extends BooleanSetting(false) {
+    override def postSetHook(): Unit = if (value) guard.set();
   }
 
   class IntSetting(x: Int) extends Setting {
@@ -40,13 +44,11 @@ private[reflect] class Settings extends MutableSettings {
   val Yshowsymowners    = new BooleanSetting(false)
   val Yshowsymkinds     = new BooleanSetting(false)
   val breakCycles       = new BooleanSetting(false)
-  val debugImpl         = new BooleanSetting(false)
   val developer         = new BooleanSetting(false)
   val explaintypes      = new BooleanSetting(false)
   val overrideObjects   = new BooleanSetting(false)
   val printtypes        = new BooleanSetting(false)
   val uniqid            = new BooleanSetting(false)
-  val verbose           = new BooleanSetting(false)
   val YpartialUnification = new BooleanSetting(false)
   val Yvirtpatmat       = new BooleanSetting(false)
 

@@ -8,6 +8,8 @@ package scala
 package reflect.internal
 package settings
 
+import scala.reflect.internal.settings.UsuallyFalseValues.UsuallyFalse
+
 /** A mutable Settings object.
  */
 abstract class MutableSettings extends AbsSettings {
@@ -36,6 +38,15 @@ abstract class MutableSettings extends AbsSettings {
     def valueSetByUser: Option[T] = if (isSetByUser) Some(value) else None
   }
 
+  private [settings] final class UsuallyFalseBooleanSetting(guard: UsuallyFalse) extends SettingValue {
+    type T = Boolean
+    protected var v = false
+    override def value = v
+
+    override def postSetHook(): Unit = if (value) guard.set()
+  }
+
+
   def Xexperimental: BooleanSetting
   def XfullLubs: BooleanSetting
   def XnoPatmatAnalysis: BooleanSetting
@@ -46,14 +57,15 @@ abstract class MutableSettings extends AbsSettings {
   def Yshowsymowners: BooleanSetting
   def Yshowsymkinds: BooleanSetting
   def breakCycles: BooleanSetting
-  final def debug: Boolean = Infrequent.hasAnyDebug && debugImpl.value
-  protected def debugImpl: BooleanSetting
+  final def debug: Boolean = UsuallyFalseValues.debug.value() && debugImpl.value
+  private[this] final val debugImpl = new UsuallyFalseBooleanSetting(UsuallyFalseValues.debug)
   def developer: BooleanSetting
   def explaintypes: BooleanSetting
   def overrideObjects: BooleanSetting
   def printtypes: BooleanSetting
   def uniqid: BooleanSetting
-  def verbose: BooleanSetting
+  final def verbose: Boolean = UsuallyFalseValues.verbose.value() && verboseImpl.value
+  private[this] final val verboseImpl = new UsuallyFalseBooleanSetting(UsuallyFalseValues.verbose)
   def YpartialUnification: BooleanSetting
   def Yvirtpatmat: BooleanSetting
 
@@ -68,6 +80,10 @@ abstract class MutableSettings extends AbsSettings {
   def isScala211: Boolean
   def isScala212: Boolean
   private[scala] def isScala213: Boolean
+
+  protected def initialised(): Unit = {
+
+  }
 }
 
 object MutableSettings {

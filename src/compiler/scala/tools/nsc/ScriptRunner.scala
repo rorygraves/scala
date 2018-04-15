@@ -66,7 +66,7 @@ class ScriptRunner extends HasCompileSocket {
     val compArgs         = coreCompArgs ++ List("-Xscript", scriptMain(settings), scriptFile)
 
     // TODO: untangle this mess of top-level objects with their own little view of the mutable world of settings
-    compileSocket.verbose = settings.verbose.value
+    compileSocket.verbose = settings.verbose
 
     compileSocket getOrCreateSocket "" match {
       case Some(sock) => compileOnServer(sock, compArgs)

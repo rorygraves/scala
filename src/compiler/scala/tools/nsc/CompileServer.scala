@@ -90,7 +90,7 @@ class StandardCompileServer(fixPort: Int = 0) extends SocketServer(fixPort) {
     val args        = input.split("\u0000", -1).toList
     val newSettings = new FscSettings(fscError)
     val command     = new OfflineCompilerCommand(args, newSettings)
-    this.verbose    = newSettings.verbose.value
+    this.verbose    = newSettings.verbose
 
     info("Settings after normalizing paths: " + newSettings)
     if (!command.files.isEmpty) info("Input files after normalizing paths: " + (command.files mkString ","))

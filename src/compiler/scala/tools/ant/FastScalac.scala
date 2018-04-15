@@ -115,7 +115,7 @@ class FastScalac extends Scalac {
       List(
         /*scalac*/
         s.debugImpl, s.deprecation, s.explaintypes, s.nospecialization, s.nowarn,
-        s.optimise, s.unchecked, s.usejavacp, s.verbose,
+        s.optimise, s.unchecked, s.usejavacp, s.verboseImpl,
         /*fsc*/
         s.preferIPv4, s.reset, s.shutdown
       ) filter (_.value) map (_.name)

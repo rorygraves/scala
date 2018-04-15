@@ -26,7 +26,7 @@ abstract class AbstractReporter extends Reporter {
     messages.clear()
   }
 
-  private def isVerbose   = settings.verbose.value
+  private def isVerbose   = settings.verbose
   private def noWarnings  = settings.nowarnings.value
   private def isPromptSet = settings.prompt.value
   private def isDebug     = settings.debug

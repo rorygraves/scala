@@ -583,9 +583,9 @@ class Scalac extends ScalaMatchingTask with ScalacShared {
     if (!encoding.isEmpty) settings.encoding.value = encoding.get
     if (!backend.isEmpty) settings.target.value = backend.get
     if (!logging.isEmpty && logging.get == "verbose")
-      settings.verbose.value = true
+      settings.verboseImpl.value = true
     else if (!logging.isEmpty && logging.get == "debug") {
-      settings.verbose.value = true
+      settings.verboseImpl.value = true
       settings.debugImpl.value = true
     }
     if (!logPhase.isEmpty) settings.log.value = logPhase
