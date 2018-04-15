@@ -41,7 +41,7 @@ abstract class ToolBoxFactory[U <: JavaUniverse](val u: U) { factorySelf =>
     extends ReflectGlobal(settings, reporter0, toolBoxSelf.classLoader) {
       import definitions._
 
-      private val trace = scala.tools.nsc.util.trace when settings.debug.value
+      private val trace = scala.tools.nsc.util.trace when settings.debug
 
       private var wrapCount = 0
 

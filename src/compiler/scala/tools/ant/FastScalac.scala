@@ -114,7 +114,7 @@ class FastScalac extends Scalac {
     val booleanSettings =
       List(
         /*scalac*/
-        s.debug, s.deprecation, s.explaintypes, s.nospecialization, s.nowarn,
+        s.debugImpl, s.deprecation, s.explaintypes, s.nospecialization, s.nowarn,
         s.optimise, s.unchecked, s.usejavacp, s.verbose,
         /*fsc*/
         s.preferIPv4, s.reset, s.shutdown

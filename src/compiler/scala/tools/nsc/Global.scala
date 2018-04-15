@@ -1039,7 +1039,7 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
       "symbol"             -> sym.debugLocationString,
       "symbol definition"  -> s"${sym.defString} (a ${sym.shortSymbolClass})",
       "symbol package"     -> sym.enclosingPackage.fullName,
-      "symbol owners"      -> ownerChainString(sym),
+      "symbol owners"      -> ownerChainString(sym)
     )
     val info2 = formatExplain(List(
       "last tree to typer" -> tree.summaryString,

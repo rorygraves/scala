@@ -46,7 +46,8 @@ abstract class MutableSettings extends AbsSettings {
   def Yshowsymowners: BooleanSetting
   def Yshowsymkinds: BooleanSetting
   def breakCycles: BooleanSetting
-  def debug: BooleanSetting
+  final def debug: Boolean = Infrequent.hasAnyDebug && debugImpl.value
+  protected def debugImpl: BooleanSetting
   def developer: BooleanSetting
   def explaintypes: BooleanSetting
   def overrideObjects: BooleanSetting

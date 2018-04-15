@@ -586,7 +586,7 @@ class Scalac extends ScalaMatchingTask with ScalacShared {
       settings.verbose.value = true
     else if (!logging.isEmpty && logging.get == "debug") {
       settings.verbose.value = true
-      settings.debug.value = true
+      settings.debugImpl.value = true
     }
     if (!logPhase.isEmpty) settings.log.value = logPhase
     if (!debugInfo.isEmpty) settings.debuginfo.value = debugInfo.get

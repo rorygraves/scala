@@ -40,7 +40,7 @@ private[reflect] class Settings extends MutableSettings {
   val Yshowsymowners    = new BooleanSetting(false)
   val Yshowsymkinds     = new BooleanSetting(false)
   val breakCycles       = new BooleanSetting(false)
-  val debug             = new BooleanSetting(false)
+  val debugImpl         = new BooleanSetting(false)
   val developer         = new BooleanSetting(false)
   val explaintypes      = new BooleanSetting(false)
   val overrideObjects   = new BooleanSetting(false)
