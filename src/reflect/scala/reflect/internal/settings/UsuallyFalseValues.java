@@ -7,8 +7,8 @@ public final class UsuallyFalseValues {
     private UsuallyFalseValues() {
     }
 
-    private static MethodHandle _true = MethodHandles.constant(boolean.class, true);
-    private static MethodHandle _false = MethodHandles.constant(boolean.class, false);
+    private static MethodHandle _true = MethodHandles.constant(Boolean.class, Boolean.TRUE);
+    private static MethodHandle _false = MethodHandles.constant(Boolean.class, Boolean.FALSE);
 
     public static class UsuallyFalse {
         private final SwitchPoint spt = new SwitchPoint();
