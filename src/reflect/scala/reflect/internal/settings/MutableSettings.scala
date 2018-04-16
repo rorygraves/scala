@@ -57,14 +57,14 @@ abstract class MutableSettings extends AbsSettings {
   def Yshowsymowners: BooleanSetting
   def Yshowsymkinds: BooleanSetting
   def breakCycles: BooleanSetting
-  final def debug: Boolean = UsuallyFalseValues.debug.value() && debugImpl.value
+  final def debug: Boolean = false && debugImpl.value
   private[this] final val debugImpl = new UsuallyFalseBooleanSetting(UsuallyFalseValues.debug)
   def developer: BooleanSetting
   def explaintypes: BooleanSetting
   def overrideObjects: BooleanSetting
   def printtypes: BooleanSetting
   def uniqid: BooleanSetting
-  final def verbose: Boolean = UsuallyFalseValues.verbose.value() && verboseImpl.value
+  final def verbose: Boolean = false && verboseImpl.value
   private[this] final val verboseImpl = new UsuallyFalseBooleanSetting(UsuallyFalseValues.verbose)
   def YpartialUnification: BooleanSetting
   def Yvirtpatmat: BooleanSetting
