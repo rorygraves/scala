@@ -7,7 +7,10 @@ package scala
 package reflect
 package internal
 
+import java.util.concurrent.atomic.AtomicInteger
+
 import Flags._
+
 import scala.collection.mutable
 import scala.reflect.macros.Attachments
 import util.{Statistics, StatisticsStatics}
@@ -15,7 +18,7 @@ import util.{Statistics, StatisticsStatics}
 trait Trees extends api.Trees {
   self: SymbolTable =>
 
-  private[scala] var nodeCount = 0
+  private[scala] val nodeCount: AtomicInteger = new AtomicInteger(0)
 
   protected def treeLine(t: Tree): String =
     if (t.pos.isDefined && t.pos.isRange) t.pos.lineContent.drop(t.pos.column - 1).take(t.pos.end - t.pos.start + 1)
@@ -35,8 +38,7 @@ trait Trees extends api.Trees {
   }
 
   abstract class Tree extends TreeContextApiImpl with Attachable with Product {
-    val id = nodeCount // TODO: add to attachment?
-    nodeCount += 1
+    val id: Int = nodeCount.getAndIncrement() // TODO: add to attachment?
 
     if (StatisticsStatics.areSomeHotStatsEnabled())
       statistics.incCounter(statistics.nodeByType, getClass)
