@@ -6,6 +6,10 @@
 package scala.tools.nsc
 package ast.parser
 
+import java.util.concurrent.Executors
+import scala.concurrent.duration.Duration
+import scala.concurrent.{Await, ExecutionContext, Future}
+
 import javac._
 
 /** An nsc sub-component.
@@ -91,7 +95,21 @@ abstract class SyntaxAnalyzer extends SubComponent with Parsers with MarkupParse
     override val checkable = false
     override val keepsTypeParams = false
 
-    def apply(unit: CompilationUnit): Unit = {
+    override def run() {
+      echoPhaseSummary(this)
+
+      val threads = scala.util.Properties.envOrElse("PARSER_THREADS", "4").toInt
+
+      if (threads == 0) {
+        currentRun.units.foreach(applyPhase)
+      } else {
+        implicit val ec = ExecutionContext.fromExecutorService(Executors.newFixedThreadPool(threads))
+        val future = Future.traverse(currentRun.units)(unit => Future(applyPhase(unit)))
+        Await.ready(future, Duration.Inf)
+      }
+    }
+
+    def apply(unit: CompilationUnit) : Unit = {
       informProgress("parsing " + unit)
       // if the body is already filled in, don't overwrite it
       // otherwise compileLate is going to overwrite bodies of synthetic source files
