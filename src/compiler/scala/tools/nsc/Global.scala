@@ -10,6 +10,8 @@ package nsc
 import java.io.{File, FileNotFoundException, IOException}
 import java.net.URL
 import java.nio.charset.{Charset, CharsetDecoder, IllegalCharsetNameException, UnsupportedCharsetException}
+import java.util.concurrent.atomic.AtomicInteger
+
 import scala.collection.{immutable, mutable}
 import io.{AbstractFile, Path, SourceReader}
 import reporters.Reporter
@@ -26,7 +28,7 @@ import typechecker._
 import transform.patmat.PatternMatching
 import transform._
 import backend.{JavaPlatform, ScalaPrimitives}
-import backend.jvm.{GenBCode, BackendStats}
+import backend.jvm.{BackendStats, GenBCode}
 import scala.concurrent.Future
 import scala.language.postfixOps
 import scala.tools.nsc.ast.{TreeGen => AstTreeGen}
@@ -1129,7 +1131,7 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
     val symData = new mutable.AnyRefMap[Symbol, PickleBuffer]
 
     private var phasec: Int  = 0   // phases completed
-    private var unitc: Int   = 0   // units completed this phase
+    private val unitc: AtomicInteger   = new AtomicInteger(0)   // units completed this phase
 
     def size = unitbuf.size
     override def toString = "scalac Run for:\n  " + compiledFiles.toList.sorted.mkString("\n  ")
@@ -1250,22 +1252,23 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
      *  (for progress reporting)
      */
     def advancePhase(): Unit = {
-      unitc = 0
+      unitc.set(0)
       phasec += 1
       refreshProgress()
     }
     /** take note that a phase on a unit is completed
      *  (for progress reporting)
      */
+
     def advanceUnit(): Unit = {
-      unitc += 1
+      unitc.incrementAndGet()
       refreshProgress()
     }
 
     // for sbt
     def cancel(): Unit = { reporter.cancelled = true }
 
-    private def currentProgress   = (phasec * size) + unitc
+    private def currentProgress   = (phasec * size) + unitc.get()
     private def totalProgress     = (phaseDescriptors.size - 1) * size // -1: drops terminal phase
     private def refreshProgress() = if (size > 0) progress(currentProgress, totalProgress)
 
