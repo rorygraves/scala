@@ -2463,7 +2463,11 @@ trait Trees { self: Universe =>
    *  @group Traversal
    */
   class Traverser {
-    protected[scala] var currentOwner: Symbol = rootMirror.RootClass
+    protected[scala] def currentOwner: Symbol = _currentOwner.get()
+    protected[scala] def currentOwner_=(sym: Symbol): Unit = _currentOwner.set(sym)
+    private val _currentOwner: ThreadLocal[Symbol] = new ThreadLocal[Symbol]() {
+      override def initialValue(): Symbol = rootMirror.RootClass
+    }
 
     /** Traverse something which Trees contain, but which isn't a Tree itself. */
     def traverseName(name: Name): Unit                    = ()
@@ -2535,7 +2539,11 @@ trait Trees { self: Universe =>
     val treeCopy: TreeCopier = newLazyTreeCopier
 
     /** The current owner symbol. */
-    protected[scala] var currentOwner: Symbol = rootMirror.RootClass
+    protected[scala] def currentOwner: Symbol = _currentOwner.get()
+    protected[scala] def currentOwner_=(sym: Symbol): Unit = _currentOwner.set(sym)
+    private val _currentOwner: ThreadLocal[Symbol] = new ThreadLocal[Symbol]() {
+      override def initialValue(): Symbol = rootMirror.RootClass
+    }
 
     /** The enclosing method of the currently transformed tree. */
     protected def currentMethod = {
