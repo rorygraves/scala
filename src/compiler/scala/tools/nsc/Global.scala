@@ -10,7 +10,7 @@ package nsc
 import java.io.{File, FileNotFoundException, IOException}
 import java.net.URL
 import java.nio.charset.{Charset, CharsetDecoder, IllegalCharsetNameException, UnsupportedCharsetException}
-import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
 
 import scala.collection.{immutable, mutable}
 import io.{AbstractFile, Path, SourceReader}
@@ -413,7 +413,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
 
     final def withCurrentUnit(unit: CompilationUnit)(task: => Unit) {
       if ((unit ne null) && unit.exists)
-        lastSeenSourceFile = unit.source
+        lastSeenSourceFile.set(unit.source)
 
       if (settings.debug && (settings.verbose || currentRun.size < 5))
         inform("[running phase " + name + " on " + unit + "]")
@@ -963,7 +963,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
    *  of what file was being compiled when it broke.  Since I really
    *  really want to know, this hack.
    */
-  protected var lastSeenSourceFile: SourceFile = NoSourceFile
+  protected val lastSeenSourceFile: AtomicReference[SourceFile] = new AtomicReference[SourceFile](NoSourceFile)
 
   /** Let's share a lot more about why we crash all over the place.
    *  People will be very grateful.
@@ -974,7 +974,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
    */
   def currentRun: Run              = curRun
   def currentUnit: CompilationUnit = if (currentRun eq null) NoCompilationUnit else currentRun.currentUnit
-  def currentSource: SourceFile    = if (currentUnit.exists) currentUnit.source else lastSeenSourceFile
+  def currentSource: SourceFile    = if (currentUnit.exists) currentUnit.source else lastSeenSourceFile.get()
   def currentFreshNameCreator      = currentUnit.fresh
 
   def isGlobalInitialized = (
@@ -1097,7 +1097,11 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
      */
     var isDefined = false
     /** The currently compiled unit; set from GlobalPhase */
-    var currentUnit: CompilationUnit = NoCompilationUnit
+    private val _currentUnit: ThreadLocal[CompilationUnit] = new ThreadLocal[CompilationUnit]() {
+      override def initialValue(): CompilationUnit = NoCompilationUnit
+    }
+    def currentUnit: CompilationUnit = _currentUnit.get()
+    def currentUnit_=(unit: CompilationUnit): Unit = _currentUnit.set(unit)
 
     val profiler: Profiler = Profiler(settings)
     keepPhaseStack = settings.log.isSetByUser
