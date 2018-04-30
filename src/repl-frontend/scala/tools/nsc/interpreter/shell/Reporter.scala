@@ -214,15 +214,15 @@ class ReplReporterImpl(val config: ShellConfig, val settings: Settings = new Set
 
   def display(pos: Position, msg: String, severity: Severity): Unit = {
     val ok = severity match {
-      case ERROR   => ERROR.count   <= settings.maxerrs.value
-      case WARNING => WARNING.count <= settings.maxwarns.value
+      case ERROR   => ERROR.count.get()   <= settings.maxerrs.value
+      case WARNING => WARNING.count.get() <= settings.maxwarns.value
       case _     => true
     }
     if (ok) print(pos, msg, severity)
   }
 
   override def finish() =
-    for (k <- List(WARNING, ERROR) if k.count > 0)
-      printMessage(s"${StringOps.countElementsAsString(k.count, label(k))} found")
+    for (k <- List(WARNING, ERROR) if k.count.get() > 0)
+      printMessage(s"${StringOps.countElementsAsString(k.count.get(), label(k))} found")
 
 }

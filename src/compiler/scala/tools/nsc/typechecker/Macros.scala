@@ -787,8 +787,8 @@ trait Macros extends MacroRuntimes with Traces with Helpers {
         macroLogLite("performing macro expansion %s at %s".format(expandee, expandee.pos))
         val args = macroArgs(typer, expandee)
         try {
-          val numErrors    = reporter.ERROR.count
-          def hasNewErrors = reporter.ERROR.count > numErrors
+          val numErrors    = reporter.ERROR.count.get()
+          def hasNewErrors = reporter.ERROR.count.get() > numErrors
           val expanded = { pushMacroContext(args.c); runtime(args) }
           if (hasNewErrors) MacroGeneratedTypeError(expandee)
           def validateResultingTree(expanded: Tree) = {
