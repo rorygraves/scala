@@ -5,7 +5,6 @@ trait Positions extends scala.reflect.internal.Positions {
   self: Global =>
 
   class ValidatingPosAssigner extends PosAssigner {
-    var pos: Position = _
     override def traverse(t: Tree) {
       if (t eq EmptyTree) ()
       else if (t.pos == NoPosition) super.traverse(t setPos pos)

@@ -278,12 +278,14 @@ trait Positions extends api.Positions { self: SymbolTable =>
   }
 
   trait PosAssigner extends InternalTraverser {
-    var pos: Position
+    val _pos = new ThreadLocal[Position]
+    @inline def pos: Position = _pos.get()
+    @inline def pos_=(position: Position): Unit = _pos.set(position)
+
   }
   protected[this] lazy val posAssigner: PosAssigner = new DefaultPosAssigner
 
   protected class DefaultPosAssigner extends PosAssigner {
-    var pos: Position = _
     override def traverse(t: Tree) {
       if (!t.canHaveAttrs) ()
       else if (t.pos == NoPosition) {
