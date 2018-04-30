@@ -18,7 +18,7 @@ abstract class InteractiveReporter extends Reporter {
   val otherProblems = new ArrayBuffer[Problem]
 
   override def info0(pos: Position, msg: String, severity: Severity, force: Boolean): Unit = try {
-    severity.count += 1
+    severity.count.incrementAndGet()
     val problems =
       if (compiler eq null) {
         otherProblems

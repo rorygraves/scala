@@ -35,7 +35,7 @@ abstract class AbstractReporter extends Reporter {
   protected def info0(pos: Position, msg: String, severity: Severity, force: Boolean) {
     if (severity == INFO) {
       if (isVerbose || force) {
-        severity.count += 1
+        severity.count.incrementAndGet()
         display(pos, msg, severity)
       }
     }
@@ -44,11 +44,11 @@ abstract class AbstractReporter extends Reporter {
       if (severity == WARNING && noWarnings) ()
       else {
         if (!hidden || isPromptSet) {
-          severity.count += 1
+          severity.count.incrementAndGet()
           display(pos, msg, severity)
         }
         else if (isDebug) {
-          severity.count += 1
+          severity.count.incrementAndGet()
           display(pos, "[ suppressed ] " + msg, severity)
         }
 

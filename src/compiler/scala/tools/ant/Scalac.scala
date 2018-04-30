@@ -690,11 +690,11 @@ class Scalac extends ScalaMatchingTask with ScalacShared {
     reporter.printSummary()
     if (reporter.hasErrors) {
       val msg = "Compile failed with %d error%s; see the compiler error output for details.".format(
-        reporter.ERROR.count, plural(reporter.ERROR.count))
+        reporter.ERROR.count.get(), plural(reporter.ERROR.count.get()))
       if (failonerror) buildError(msg) else log(msg)
     }
-    else if (reporter.WARNING.count > 0)
+    else if (reporter.WARNING.count.get() > 0)
       log("Compile succeeded with %d warning%s; see the compiler output for details.".format(
-        reporter.WARNING.count, plural(reporter.WARNING.count)))
+        reporter.WARNING.count.get(), plural(reporter.WARNING.count.get())))
   }
 }

@@ -20,7 +20,7 @@ class StoreReporter extends Reporter {
   protected def info0(pos: Position, msg: String, severity: Severity, force: Boolean) {
     if (!force) {
       infos += Info(pos, msg, severity)
-      severity.count += 1
+      severity.count.incrementAndGet()
     }
   }
 
