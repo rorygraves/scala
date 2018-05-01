@@ -36,6 +36,7 @@ trait Contexts { self: Analyzer =>
     override def imports: List[ImportInfo] = Nil
     override def firstImportRequired: ImportInfo = throw new IllegalStateException("no context")
     override def firstImport: Option[ImportInfo] = None
+    override def firstImportOrNull: ImportInfo = null
     override def secondImport: Option[ImportInfo] = throw new IllegalStateException("no context")
     override def toString = "NoContext"
   }
@@ -242,6 +243,8 @@ trait Contexts { self: Analyzer =>
     def firstImportRequired: ImportInfo = outer.firstImportRequired
     /** Equivalent to `imports.headOption`, but more efficient */
     def firstImport: Option[ImportInfo] = outer.firstImport
+    /** Equivalent to `imports.headOption.orNull`, but more efficient */
+    def firstImportOrNull: ImportInfo = outer.firstImportOrNull
     /** Equivalent to `imports.tail.headOption`, but more efficient */
     def secondImport: Option[ImportInfo] = outer.secondImport
     protected[Contexts] def importOrNull: ImportInfo = null
@@ -934,7 +937,7 @@ trait Contexts { self: Analyzer =>
       } else if (scope != nextOuter.scope && !owner.isPackageClass) {
         debuglog("collect local implicits " + scope.toList)//DEBUG
         Some(collectImplicits(scope, NoPrefix))
-      } else if (firstImport != nextOuter.firstImport) {
+      } else if (firstImportOrNull != nextOuter.firstImportOrNull) {
         assert(this.secondImport == nextOuter.firstImport, (imports, nextOuter.imports))
         Some(collectImplicitImports(firstImportRequired))
       } else if (owner.isPackageClass) {
@@ -1244,6 +1247,7 @@ trait Contexts { self: Analyzer =>
     override final def imports      = impInfo :: super.imports
     override final def firstImport  = Some(impInfo)
     override final def firstImportRequired  = impInfo
+    override final def firstImportOrNull  = impInfo
     override final def secondImport  = super.firstImport
     override final def importOrNull = impInfo
     override final def isRootImport = !tree.pos.isDefined
