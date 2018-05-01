@@ -34,7 +34,9 @@ trait Contexts { self: Analyzer =>
     override def enclosingContextChain: List[Context] = Nil
     override def implicitss: List[List[ImplicitInfo]] = Nil
     override def imports: List[ImportInfo] = Nil
+    override def firstImportRequired: ImportInfo = throw new IllegalStateException("no context")
     override def firstImport: Option[ImportInfo] = None
+    override def secondImport: Option[ImportInfo] = throw new IllegalStateException("no context")
     override def toString = "NoContext"
   }
   private object RootImports {
@@ -236,8 +238,12 @@ trait Contexts { self: Analyzer =>
 
     /** The currently visible imports */
     def imports: List[ImportInfo] = outer.imports
+    /** Equivalent to `imports.head`, but more efficient */
+    def firstImportRequired: ImportInfo = outer.firstImportRequired
     /** Equivalent to `imports.headOption`, but more efficient */
     def firstImport: Option[ImportInfo] = outer.firstImport
+    /** Equivalent to `imports.tail.headOption`, but more efficient */
+    def secondImport: Option[ImportInfo] = outer.secondImport
     protected[Contexts] def importOrNull: ImportInfo = null
     def isRootImport: Boolean = false
 
@@ -917,7 +923,6 @@ trait Contexts { self: Analyzer =>
 
     /** @return None if a cycle is detected, or Some(infos) containing the in-scope implicits at this context */
     private def implicits(nextOuter: Context): Option[List[ImplicitInfo]] = {
-      val imports = this.imports
       if (owner != nextOuter.owner && owner.isClass && !owner.isPackageClass && !inSelfSuperCall) {
         if (!owner.isInitialized) None
         else savingEnclClass(this) {
@@ -930,8 +935,8 @@ trait Contexts { self: Analyzer =>
         debuglog("collect local implicits " + scope.toList)//DEBUG
         Some(collectImplicits(scope, NoPrefix))
       } else if (firstImport != nextOuter.firstImport) {
-        assert(imports.tail.headOption == nextOuter.firstImport, (imports, nextOuter.imports))
-        Some(collectImplicitImports(imports.head))
+        assert(this.secondImport == nextOuter.firstImport, (imports, nextOuter.imports))
+        Some(collectImplicitImports(firstImportRequired))
       } else if (owner.isPackageClass) {
         // the corresponding package object may contain implicit members.
         val pre = owner.packageObject.typeOfThis
@@ -1238,6 +1243,8 @@ trait Contexts { self: Analyzer =>
     }
     override final def imports      = impInfo :: super.imports
     override final def firstImport  = Some(impInfo)
+    override final def firstImportRequired  = impInfo
+    override final def secondImport  = super.firstImport
     override final def importOrNull = impInfo
     override final def isRootImport = !tree.pos.isDefined
     override final def toString     = s"${super.toString} with ImportContext { $impInfo; outer.owner = ${outer.owner} }"
