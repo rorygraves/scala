@@ -27,7 +27,9 @@ private[internal] trait CommonOwners {
   protected def commonOwnerMap: CommonOwnerMap = commonOwnerMapObj
 
   protected class CommonOwnerMap extends TypeTraverserWithResult[Symbol] {
-    var result: Symbol = _
+    val _result: ThreadLocalStorage[Symbol] = ThreadLocalStorage[Symbol](null)
+    def result: Symbol = _result.get
+    def result_=(sym: Symbol): Unit = _result.set(sym)
 
     def clear() { result = null }
 

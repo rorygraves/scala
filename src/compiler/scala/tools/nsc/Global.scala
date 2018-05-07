@@ -31,6 +31,8 @@ import backend.{JavaPlatform, ScalaPrimitives}
 import backend.jvm.{BackendStats, GenBCode}
 import scala.concurrent.Future
 import scala.language.postfixOps
+import scala.reflect.internal.ThreadLocalStorage
+import scala.reflect.runtime.ThreadLocalStorage
 import scala.tools.nsc.ast.{TreeGen => AstTreeGen}
 import scala.tools.nsc.classpath._
 import scala.tools.nsc.profile.Profiler
@@ -254,7 +256,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
   /** Register new context; called for every created context
    */
   def registerContext(c: analyzer.Context) {
-    lastSeenContext = c
+    lastSeenContext.set(c)
   }
 
   /** Register top level class (called on entering the class)
@@ -963,18 +965,18 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
    *  of what file was being compiled when it broke.  Since I really
    *  really want to know, this hack.
    */
-  protected val lastSeenSourceFile: AtomicReference[SourceFile] = new AtomicReference[SourceFile](NoSourceFile)
+  protected val lastSeenSourceFile: ThreadLocalStorage[SourceFile] = ThreadLocalStorage(NoSourceFile)
 
   /** Let's share a lot more about why we crash all over the place.
    *  People will be very grateful.
    */
-  protected var lastSeenContext: analyzer.Context = null
+  protected val lastSeenContext: ThreadLocalStorage[analyzer.Context] = ThreadLocalStorage[analyzer.Context](null)
 
   /** The currently active run
    */
   def currentRun: Run              = curRun
   def currentUnit: CompilationUnit = if (currentRun eq null) NoCompilationUnit else currentRun.currentUnit
-  def currentSource: SourceFile    = if (currentUnit.exists) currentUnit.source else lastSeenSourceFile.get()
+  def currentSource: SourceFile    = if (currentUnit.exists) currentUnit.source else lastSeenSourceFile.get
   def currentFreshNameCreator      = currentUnit.fresh
 
   def isGlobalInitialized = (
@@ -1028,7 +1030,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
     val tree      = analyzer.lastTreeToTyper
     val sym       = tree.symbol
     val tpe       = tree.tpe
-    val site      = lastSeenContext.enclClassOrMethod.owner
+    val site      = lastSeenContext.get.enclClassOrMethod.owner
     val pos_s     = if (tree.pos.isDefined) s"line ${tree.pos.line} of ${tree.pos.source.file}" else "<unknown>"
     val context_s = try {
       import scala.reflect.io.{File => SFile}
@@ -1097,10 +1099,8 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
      */
     var isDefined = false
     /** The currently compiled unit; set from GlobalPhase */
-    private val _currentUnit: ThreadLocal[CompilationUnit] = new ThreadLocal[CompilationUnit]() {
-      override def initialValue(): CompilationUnit = NoCompilationUnit
-    }
-    def currentUnit: CompilationUnit = _currentUnit.get()
+    private val _currentUnit: ThreadLocalStorage[CompilationUnit] = ThreadLocalStorage[CompilationUnit](NoCompilationUnit)
+    def currentUnit: CompilationUnit = _currentUnit.get
     def currentUnit_=(unit: CompilationUnit): Unit = _currentUnit.set(unit)
 
     val profiler: Profiler = Profiler(settings)
