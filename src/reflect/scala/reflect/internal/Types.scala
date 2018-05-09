@@ -4219,9 +4219,9 @@ trait Types
   /** Are `tps1` and `tps2` lists of pairwise equivalent types? */
   def isSameTypes(tps1: List[Type], tps2: List[Type]): Boolean = (tps1 corresponds tps2)(_ =:= _)
 
-  private var _basetypeRecursions: Int = 0
-  def basetypeRecursions = _basetypeRecursions
-  def basetypeRecursions_=(value: Int) = _basetypeRecursions = value
+  private var _basetypeRecursions: ThreadLocalStorage[Int] = ThreadLocalStorage[Int](0)
+  def basetypeRecursions = _basetypeRecursions.get
+  def basetypeRecursions_=(value: Int) = _basetypeRecursions.set(value)
 
   private val _pendingBaseTypes = new mutable.HashSet[Type]
   def pendingBaseTypes = _pendingBaseTypes

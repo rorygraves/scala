@@ -6,6 +6,10 @@
 
 package scala.tools.nsc.transform.patmat
 
+import java.util.concurrent.Executors
+
+import scala.concurrent.duration.Duration
+import scala.concurrent.{Await, ExecutionContext, Future}
 import scala.tools.nsc.Global
 import scala.tools.nsc.ast
 import scala.language.postfixOps
@@ -51,6 +55,30 @@ trait PatternMatching extends Transform
   import global._
 
   val phaseName: String = "patmat"
+
+  /** Create a new phase which applies transformer */
+  override def newPhase(prev: scala.tools.nsc.Phase): StdPhase = new MyPhase(prev)
+
+  /** The phase defined by this transform */
+  class MyPhase(prev: scala.tools.nsc.Phase) extends StdPhase(prev) {
+    override def run() {
+      echoPhaseSummary(this)
+
+      val threads = scala.util.Properties.envOrElse("PATMAT_THREADS", "4").toInt
+
+      if (threads == 0) {
+        currentRun.units.foreach(applyPhase)
+      } else {
+        implicit val ec = ExecutionContext.fromExecutorService(Executors.newFixedThreadPool(threads))
+        val future = Future.traverse(currentRun.units)(unit => Future(applyPhase(unit)))
+        Await.ready(future, Duration.Inf)
+      }
+    }
+
+    def apply(unit: global.CompilationUnit) {
+      newTransformer(unit).transformUnit(unit)
+    }
+  }
 
   def newTransformer(unit: CompilationUnit): Transformer = new MatchTransformer(unit)
 

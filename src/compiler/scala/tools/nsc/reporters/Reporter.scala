@@ -6,6 +6,8 @@
 package scala.tools.nsc
 package reporters
 
+import java.util.concurrent.atomic.AtomicInteger
+
 import scala.reflect.internal.util._
 
 /** Report information, warnings and errors.
@@ -44,13 +46,17 @@ abstract class Reporter extends scala.reflect.internal.Reporter {
   // partest expects this inner class
   // TODO: rework partest to use the scala.reflect.internal interface,
   //       remove duplication here, and consolidate reflect.internal.{ReporterImpl & ReporterImpl}
-  class Severity(val id: Int)(name: String) { var count: Int = 0 ; override def toString = name}
+  class Severity(val id: Int)(name: String) {
+    val count: AtomicInteger = new AtomicInteger(0)
+
+    override def toString = name
+  }
   object INFO    extends Severity(0)("INFO")
   object WARNING extends Severity(1)("WARNING")
   // reason for copy/paste: this is used by partest (must be a val, not an object)
   // TODO: use count(ERROR) in scala.tools.partest.nest.DirectCompiler#errorCount, rather than ERROR.count
   lazy val ERROR = new Severity(2)("ERROR")
 
-  def count(severity: Severity): Int       = severity.count
-  def resetCount(severity: Severity): Unit = severity.count = 0
+  def count(severity: Severity): Int       = severity.count.get()
+  def resetCount(severity: Severity): Unit = severity.count.set(0)
 }

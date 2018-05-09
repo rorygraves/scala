@@ -31,9 +31,9 @@ trait TypeComparers {
     override def toString = tp1+" <:<? "+tp2
   }
 
-  private var _subsametypeRecursions: Int = 0
-  def subsametypeRecursions = _subsametypeRecursions
-  def subsametypeRecursions_=(value: Int) = _subsametypeRecursions = value
+  private var _subsametypeRecursions: ThreadLocalStorage[Int] = ThreadLocalStorage(0)
+  def subsametypeRecursions = _subsametypeRecursions.get
+  def subsametypeRecursions_=(value: Int) = _subsametypeRecursions.set(value)
 
   private def isUnifiable(pre1: Type, pre2: Type) = (
        (isEligibleForPrefixUnification(pre1) || isEligibleForPrefixUnification(pre2))

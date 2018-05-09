@@ -7,22 +7,24 @@ package scala
 package reflect
 package internal
 
+import java.util.concurrent.atomic.AtomicInteger
+
 import scala.collection.immutable
 import scala.collection.mutable.ListBuffer
-import util.{ Statistics, shortClassOfInstance, StatisticsStatics }
+import util.{Statistics, StatisticsStatics, shortClassOfInstance}
 import Flags._
 import scala.annotation.tailrec
-import scala.reflect.io.{ AbstractFile, NoAbstractFile }
+import scala.reflect.io.{AbstractFile, NoAbstractFile}
 import Variance._
 
 trait Symbols extends api.Symbols { self: SymbolTable =>
   import definitions._
   import statistics._
 
-  protected var ids = 0
-  def getCurrentSymbolIdCount: Int = ids
+  protected var ids: AtomicInteger = new AtomicInteger(0)
+  def getCurrentSymbolIdCount: Int = ids.get()
 
-  protected def nextId() = { ids += 1; ids }
+  protected def nextId() = ids.incrementAndGet()
 
   /** Used for deciding in the IDE whether we can interrupt the compiler */
   //protected var activeLocks = 0
@@ -3116,8 +3118,10 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
      * type arguments.
      */
     override def tpe_* : Type = {
-      maybeUpdateTypeCache()
-      tpeCache
+      this.synchronized {
+        maybeUpdateTypeCache()
+        tpeCache
+      }
     }
     override def typeConstructor: Type = {
       if (tyconCacheNeedsUpdate)
@@ -3142,22 +3146,24 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
       }
     }
     private def updateTypeCache() {
-      if (tpeCache eq NoType)
-        throw CyclicReference(this, typeConstructor)
+      this.synchronized {
+        if (tpeCache eq NoType)
+          throw CyclicReference(this, typeConstructor)
 
-      if (isInitialized)
-        tpePeriod = currentPeriod
+        if (isInitialized)
+          tpePeriod = currentPeriod
 
-      tpeCache = NoType // cycle marker
-      val noTypeParams = phase.erasedTypes && this != ArrayClass || unsafeTypeParams.isEmpty
-      tpeCache = newTypeRef(
-        if (noTypeParams) Nil
-        else unsafeTypeParams map (_.typeConstructor)
-      )
-      // Avoid carrying around different types in tyconCache and tpeCache
-      // for monomorphic types.
-      if (noTypeParams && tyconCacheNeedsUpdate)
-        setTyconCache(tpeCache)
+        tpeCache = NoType // cycle marker
+        val noTypeParams = phase.erasedTypes && this != ArrayClass || unsafeTypeParams.isEmpty
+        tpeCache = newTypeRef(
+          if (noTypeParams) Nil
+          else unsafeTypeParams map (_.typeConstructor)
+        )
+        // Avoid carrying around different types in tyconCache and tpeCache
+        // for monomorphic types.
+        if (noTypeParams && tyconCacheNeedsUpdate)
+          setTyconCache(tpeCache)
+      }
     }
 
     override def info_=(tp: Type) {

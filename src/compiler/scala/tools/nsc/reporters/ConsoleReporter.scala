@@ -59,13 +59,13 @@ class ConsoleReporter(val settings: Settings, reader: BufferedReader, writer: Pr
 
   /** Prints the number of warnings and errors if there are any. */
   def printSummary(): Unit =
-    for (k <- List(WARNING, ERROR) if k.count > 0) printMessage(s"${countAs(k.count, label(k))} found")
+    for (k <- List(WARNING, ERROR) if k.count.get() > 0) printMessage(s"${countAs(k.count.get(), label(k))} found")
 
   def display(pos: Position, msg: String, severity: Severity): Unit = {
     // the count includes the current message
     val ok = severity match {
-      case ERROR   => ERROR.count   <= settings.maxerrs.value
-      case WARNING => WARNING.count <= settings.maxwarns.value
+      case ERROR   => ERROR.count.get()   <= settings.maxerrs.value
+      case WARNING => WARNING.count.get() <= settings.maxwarns.value
       case _     => true
     }
     if (ok) print(pos, msg, severity)

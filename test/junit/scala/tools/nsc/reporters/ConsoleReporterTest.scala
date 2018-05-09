@@ -101,14 +101,14 @@ class ConsoleReporterTest {
     reporter.resetCount(reporter.ERROR)
     reporter.resetCount(reporter.WARNING)
 
-    reporter.ERROR.count += 1
+    reporter.ERROR.count.incrementAndGet()
     testHelper(posWithSource, msg = "Testing display for maxerrs to pass", severity = "error: ")(reporter.display(_, "Testing display for maxerrs to pass", reporter.ERROR))
-    reporter.ERROR.count += 1
+    reporter.ERROR.count.incrementAndGet()
     testHelper(msg = "")(reporter.display(_, "Testing display for maxerrs to fail", reporter.ERROR))
 
-    reporter.WARNING.count += 1
+    reporter.WARNING.count.incrementAndGet()
     testHelper(posWithSource, msg = "Testing display for maxwarns to pass", severity = "warning: ")(reporter.display(_, "Testing display for maxwarns to pass", reporter.WARNING))
-    reporter.WARNING.count += 1
+    reporter.WARNING.count.incrementAndGet()
     testHelper(msg = "")(reporter.display(_, "Testing display for maxwarns to fail", reporter.WARNING))
   }
 
@@ -120,8 +120,8 @@ class ConsoleReporterTest {
     reporter.resetCount(reporter.WARNING)
     testHelper(msg = "")(_ => reporter.finish())
 
-    reporter.ERROR.count = 10
-    reporter.WARNING.count = 3
+    reporter.ERROR.count.set(10)
+    reporter.WARNING.count.set(3)
     reporter.finish()
     val it = writerOut.toString.lines
     assertEquals("three warnings found", it.next)

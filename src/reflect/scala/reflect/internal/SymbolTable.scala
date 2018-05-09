@@ -467,11 +467,13 @@ abstract class SymbolTable extends macros.Universe
   }
 
   /** The set of all installed infotransformers. */
-  var infoTransformers = new InfoTransformer {
+  val _infoTransformers: ThreadLocalStorage[InfoTransformer] = ThreadLocalStorage(new InfoTransformer {
     val pid = NoPhase.id
     val changesBaseClasses = true
     def transform(sym: Symbol, tpe: Type): Type = tpe
-  }
+  })
+  def infoTransformers: InfoTransformer = _infoTransformers.get
+  def infoTransformers_=(it: InfoTransformer): Unit = _infoTransformers.set(it)
 
   /** The phase which has given index as identifier. */
   val phaseWithId: Array[Phase]

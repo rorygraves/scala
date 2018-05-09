@@ -10,6 +10,8 @@ package nsc
 import java.io.{File, FileNotFoundException, IOException}
 import java.net.URL
 import java.nio.charset.{Charset, CharsetDecoder, IllegalCharsetNameException, UnsupportedCharsetException}
+import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
+
 import scala.collection.{immutable, mutable}
 import io.{AbstractFile, Path, SourceReader}
 import reporters.Reporter
@@ -26,9 +28,11 @@ import typechecker._
 import transform.patmat.PatternMatching
 import transform._
 import backend.{JavaPlatform, ScalaPrimitives}
-import backend.jvm.{GenBCode, BackendStats}
+import backend.jvm.{BackendStats, GenBCode}
 import scala.concurrent.Future
 import scala.language.postfixOps
+import scala.reflect.internal.ThreadLocalStorage
+import scala.reflect.runtime.ThreadLocalStorage
 import scala.tools.nsc.ast.{TreeGen => AstTreeGen}
 import scala.tools.nsc.classpath._
 import scala.tools.nsc.profile.Profiler
@@ -263,7 +267,7 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
   /** Register new context; called for every created context
    */
   def registerContext(c: analyzer.Context): Unit = {
-    lastSeenContext = c
+    lastSeenContext.set(c)
   }
 
   /** Register top level class (called on entering the class)
@@ -401,7 +405,7 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
 
     final def withCurrentUnit(unit: CompilationUnit)(task: => Unit): Unit = {
       if ((unit ne null) && unit.exists)
-        lastSeenSourceFile = unit.source
+        lastSeenSourceFile.set(unit.source)
 
       if (settings.debug && (settings.verbose || currentRun.size < 5))
         inform("[running phase " + name + " on " + unit + "]")
@@ -953,18 +957,18 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
    *  of what file was being compiled when it broke.  Since I really
    *  really want to know, this hack.
    */
-  protected var lastSeenSourceFile: SourceFile = NoSourceFile
+  protected val lastSeenSourceFile: ThreadLocalStorage[SourceFile] = ThreadLocalStorage(NoSourceFile)
 
   /** Let's share a lot more about why we crash all over the place.
    *  People will be very grateful.
    */
-  protected var lastSeenContext: analyzer.Context = analyzer.NoContext
+  protected val lastSeenContext: ThreadLocalStorage[analyzer.Context] = ThreadLocalStorage[analyzer.Context](analyzer.NoContext)
 
   /** The currently active run
    */
   def currentRun: Run              = curRun
   def currentUnit: CompilationUnit = if (currentRun eq null) NoCompilationUnit else currentRun.currentUnit
-  def currentSource: SourceFile    = if (currentUnit.exists) currentUnit.source else lastSeenSourceFile
+  def currentSource: SourceFile    = if (currentUnit.exists) currentUnit.source else lastSeenSourceFile.get
   def currentFreshNameCreator      = currentUnit.fresh
 
   def isGlobalInitialized = (
@@ -1018,7 +1022,7 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
     val tree      = analyzer.lastTreeToTyper
     val sym       = tree.symbol
     val tpe       = tree.tpe
-    val site      = lastSeenContext.enclClassOrMethod.owner
+    val site      = lastSeenContext.get.enclClassOrMethod.owner
     val pos_s     = if (tree.pos.isDefined) s"line ${tree.pos.line} of ${tree.pos.source.file}" else "<unknown>"
     val context_s = try {
       // Taking 3 before, 3 after the fingered line.
@@ -1090,7 +1094,9 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
      */
     var isDefined = false
     /** The currently compiled unit; set from GlobalPhase */
-    var currentUnit: CompilationUnit = NoCompilationUnit
+    private val _currentUnit: ThreadLocalStorage[CompilationUnit] = ThreadLocalStorage[CompilationUnit](NoCompilationUnit)
+    def currentUnit: CompilationUnit = _currentUnit.get
+    def currentUnit_=(unit: CompilationUnit): Unit = _currentUnit.set(unit)
 
     val profiler: Profiler = Profiler(settings)
     keepPhaseStack = settings.log.isSetByUser
@@ -1129,7 +1135,7 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
     val symData = new mutable.AnyRefMap[Symbol, PickleBuffer]
 
     private var phasec: Int  = 0   // phases completed
-    private var unitc: Int   = 0   // units completed this phase
+    private val unitc: AtomicInteger   = new AtomicInteger(0)   // units completed this phase
 
     def size = unitbuf.size
     override def toString = "scalac Run for:\n  " + compiledFiles.toList.sorted.mkString("\n  ")
@@ -1250,22 +1256,23 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
      *  (for progress reporting)
      */
     def advancePhase(): Unit = {
-      unitc = 0
+      unitc.set(0)
       phasec += 1
       refreshProgress()
     }
     /** take note that a phase on a unit is completed
      *  (for progress reporting)
      */
+
     def advanceUnit(): Unit = {
-      unitc += 1
+      unitc.incrementAndGet()
       refreshProgress()
     }
 
     // for sbt
     def cancel(): Unit = { reporter.cancelled = true }
 
-    private def currentProgress   = (phasec * size) + unitc
+    private def currentProgress   = (phasec * size) + unitc.get()
     private def totalProgress     = (phaseDescriptors.size - 1) * size // -1: drops terminal phase
     private def refreshProgress() = if (size > 0) progress(currentProgress, totalProgress)
 
