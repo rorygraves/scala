@@ -7,6 +7,8 @@ package scala
 package reflect
 package internal
 
+import java.util.concurrent.atomic.AtomicInteger
+
 import scala.annotation.tailrec
 import scala.collection.AbstractIterable
 import scala.collection.generic.Clearable
@@ -15,9 +17,9 @@ import scala.reflect.internal.util.{Statistics, StatisticsStatics}
 trait Scopes extends api.Scopes { self: SymbolTable =>
 
   // Reset `scopeCount` per every run
-  private[scala] var scopeCount = 0
+  private[scala] val scopeCount: AtomicInteger = new AtomicInteger(0)
   perRunCaches.recordCache {
-    val clearCount: Clearable = () => {scopeCount = 0}
+    val clearCount: Clearable = () => { scopeCount.set(0) }
     clearCount
   }
 
@@ -60,7 +62,7 @@ trait Scopes extends api.Scopes { self: SymbolTable =>
    */
   class Scope protected[Scopes]() extends AbstractIterable[Symbol] with ScopeApi with MemberScopeApi {
 
-    scopeCount += 1
+    scopeCount.incrementAndGet()
     private[scala] var elems: ScopeEntry = _
 
     /** The number of times this scope is nested in another
@@ -510,7 +512,7 @@ trait Scopes extends api.Scopes { self: SymbolTable =>
 
 trait ScopeStats {
   self: Statistics =>
-  val scopeCountView = newView("#created scopes")(symbolTable.scopeCount)
+  val scopeCountView = newView("#created scopes")(symbolTable.scopeCount.get())
   val scopePopulationTime = newTimer("time spent in scope population")
   val scopeLookupTime = newTimer("time spent in scope lookup")
 }
