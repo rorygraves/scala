@@ -10,6 +10,7 @@ package nsc
 import java.io.{File, FileNotFoundException, IOException}
 import java.net.URL
 import java.nio.charset.{Charset, CharsetDecoder, IllegalCharsetNameException, UnsupportedCharsetException}
+
 import scala.collection.{immutable, mutable}
 import io.{AbstractFile, Path, SourceReader}
 import reporters.Reporter
@@ -26,12 +27,13 @@ import typechecker._
 import transform.patmat.PatternMatching
 import transform._
 import backend.{JavaPlatform, ScalaPrimitives}
-import backend.jvm.{GenBCode, BackendStats}
-import scala.concurrent.Future
+import backend.jvm.{BackendStats, GenBCode}
+import scala.concurrent.duration.Duration
+import scala.concurrent.{Await, Future}
 import scala.language.postfixOps
 import scala.tools.nsc.ast.{TreeGen => AstTreeGen}
 import scala.tools.nsc.classpath._
-import scala.tools.nsc.profile.Profiler
+import scala.tools.nsc.profile.{Profiler, ThreadPoolFactory}
 
 class Global(var currentSettings: Settings, reporter0: Reporter)
     extends SymbolTable
@@ -387,7 +389,57 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
 
     def run(): Unit = {
       echoPhaseSummary(this)
-      currentRun.units foreach applyPhase
+      if (isParallel) {
+        //simple non optimised implementation - but good enough to prove the process
+        val threadPoolFactory = ThreadPoolFactory(Global.this, this)
+        val javaExecutor = threadPoolFactory.newUnboundedQueueFixedThreadPool(parallelThreads, "worker")
+        try {
+          val exec = scala.concurrent.ExecutionContext.fromExecutorService(javaExecutor, (_) => ())
+          val workUnits = currentRun.units map {
+            unit =>
+              val workUnit = newWorkUnit(unit)
+              workUnit.action = Future {
+                workUnit.before()
+                applyPhase(unit)
+                workUnit.after()
+              }(exec)
+              workUnit
+          }
+          workUnits foreach {
+            workUnit =>
+              Await.ready(workUnit.action, Duration.Inf)
+              workUnit.replay()
+              //check it didn't throw
+              workUnit.action.value.get.get
+
+          }
+
+        } finally javaExecutor.shutdownNow()
+
+      } else currentRun.units foreach {
+        unit =>
+          applyPhase(unit)
+      }
+    }
+
+    def parallelThreads = settings.YparallelThreads.value
+
+    def isParallel = settings.YparallelPhases.containsPhase(this)
+
+    type WorkType = WorkUnit
+    def newWorkUnit(unit: CompilationUnit): WorkType = new WorkUnit(unit)
+
+    class WorkUnit(val unit: CompilationUnit) {
+
+      private [Global] var action: Future[Unit] = _
+      def replay(): Unit = {
+        //TODO - replay the reporter mesages
+      }
+      def before() = ()
+      def after() = {
+        // TODO capture any reporter messages
+      }
+
     }
 
     def apply(unit: CompilationUnit): Unit
