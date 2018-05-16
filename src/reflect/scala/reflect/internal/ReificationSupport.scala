@@ -185,7 +185,7 @@ trait ReificationSupport { self: SymbolTable =>
 
     def freshTypeName(prefix: String): TypeName = self.freshTypeName(prefix)
 
-    protected implicit def fresh: FreshNameCreator = self.currentFreshNameCreator
+    protected implicit def fresh: FreshNameCreator = self.globalFreshNameCreator
 
     object ImplicitParams extends ImplicitParamsExtractor {
       def apply(paramss: List[List[Tree]], implparams: List[Tree]): List[List[Tree]] =

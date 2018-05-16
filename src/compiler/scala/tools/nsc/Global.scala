@@ -7,31 +7,33 @@ package scala
 package tools
 package nsc
 
-import java.io.{File, FileNotFoundException, IOException}
+import java.io.{FileNotFoundException, IOException}
 import java.net.URL
 import java.nio.charset.{Charset, CharsetDecoder, IllegalCharsetNameException, UnsupportedCharsetException}
+import java.util.concurrent.Executor
+
 import scala.collection.{immutable, mutable}
-import io.{AbstractFile, Path, SourceReader}
-import reporters.Reporter
-import util.{ClassPath, returning}
-import scala.reflect.ClassTag
-import scala.reflect.internal.util.{BatchSourceFile, NoSourceFile, ScalaClassLoader, ScriptSourceFile, SourceFile, StatisticsStatics}
-import scala.reflect.internal.pickling.PickleBuffer
-import symtab.{Flags, SymbolTable, SymbolTrackers}
-import symtab.classfile.Pickler
-import plugins.Plugins
-import ast._
-import ast.parser._
-import typechecker._
-import transform.patmat.PatternMatching
-import transform._
-import backend.{JavaPlatform, ScalaPrimitives}
-import backend.jvm.{GenBCode, BackendStats}
-import scala.concurrent.Future
+import scala.concurrent.duration.Duration
+import scala.concurrent.{Await, ExecutionContext, Future}
 import scala.language.postfixOps
-import scala.tools.nsc.ast.{TreeGen => AstTreeGen}
+import scala.reflect.ClassTag
+import scala.reflect.internal.pickling.PickleBuffer
+import scala.reflect.internal.util.{BatchSourceFile, ScalaClassLoader, ScriptSourceFile, SourceFile}
+import scala.tools.nsc.ast.parser._
+import scala.tools.nsc.ast.{TreeGen => AstTreeGen, _}
+import scala.tools.nsc.backend.jvm.{BackendStats, GenBCode}
+import scala.tools.nsc.backend.{JavaPlatform, ScalaPrimitives}
 import scala.tools.nsc.classpath._
+import scala.tools.nsc.io.{AbstractFile, SourceReader}
+import scala.tools.nsc.plugins.Plugins
 import scala.tools.nsc.profile.Profiler
+import scala.tools.nsc.reporters.Reporter
+import scala.tools.nsc.symtab.classfile.Pickler
+import scala.tools.nsc.symtab.{Flags, SymbolTable, SymbolTrackers}
+import scala.tools.nsc.transform._
+import scala.tools.nsc.transform.patmat.PatternMatching
+import scala.tools.nsc.typechecker._
+import scala.tools.nsc.util.{ClassPath, returning}
 
 class Global(var currentSettings: Settings, reporter0: Reporter)
     extends SymbolTable
@@ -140,9 +142,7 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
   /** A spare instance of TreeBuilder left for backwards compatibility. */
   lazy val treeBuilder: TreeBuilder { val global: Global.this.type } = new TreeBuilder {
     val global: Global.this.type = Global.this
-
-    def unit = currentUnit
-    def source = currentUnit.source
+    def unit: CompilationUnit = null // Not really needed
   }
 
   /** Fold constants */
@@ -263,7 +263,7 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
   /** Register new context; called for every created context
    */
   def registerContext(c: analyzer.Context): Unit = {
-    lastSeenContext = c
+    analyzer.lastSeenContext = c
   }
 
   /** Register top level class (called on entering the class)
@@ -385,45 +385,53 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
   abstract class GlobalPhase(prev: Phase) extends Phase(prev) {
     phaseWithId(id) = this
 
-    def run(): Unit = {
-      echoPhaseSummary(this)
-      currentRun.units foreach applyPhase
-    }
+    // implicit val ec = ExecutionContext.fromExecutor(Executors.newFixedThreadPool(4))
+
+    implicit val synchronousExecutionContext = ExecutionContext.fromExecutor(new Executor {
+      def execute(task: Runnable) = task.run()
+    })
 
     def apply(unit: CompilationUnit): Unit
 
-    /** Is current phase cancelled on this unit? */
-    def cancelled(unit: CompilationUnit) = {
-      // run the typer only if in `createJavadoc` mode
-      val maxJavaPhase = if (createJavadoc) currentRun.typerPhase.id else currentRun.namerPhase.id
-      reporter.cancelled || unit.isJava && this.id > maxJavaPhase
+    def runInParallel: Boolean = false
+
+    final def applyPhase(unit: CompilationUnit) = Await.result(processUnit(unit), Duration.Inf)
+
+    /// TODO: Make final after refactoring in typer
+    def run() {
+      assertOnMainThread()
+      echoPhaseSummary(this)
+      Await.result(Future.sequence(currentRun.units map processUnit), Duration.Inf)
     }
 
-    final def withCurrentUnit(unit: CompilationUnit)(task: => Unit): Unit = {
-      if ((unit ne null) && unit.exists)
-        lastSeenSourceFile = unit.source
-
+    private def processUnit(unit: CompilationUnit): Future[Unit] = {
       if (settings.debug && (settings.verbose || currentRun.size < 5))
         inform("[running phase " + name + " on " + unit + "]")
-      if (!cancelled(unit)) {
-        currentRun.informUnitStarting(this, unit)
-        try withCurrentUnitNoLog(unit)(task)
-        finally currentRun.advanceUnit()
+
+      currentRun.informUnitStarting(this, unit)
+
+      val isCanceled = {
+        // run the typer only if in `createJavadoc` mode
+        val maxJavaPhase = if (createJavadoc) currentRun.typerPhase.id else currentRun.namerPhase.id
+        reporter.cancelled || unit.isJava && this.id > maxJavaPhase
       }
+
+      val task =
+        if (isCanceled) Future.successful(())
+        else if (runInParallel) Future(apply(unit))
+        else Future.fromTry(scala.util.Try(apply(unit)))
+
+      task onComplete {
+        case _ =>
+          currentRun.advanceUnit()
+      }
+
+      task
     }
 
-    final def withCurrentUnitNoLog(unit: CompilationUnit)(task: => Unit): Unit = {
-      val unit0 = currentUnit
-      try {
-        currentRun.currentUnit = unit
-        task
-      } finally {
-        //assert(currentUnit == unit)
-        currentRun.currentUnit = unit0
-      }
+    private def assertOnMainThread(): Unit = {
+      assert("main".equals(Thread.currentThread().getName), "")
     }
-
-    final def applyPhase(unit: CompilationUnit) = withCurrentUnit(unit)(apply(unit))
   }
 
   // phaseName = "parser"
@@ -435,7 +443,7 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
     override val initial = true
   }
 
-  import syntaxAnalyzer.{ UnitScanner, UnitParser, JavaUnitParser }
+  import syntaxAnalyzer.{JavaUnitParser, UnitParser, UnitScanner}
 
   // !!! I think we're overdue for all these phase objects being lazy vals.
   // There's no way for a Global subclass to provide a custom typer
@@ -738,7 +746,7 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
     val line2 = fmt.format("----------", "--", "-" * title.length)
 
     // built-in string precision merely truncates
-    import java.util.{ Formattable, FormattableFlags, Formatter }
+    import java.util.{Formattable, FormattableFlags, Formatter}
     def dotfmt(s: String) = new Formattable {
       def foreshortened(s: String, max: Int) = (
         if (max < 0 || s.length <= max) s
@@ -948,24 +956,10 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
     val global: Global.this.type = Global.this
   } with typechecker.StructuredTypeStrings
 
-  /** There are common error conditions where when the exception hits
-   *  here, currentRun.currentUnit is null.  This robs us of the knowledge
-   *  of what file was being compiled when it broke.  Since I really
-   *  really want to know, this hack.
-   */
-  protected var lastSeenSourceFile: SourceFile = NoSourceFile
-
-  /** Let's share a lot more about why we crash all over the place.
-   *  People will be very grateful.
-   */
-  protected var lastSeenContext: analyzer.Context = analyzer.NoContext
 
   /** The currently active run
    */
   def currentRun: Run              = curRun
-  def currentUnit: CompilationUnit = if (currentRun eq null) NoCompilationUnit else currentRun.currentUnit
-  def currentSource: SourceFile    = if (currentUnit.exists) currentUnit.source else lastSeenSourceFile
-  def currentFreshNameCreator      = currentUnit.fresh
 
   def isGlobalInitialized = (
        definitions.isDefinitionsInitialized
@@ -1018,7 +1012,8 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
     val tree      = analyzer.lastTreeToTyper
     val sym       = tree.symbol
     val tpe       = tree.tpe
-    val site      = lastSeenContext.enclClassOrMethod.owner
+    val context   = analyzer.lastSeenContext
+    val site      = context.enclClassOrMethod.owner
     val pos_s     = if (tree.pos.isDefined) s"line ${tree.pos.line} of ${tree.pos.source.file}" else "<unknown>"
     val context_s = try {
       // Taking 3 before, 3 after the fingered line.
@@ -1030,7 +1025,7 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
     catch { case t: Exception => devWarning("" + t) ; "<Cannot read source file>" }
 
     val info1 = formatExplain(List(
-      "while compiling"    -> currentSource.path,
+      "while compiling"    -> context.unit.source.path,
       "during phase"       -> ( if (globalPhase eq phase) phase else "globalPhase=%s, enteringPhase=%s".format(globalPhase, phase) ),
       "library version"    -> scala.util.Properties.versionString,
       "compiler version"   -> scala.tools.nsc.Properties.versionString,
@@ -1089,8 +1084,6 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
      *  top of the file so at least they're not trivially null.
      */
     var isDefined = false
-    /** The currently compiled unit; set from GlobalPhase */
-    var currentUnit: CompilationUnit = NoCompilationUnit
 
     val profiler: Profiler = Profiler(settings)
     keepPhaseStack = settings.log.isSetByUser
@@ -1242,7 +1235,6 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
 
     /**
      * For subclasses to override. Called when `phase` is about to be run on `unit`.
-     * Variables are passed explicitly to indicate that `globalPhase` and `currentUnit` have been set.
      */
     def informUnitStarting(phase: Phase, unit: CompilationUnit): Unit = { }
 

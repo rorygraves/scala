@@ -19,7 +19,7 @@ trait Parsers { self: Quasiquotes =>
     def parse(code: String): Tree = {
       try {
         val file = new BatchSourceFile(nme.QUASIQUOTE_FILE, code)
-        val parser = new QuasiquoteParser(file)
+        val parser = new QuasiquoteParser(new CompilationUnit(file))
         parser.checkNoEscapingPlaceholders { parser.parseRule(entryPoint) }
       } catch {
         case mi: MalformedInput => c.abort(correspondingPosition(mi.offset), mi.msg)
@@ -49,7 +49,7 @@ trait Parsers { self: Quasiquotes =>
 
     def entryPoint: QuasiquoteParser => Tree
 
-    class QuasiquoteParser(source0: SourceFile) extends SourceFileParser(source0) { parser =>
+    class QuasiquoteParser(unit: CompilationUnit) extends SourceFileParser(unit) { parser =>
       def isHole: Boolean = isIdent && isHole(in.name)
 
       def isHole(name: Name): Boolean = holeMap.contains(name)

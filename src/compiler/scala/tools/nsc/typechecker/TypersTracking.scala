@@ -19,6 +19,12 @@ trait TypersTracking {
   // but there are all kinds of back ways - typedClassDef, etc. etc.
   // Funnel everything through one doorway.
   var lastTreeToTyper: Tree = EmptyTree
+  var lastSeenContext: Context = NoContext
+
+  def clear(): Unit = {
+    lastTreeToTyper = EmptyTree
+    lastSeenContext = NoContext
+  }
 
   def fullSiteString(context: Context): String = {
     def owner_long_s = (

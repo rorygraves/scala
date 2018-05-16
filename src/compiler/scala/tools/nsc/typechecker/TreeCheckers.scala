@@ -194,25 +194,18 @@ abstract class TreeCheckers extends Analyzer {
     currentRun.units foreach (x => wrap(x)(check(x)))
   }
 
-  def runWithUnit[T](unit: CompilationUnit)(body: => Unit): Unit = {
-    val unit0 = currentUnit
-    currentRun.currentUnit = unit
-    body
-    currentRun.advanceUnit()
-    assertFn(currentUnit == unit, "currentUnit is " + currentUnit + ", but unit is " + unit)
-    currentRun.currentUnit = unit0
-  }
   def check(unit: CompilationUnit): Unit = {
     informProgress("checking "+unit)
     val context = rootContext(unit, checking = true)
     tpeOfTree.clear()
     SymbolTracker.check(phase, unit)
     val checker = new TreeChecker(context)
-    runWithUnit(unit) {
-      checker.precheck.traverse(unit.body)
-      checker.typed(unit.body)
-      checker.postcheck.traverse(unit.body)
-    }
+
+    checker.precheck.traverse(unit.body)
+    checker.typed(unit.body)
+    checker.postcheck.traverse(unit.body)
+
+    currentRun.advanceUnit()
   }
 
   override def newTyper(context: Context): Typer = new TreeChecker(context)

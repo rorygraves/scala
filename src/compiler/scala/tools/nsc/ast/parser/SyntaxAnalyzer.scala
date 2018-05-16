@@ -90,6 +90,7 @@ abstract class SyntaxAnalyzer extends SubComponent with Parsers with MarkupParse
   class ParserPhase(prev: Phase) extends StdPhase(prev) {
     override val checkable = false
     override val keepsTypeParams = false
+    override val runInParallel = false
 
     def apply(unit: CompilationUnit): Unit = {
       informProgress("parsing " + unit)

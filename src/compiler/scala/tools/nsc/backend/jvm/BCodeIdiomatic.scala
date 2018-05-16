@@ -91,7 +91,7 @@ abstract class BCodeIdiomatic {
    *  but the methods here allow choosing when to transition from ICode to ASM types
    *  (including not at all, e.g. for performance).
    */
-  abstract class JCodeMethodN {
+  abstract class JCodeMethodN(unit: CompilationUnit) {
 
     def jmethod: asm.tree.MethodNode
 
@@ -223,7 +223,7 @@ abstract class BCodeIdiomatic {
 
       assert(
         from.isNonVoidPrimitiveType && to.isNonVoidPrimitiveType,
-        s"Cannot emit primitive conversion from $from to $to - ${global.currentUnit}"
+        s"Cannot emit primitive conversion from $from to $to - $unit"
       )
 
           def pickOne(opcs: Array[Int]): Unit = { // TODO index on to.sort

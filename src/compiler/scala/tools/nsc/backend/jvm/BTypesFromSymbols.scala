@@ -55,12 +55,16 @@ abstract class BTypesFromSymbols[G <: Global](val global: G) extends BTypes {
    * True if the current compilation unit is of a primitive class (scala.Boolean et al).
    * Used only in assertions.
    */
-  def isCompilingPrimitive = {
-    primitiveCompilationUnits(currentUnit.source.file.name)
+  def isCompilingPrimitive(sym: Symbol) = {
+    primitiveCompilationUnits(sym.sourceFile.name)
   }
 
-  def isCompilingArray = {
-    currentUnit.source.file.name == "Array.scala"
+  def isCompilingPrimitive(name: String) = {
+    primitiveCompilationUnits(name)
+  }
+
+  def isCompilingArray(sym: Symbol) = {
+    sym.sourceFile.name == "Array.scala"
   }
 
   // end helpers
@@ -86,7 +90,7 @@ abstract class BTypesFromSymbols[G <: Global](val global: G) extends BTypes {
     if (global.settings.debug) {
       // OPT these assertions have too much performance overhead to run unconditionally
       assertClassNotArrayNotPrimitive(classSym)
-      assert(!primitiveTypeToBType.contains(classSym) || isCompilingPrimitive, s"Cannot create ClassBType for primitive class symbol $classSym")
+      assert(!primitiveTypeToBType.contains(classSym) || isCompilingPrimitive(classSym), s"Cannot create ClassBType for primitive class symbol $classSym")
     }
 
     if (classSym == NothingClass) srNothingRef
@@ -163,7 +167,7 @@ abstract class BTypesFromSymbols[G <: Global](val global: G) extends BTypes {
      * signatures, e.g. `def apply(i: Int): T`. A TypeRef for T is replaced by ObjectRef.
      */
     def nonClassTypeRefToBType(sym: Symbol): ClassBType = {
-      assert(sym.isType && isCompilingArray, sym)
+      assert(sym.isType && isCompilingArray(sym), sym)
       ObjectRef
     }
 
@@ -180,7 +184,7 @@ abstract class BTypesFromSymbols[G <: Global](val global: G) extends BTypes {
 
       case tp =>
         warning(tp.typeSymbol.pos,
-          s"an unexpected type representation reached the compiler backend while compiling $currentUnit: $tp. " +
+          s"an unexpected type representation reached the compiler backend while compiling ${tp.typeSymbol.sourceFile.name}: $tp. " +
             "If possible, please file a bug on https://github.com/scala/bug/issues.")
 
         tp match {
@@ -197,12 +201,12 @@ abstract class BTypesFromSymbols[G <: Global](val global: G) extends BTypes {
 
   def assertClassNotArray(sym: Symbol): Unit = {
     assert(sym.isClass, sym)
-    assert(sym != definitions.ArrayClass || isCompilingArray, sym)
+    assert(sym != definitions.ArrayClass || isCompilingArray(sym), sym)
   }
 
   def assertClassNotArrayNotPrimitive(sym: Symbol): Unit = {
     assertClassNotArray(sym)
-    assert(!primitiveTypeToBType.contains(sym) || isCompilingPrimitive, sym)
+    assert(!primitiveTypeToBType.contains(sym) || isCompilingPrimitive(sym), sym)
   }
 
   def implementedInterfaces(classSym: Symbol): List[Symbol] = {
@@ -310,7 +314,7 @@ abstract class BTypesFromSymbols[G <: Global](val global: G) extends BTypes {
         superClassSym == ObjectClass
       else
         // A ClassBType for a primitive class (scala.Boolean et al) is only created when compiling these classes.
-        ((superClassSym != NoSymbol) && !superClassSym.isInterface) || (isCompilingPrimitive && primitiveTypeToBType.contains(classSym)),
+        ((superClassSym != NoSymbol) && !superClassSym.isInterface) || (isCompilingPrimitive(classSym) && primitiveTypeToBType.contains(classSym)),
       s"Bad superClass for $classSym: $superClassSym"
     )
     val superClass = if (superClassSym == NoSymbol) None

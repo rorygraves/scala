@@ -258,7 +258,7 @@ abstract class BCodeSkelBuilder extends BCodeHelpers {
     // line numbers
     var lastEmittedLineNr          = -1
 
-    object bc extends JCodeMethodN {
+    object bc extends JCodeMethodN(cunit) {
       override def jmethod = PlainSkelBuilder.this.mnode
     }
 

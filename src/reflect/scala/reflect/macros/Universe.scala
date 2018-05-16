@@ -452,10 +452,6 @@ abstract class Universe extends scala.reflect.api.Universe {
    */
   @deprecated("c.enclosingTree-style APIs are now deprecated; consult the scaladoc for more information", "2.11.0")
   trait RunContextApi {
-    /** Currently processed unit of work (a real or a virtual file). */
-    @deprecated("c.enclosingTree-style APIs are now deprecated; consult the scaladoc for more information", "2.11.0")
-    def currentUnit: CompilationUnit
-
     /** All units of work comprising this compilation run. */
     @deprecated("c.enclosingTree-style APIs are now deprecated; consult the scaladoc for more information", "2.11.0")
     def units: Iterator[CompilationUnit]

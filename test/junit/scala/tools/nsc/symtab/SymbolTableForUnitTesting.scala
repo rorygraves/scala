@@ -109,8 +109,6 @@ class SymbolTableForUnitTesting extends SymbolTable {
     val global: SymbolTableForUnitTesting.this.type = SymbolTableForUnitTesting.this
   }
 
-  val currentFreshNameCreator = new reflect.internal.util.FreshNameCreator
-
   phase = SomePhase
 
   type RuntimeClass = java.lang.Class[_]

@@ -643,7 +643,7 @@ abstract class BTypes {
       assert(!ClassBType.isInternalPhantomType(internalName), s"Cannot create ClassBType for phantom type $this")
 
       assert(
-        if (info.get.superClass.isEmpty) { isJLO(this) || (isCompilingPrimitive && ClassBType.hasNoSuper(internalName)) }
+        if (info.get.superClass.isEmpty) { isJLO(this) || (isCompilingPrimitive(internalName) && ClassBType.hasNoSuper(internalName)) }
         else if (isInterface.get) isJLO(info.get.superClass.get)
         else !isJLO(this) && ifInit(info.get.superClass.get)(!_.isInterface.get),
         s"Invalid superClass in $this: ${info.get.superClass}"
@@ -909,7 +909,7 @@ abstract class BTypes {
    * True if the current compilation unit is of a primitive class (scala.Boolean et al).
    * Used only in assertions. Abstract here because its implementation depends on global.
    */
-  def isCompilingPrimitive: Boolean
+  def isCompilingPrimitive(name: String): Boolean
 
   // The [[Lazy]] and [[LazyVar]] classes would conceptually be better placed within
   // PostProcessorFrontendAccess (they may access the `frontendLock` defined in that class). However,

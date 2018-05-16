@@ -244,8 +244,10 @@ abstract class Constructors extends Statics with Transform with TypingTransforme
    *
    * */
   private trait DelayedInitHelper extends ConstructorTransformerBase {
+    self: TemplateTransformer =>
+
     private def delayedEndpointDef(stats: List[Tree]): DefDef = {
-      val methodName = currentUnit.freshTermName("delayedEndpoint$" + clazz.fullNameAsName('$').toString + "$")
+      val methodName = self.unit.freshTermName("delayedEndpoint$" + clazz.fullNameAsName('$').toString + "$")
       val methodSym  = clazz.newMethod(methodName, impl.pos, SYNTHETIC | FINAL)
       methodSym setInfoAndEnter MethodType(Nil, UnitTpe)
 

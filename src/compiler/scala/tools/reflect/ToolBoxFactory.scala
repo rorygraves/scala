@@ -11,6 +11,7 @@ import scala.reflect.internal.Flags._
 import scala.reflect.internal.util.NoSourceFile
 import java.lang.{Class => jClass}
 import java.lang.System.{lineSeparator => EOL}
+
 import scala.reflect.NameTransformer
 import scala.reflect.api.JavaUniverse
 import scala.reflect.io.NoAbstractFile
@@ -58,9 +59,7 @@ abstract class ToolBoxFactory[U <: JavaUniverse](val u: U) { factorySelf =>
       def cleanupCaches(): Unit = {
         perRunCaches.clearAll()
         undoLog.clear()
-        analyzer.lastTreeToTyper = EmptyTree
-        lastSeenSourceFile = NoSourceFile
-        lastSeenContext = analyzer.NoContext
+        analyzer.clear()
       }
 
       def verify(expr: Tree): Tree = {

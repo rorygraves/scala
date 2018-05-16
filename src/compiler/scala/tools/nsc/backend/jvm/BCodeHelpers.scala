@@ -248,7 +248,7 @@ abstract class BCodeHelpers extends BCodeIdiomatic {
     /*
      * must-single-thread
      */
-    def apply(sym: Symbol, csymCompUnit: CompilationUnit): Boolean = {
+    def apply(sym: Symbol): Boolean = {
       def fail(msg: String, pos: Position = sym.pos) = {
         reporter.warning(sym.pos,
           sym.name +

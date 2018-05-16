@@ -1629,7 +1629,7 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
           //         in this source file. See `ImplicitSearch#isValid` and `ImplicitInfo#isCyclicOrErroneous`.
           val dummy = context.outer.owner.newLocalDummy(context.owner.pos)
           val cscope = context.outer.makeNewScope(ctor, dummy)
-          if (dummy.isTopLevel) currentRun.symSource(dummy) = currentUnit.source.file
+          if (dummy.isTopLevel) currentRun.symSource(dummy) = context.unit.source.file
           val cbody2 = { // called both during completion AND typing.
             val typer1 = newTyper(cscope)
             // XXX: see about using the class's symbol....
@@ -3486,7 +3486,7 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
           val args1 = typedArgs(args, forArgMode(fun, mode))
           val pts = args1.map(_.tpe.deconst)
           val clone = fun.symbol.cloneSymbol.withoutAnnotations
-          val cloneParams = pts map (pt => clone.newValueParameter(currentUnit.freshTermName()).setInfo(pt))
+          val cloneParams = pts map (pt => clone.newValueParameter(context.unit.freshTermName()).setInfo(pt))
           val resultType = if (isFullyDefined(pt)) pt else ObjectTpe
           clone.modifyInfo(mt => copyMethodType(mt, cloneParams, resultType))
           val fun1 = fun.setSymbol(clone).setType(clone.info)

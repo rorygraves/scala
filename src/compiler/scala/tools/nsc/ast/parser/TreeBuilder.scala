@@ -17,11 +17,10 @@ abstract class TreeBuilder {
   import global._
 
   def unit: CompilationUnit
-  def source: SourceFile
 
   implicit def fresh: FreshNameCreator              = unit.fresh
-  def o2p(offset: Int): Position                    = Position.offset(source, offset)
-  def r2p(start: Int, mid: Int, end: Int): Position = rangePos(source, start, mid, end)
+  def o2p(offset: Int): Position                    = Position.offset(unit.source, offset)
+  def r2p(start: Int, mid: Int, end: Int): Position = rangePos(unit.source, start, mid, end)
 
   def rootScalaDot(name: Name) = gen.rootScalaDot(name)
   def scalaDot(name: Name)     = gen.scalaDot(name)
