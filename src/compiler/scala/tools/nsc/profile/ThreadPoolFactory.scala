@@ -4,6 +4,7 @@ import java.util.concurrent.ThreadPoolExecutor.AbortPolicy
 import java.util.concurrent._
 import java.util.concurrent.atomic.AtomicInteger
 
+import scala.reflect.internal.util.Parallel.WorkerThread
 import scala.tools.nsc.{Global, Phase}
 
 sealed trait ThreadPoolFactory {
@@ -47,7 +48,7 @@ object ThreadPoolFactory {
       // the thread pool and executes them (on the thread created here).
       override def newThread(worker: Runnable): Thread = {
         val wrapped = wrapWorker(worker, shortId)
-        val t: Thread = new Thread(group, wrapped, namePrefix + threadNumber.getAndIncrement, 0)
+        val t: Thread = new WorkerThread(group, wrapped, namePrefix + threadNumber.getAndIncrement, 0)
         if (t.isDaemon != daemon) t.setDaemon(daemon)
         if (t.getPriority != priority) t.setPriority(priority)
         t
