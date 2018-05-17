@@ -10,10 +10,11 @@ package nsc
 import java.io.{File, FileNotFoundException, IOException}
 import java.net.URL
 import java.nio.charset.{Charset, CharsetDecoder, IllegalCharsetNameException, UnsupportedCharsetException}
+
 import scala.collection.{immutable, mutable}
 import io.{AbstractFile, Path, SourceReader}
-import reporters.Reporter
-import util.{ClassPath, returning}
+import reporters.{Reporter, StoreReporter}
+import util.{ClassPath, ThreadIdentityAwareThreadLocal, returning}
 import scala.reflect.ClassTag
 import scala.reflect.internal.util.{BatchSourceFile, NoSourceFile, ScalaClassLoader, ScriptSourceFile, SourceFile, StatisticsStatics}
 import scala.reflect.internal.pickling.PickleBuffer
@@ -26,12 +27,13 @@ import typechecker._
 import transform.patmat.PatternMatching
 import transform._
 import backend.{JavaPlatform, ScalaPrimitives}
-import backend.jvm.{GenBCode, BackendStats}
-import scala.concurrent.Future
+import backend.jvm.{BackendStats, GenBCode}
+import scala.concurrent.duration.Duration
+import scala.concurrent._
 import scala.language.postfixOps
 import scala.tools.nsc.ast.{TreeGen => AstTreeGen}
 import scala.tools.nsc.classpath._
-import scala.tools.nsc.profile.Profiler
+import scala.tools.nsc.profile.{Profiler, ThreadPoolFactory}
 
 class Global(var currentSettings: Settings, reporter0: Reporter)
     extends SymbolTable
@@ -75,16 +77,18 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
 
   override def settings = currentSettings
 
-  private[this] var currentReporter: Reporter = { reporter = reporter0 ; currentReporter }
+  private[this] val currentReporter: ThreadIdentityAwareThreadLocal[Reporter] =
+    ThreadIdentityAwareThreadLocal(new StoreReporter, reporter0)
 
-  def reporter: Reporter = currentReporter
+  def reporter: Reporter = { reporter = reporter0 ; currentReporter.get }
+
   def reporter_=(newReporter: Reporter): Unit =
-    currentReporter = newReporter match {
+    currentReporter.set(newReporter match {
       case _: reporters.ConsoleReporter | _: reporters.LimitingReporter => newReporter
       case _ if settings.maxerrs.isSetByUser && settings.maxerrs.value < settings.maxerrs.default =>
         new reporters.LimitingReporter(settings, newReporter)
       case _ => newReporter
-    }
+    })
 
   /** Switch to turn on detailed type logs */
   var printTypings = settings.Ytyperdebug.value
@@ -385,45 +389,76 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
   abstract class GlobalPhase(prev: Phase) extends Phase(prev) {
     phaseWithId(id) = this
 
-    def run(): Unit = {
-      echoPhaseSummary(this)
-      currentRun.units foreach applyPhase
-    }
-
     def apply(unit: CompilationUnit): Unit
 
+    def run() {
+      assertOnMainThread()
+      echoPhaseSummary(this)
+      Await.result(Future.sequence(currentRun.units map processUnit), Duration.Inf)
+    }
+
+    final def applyPhase(unit: CompilationUnit): Unit = Await.result(processUnit(unit), Duration.Inf)
+
+    implicit val ec: ExecutionContext = {
+      val threadPoolFactory = ThreadPoolFactory(Global.this, this)
+      val javaExecutor = threadPoolFactory.newUnboundedQueueFixedThreadPool(parallelThreads, "worker")
+      scala.concurrent.ExecutionContext.fromExecutorService(javaExecutor, (_) => ())
+    }
+
+    private def processUnit(unit: CompilationUnit)(implicit ec: ExecutionContext): Future[Unit] = {
+      if (settings.debug && (settings.verbose || currentRun.size < 5))
+        inform("[running phase " + name + " on " + unit + "]")
+
+      def runWithCurrentUnit(): Unit = {
+        val unit0 = currentUnit
+
+        try {
+          if ((unit ne null) && unit.exists) lastSeenSourceFile = unit.source
+          currentRun.currentUnit = unit
+          apply(unit)
+        } finally {
+          currentRun.currentUnit = unit0
+          currentRun.advanceUnit()
+
+          // If we are on main thread it means there are no worker threads at all.
+          // That in turn means we were already using main reporter all the time, so there is nothing more to do.
+          // Otherwise we have to forward messages from worker thread reporter to main one.
+          reporter match {
+            case rep: StoreReporter =>
+              val mainReporter = currentReporter.main
+              mainReporter.synchronized {
+                rep.infos.foreach { info =>
+                  info.severity.toString match {
+                    case "INFO" => mainReporter.info(info.pos, info.msg, force = false)
+                    case "WARNING" => mainReporter.warning(info.pos, info.msg)
+                    case "ERROR" => mainReporter.error(info.pos, info.msg)
+                  }
+                }
+              }
+            case _ =>
+          }
+        }
+      }
+
+      if (cancelled(unit)) Future.successful(())
+      else if (isParallel) Future(runWithCurrentUnit())
+      else Future.fromTry(scala.util.Try(runWithCurrentUnit()))
+    }
+
+    private def parallelThreads = settings.YparallelThreads.value
+
+    private def isParallel = settings.YparallelPhases.containsPhase(this)
+
     /** Is current phase cancelled on this unit? */
-    def cancelled(unit: CompilationUnit) = {
+    private def cancelled(unit: CompilationUnit) = {
       // run the typer only if in `createJavadoc` mode
       val maxJavaPhase = if (createJavadoc) currentRun.typerPhase.id else currentRun.namerPhase.id
       reporter.cancelled || unit.isJava && this.id > maxJavaPhase
     }
 
-    final def withCurrentUnit(unit: CompilationUnit)(task: => Unit): Unit = {
-      if ((unit ne null) && unit.exists)
-        lastSeenSourceFile = unit.source
-
-      if (settings.debug && (settings.verbose || currentRun.size < 5))
-        inform("[running phase " + name + " on " + unit + "]")
-      if (!cancelled(unit)) {
-        currentRun.informUnitStarting(this, unit)
-        try withCurrentUnitNoLog(unit)(task)
-        finally currentRun.advanceUnit()
-      }
+    private def assertOnMainThread(): Unit = {
+      assert("main".equals(Thread.currentThread().getName), "")
     }
-
-    final def withCurrentUnitNoLog(unit: CompilationUnit)(task: => Unit): Unit = {
-      val unit0 = currentUnit
-      try {
-        currentRun.currentUnit = unit
-        task
-      } finally {
-        //assert(currentUnit == unit)
-        currentRun.currentUnit = unit0
-      }
-    }
-
-    final def applyPhase(unit: CompilationUnit) = withCurrentUnit(unit)(apply(unit))
   }
 
   // phaseName = "parser"
