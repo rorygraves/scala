@@ -6,6 +6,8 @@ package scala
 package reflect
 package api
 
+import scala.reflect.runtime.ThreadIdentityAwareThreadLocal
+
 /**
  * <span class="badge badge-red" style="float: right;">EXPERIMENTAL</span>
  *
@@ -49,8 +51,7 @@ package api
  *  @groupprio Factories 1
  *  @groupname Copying   Tree Copying
  *  @groupprio Copying   1
- *
- *  @contentDiagram hideNodes "*Api"
+  *  @contentDiagram hideNodes "*Api"
  *  @group ReflectionAPI
  */
 trait Trees { self: Universe =>
@@ -2463,7 +2464,9 @@ trait Trees { self: Universe =>
    *  @group Traversal
    */
   class Traverser {
-    protected[scala] var currentOwner: Symbol = rootMirror.RootClass
+    protected[scala] def currentOwner: Symbol = _currentOwner.get
+    protected[scala] def currentOwner_=(sym: Symbol): Unit = _currentOwner.set(sym)
+    private val _currentOwner: ThreadIdentityAwareThreadLocal[Symbol] = ThreadIdentityAwareThreadLocal[Symbol](rootMirror.RootClass)
 
     /** Traverse something which Trees contain, but which isn't a Tree itself. */
     def traverseName(name: Name): Unit                    = ()
@@ -2535,7 +2538,9 @@ trait Trees { self: Universe =>
     val treeCopy: TreeCopier = newLazyTreeCopier
 
     /** The current owner symbol. */
-    protected[scala] var currentOwner: Symbol = rootMirror.RootClass
+    protected[scala] def currentOwner: Symbol = _currentOwner.get
+    protected[scala] def currentOwner_=(sym: Symbol): Unit = _currentOwner.set(sym)
+    private val _currentOwner: ThreadIdentityAwareThreadLocal[Symbol] = ThreadIdentityAwareThreadLocal[Symbol](rootMirror.RootClass)
 
     /** The enclosing method of the currently transformed tree. */
     protected def currentMethod = {

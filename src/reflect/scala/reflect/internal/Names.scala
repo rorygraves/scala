@@ -27,7 +27,7 @@ trait Names extends api.Names {
   // detect performance regressions.
   //
   // Discussion: https://groups.google.com/forum/#!search/biased$20scala-internals/scala-internals/0cYB7SkJ-nM/47MLhsgw8jwJ
-  protected def synchronizeNames: Boolean = false
+  protected def synchronizeNames: Boolean = true
   private val nameLock: Object = new Object
 
   /** Memory to store all names sequentially. */
