@@ -10,6 +10,7 @@ package nsc
 import java.io.{File, FileNotFoundException, IOException}
 import java.net.URL
 import java.nio.charset.{Charset, CharsetDecoder, IllegalCharsetNameException, UnsupportedCharsetException}
+import java.util.concurrent.atomic.AtomicInteger
 
 import scala.collection.{immutable, mutable}
 import io.{AbstractFile, Path, SourceReader}
@@ -410,6 +411,8 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
         inform("[running phase " + name + " on " + unit + "]")
 
       def runWithCurrentUnit(): Unit = {
+        val threadName = Thread.currentThread().getName
+        if (!threadName.contains("worker")) Thread.currentThread().setName(s"$threadName-worker")
         val unit0 = currentUnit
 
         try {
@@ -419,6 +422,7 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
         } finally {
           currentRun.currentUnit = unit0
           currentRun.advanceUnit()
+          Thread.currentThread().setName(threadName)
 
           // If we are on main thread it means there are no worker threads at all.
           // That in turn means we were already using main reporter all the time, so there is nothing more to do.
@@ -443,6 +447,10 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
       if (cancelled(unit)) Future.successful(())
       else if (isParallel) Future(runWithCurrentUnit())
       else Future.fromTry(scala.util.Try(runWithCurrentUnit()))
+    }
+
+    private def adjustWorkerThreadName(): Unit = {
+      val currentThreadName = Thread.currentThread().getName
     }
 
     private def parallelThreads = settings.YparallelThreads.value
@@ -988,7 +996,9 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
    *  of what file was being compiled when it broke.  Since I really
    *  really want to know, this hack.
    */
-  protected var lastSeenSourceFile: SourceFile = NoSourceFile
+  protected var _lastSeenSourceFile: ThreadIdentityAwareThreadLocal[SourceFile] = ThreadIdentityAwareThreadLocal(NoSourceFile)
+  @inline protected def lastSeenSourceFile: SourceFile = _lastSeenSourceFile.get
+  @inline protected def lastSeenSourceFile_=(source: SourceFile): Unit = _lastSeenSourceFile.set(source)
 
   /** Let's share a lot more about why we crash all over the place.
    *  People will be very grateful.
@@ -1125,7 +1135,9 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
      */
     var isDefined = false
     /** The currently compiled unit; set from GlobalPhase */
-    var currentUnit: CompilationUnit = NoCompilationUnit
+    private final val _currentUnit: ThreadIdentityAwareThreadLocal[CompilationUnit] = ThreadIdentityAwareThreadLocal(NoCompilationUnit, NoCompilationUnit)
+    def currentUnit: CompilationUnit = _currentUnit.get
+    def currentUnit_=(unit: CompilationUnit): Unit = _currentUnit.set(unit)
 
     val profiler: Profiler = Profiler(settings)
     keepPhaseStack = settings.log.isSetByUser
@@ -1163,8 +1175,8 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
     /** A map from compiled top-level symbols to their picklers */
     val symData = new mutable.AnyRefMap[Symbol, PickleBuffer]
 
-    private var phasec: Int  = 0   // phases completed
-    private var unitc: Int   = 0   // units completed this phase
+    private var phasec: Int = 0                                     // phases completed
+    private final val unitc: AtomicInteger = new AtomicInteger(0)   // units completed this phase
 
     def size = unitbuf.size
     override def toString = "scalac Run for:\n  " + compiledFiles.toList.sorted.mkString("\n  ")
@@ -1285,7 +1297,7 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
      *  (for progress reporting)
      */
     def advancePhase(): Unit = {
-      unitc = 0
+      unitc.set(0)
       phasec += 1
       refreshProgress()
     }
@@ -1293,14 +1305,14 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
      *  (for progress reporting)
      */
     def advanceUnit(): Unit = {
-      unitc += 1
+      unitc.incrementAndGet()
       refreshProgress()
     }
 
     // for sbt
     def cancel(): Unit = { reporter.cancelled = true }
 
-    private def currentProgress   = (phasec * size) + unitc
+    private def currentProgress   = (phasec * size) + unitc.get()
     private def totalProgress     = (phaseDescriptors.size - 1) * size // -1: drops terminal phase
     private def refreshProgress() = if (size > 0) progress(currentProgress, totalProgress)
 
