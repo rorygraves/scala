@@ -79,6 +79,8 @@ import util.Position
 abstract class Reporter {
   protected def info0(pos: Position, msg: String, severity: Severity, force: Boolean): Unit
 
+  def infoRaw(pos: Position, msg: String, severity: Severity, force: Boolean): Unit = info0(pos, msg, severity, force)
+
   def echo(pos: Position, msg: String): Unit    = info0(pos, msg, INFO, force = true)
   def warning(pos: Position, msg: String): Unit = info0(pos, msg, WARNING, force = false)
   def error(pos: Position, msg: String): Unit   = info0(pos, msg, ERROR, force = false)
