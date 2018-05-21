@@ -410,13 +410,16 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
       if (isDebugPrintEnabled) inform("[running phase " + name + " on " + currentRun.size +  " compilation units]")
 
       implicit val ec: ExecutionContextExecutorService = createExecutionContext()
+
+      def task(unit: CompilationUnit): Reporter = {
+        processUnit(unit)
+        afterUnit(unit)
+        reporter
+      }
+
       val futures = currentRun.units.collect {
         case unit if !cancelled(unit) =>
-          Future {
-            processUnit(unit)
-            afterUnit(unit)
-            reporter
-          }
+          if(isParallel) Future(task(unit)) else Future.fromTry(scala.util.Try(asWorkerThread(task(unit))))
       }
 
       futures.foreach { future =>
@@ -452,8 +455,9 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
     /* Only output a summary message under debug if we aren't echoing each file. */
     private def isDebugPrintEnabled: Boolean = settings.debug && !(settings.verbose || currentRun.size < 5)
 
+    private def isParallel = settings.YparallelPhases.containsPhase(this)
+
     private def createExecutionContext(): ExecutionContextExecutorService = {
-      val isParallel = settings.YparallelPhases.containsPhase(this)
       val parallelThreads = if (isParallel) settings.YparallelThreads.value else 1
       val threadPoolFactory = ThreadPoolFactory(Global.this, this)
       val javaExecutor = threadPoolFactory.newUnboundedQueueFixedThreadPool(parallelThreads, "worker")
