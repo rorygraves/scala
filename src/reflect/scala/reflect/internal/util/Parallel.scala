@@ -37,7 +37,6 @@ object Parallel {
     }
   }
 
-
   // `WorkerThreadLocal` allows us to detect some value to be read/write on the main thread,
   // and we want to discover violations of that rule.
   class WorkerThreadLocal[T](valueOnWorker: => T)
@@ -69,6 +68,18 @@ object Parallel {
   }
 
   def isWorkerThread: Boolean = {
-    Thread.currentThread.isInstanceOf[WorkerThread]
+    Thread.currentThread.isInstanceOf[WorkerThread] || isWorker.get()
   }
+
+  // This needs to be a ThreadLocal to support parallel compilation
+  val isWorker: ThreadLocal[Boolean] = new ThreadLocal[Boolean] {
+    override def initialValue(): Boolean = false
+  }
+
+  @inline def asWorkerThread[T](fn: => T): T = {
+    assertOnMain()
+    isWorker.set(true)
+    try fn finally isWorker.set(false)
+  }
+
 }
