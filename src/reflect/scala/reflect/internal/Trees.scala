@@ -7,17 +7,16 @@ package scala
 package reflect
 package internal
 
-import java.util.concurrent.atomic.AtomicInteger
-
 import Flags._
 import scala.collection.mutable
+import scala.reflect.internal.util.Parallel.Counter
 import scala.reflect.macros.Attachments
 import util.{Statistics, StatisticsStatics}
 
 trait Trees extends api.Trees {
   self: SymbolTable =>
 
-  private[scala] final val nodeCount: AtomicInteger = new AtomicInteger(0)
+  private[scala] final val nodeCount: Counter = new Counter
 
   protected def treeLine(t: Tree): String =
     if (t.pos.isDefined && t.pos.isRange) t.pos.lineContent.drop(t.pos.column - 1).take(t.pos.end - t.pos.start + 1)
