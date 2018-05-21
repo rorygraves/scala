@@ -66,11 +66,11 @@ abstract class GenBCode extends SubComponent {
 
     def apply(unit: CompilationUnit): Unit = codeGen.genUnit(unit)
 
-    override def run(): Unit = {
+    override def wrapRun(code: => Unit): Unit = {
       statistics.timed(bcodeTimer) {
         try {
           initialize()
-          super.run() // invokes `apply` for each compilation unit
+          code // invokes `apply` for each compilation unit
           generatedClassHandler.complete()
         } finally {
           this.close()

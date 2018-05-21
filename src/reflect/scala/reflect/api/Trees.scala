@@ -6,7 +6,7 @@ package scala
 package reflect
 package api
 
-import scala.reflect.runtime.ThreadIdentityAwareThreadLocal
+import scala.reflect.internal.util.Parallel.WorkerThreadLocal
 
 /**
  * <span class="badge badge-red" style="float: right;">EXPERIMENTAL</span>
@@ -2464,9 +2464,9 @@ trait Trees { self: Universe =>
    *  @group Traversal
    */
   class Traverser {
-    protected[scala] def currentOwner: Symbol = _currentOwner.get
-    protected[scala] def currentOwner_=(sym: Symbol): Unit = _currentOwner.set(sym)
-    private val _currentOwner: ThreadIdentityAwareThreadLocal[Symbol] = ThreadIdentityAwareThreadLocal[Symbol](rootMirror.RootClass)
+    @inline final protected[scala] def currentOwner: Symbol = _currentOwner.get
+    @inline final protected[scala] def currentOwner_=(sym: Symbol): Unit = _currentOwner.set(sym)
+    private final val _currentOwner: WorkerThreadLocal[Symbol] = WorkerThreadLocal(rootMirror.RootClass)
 
     /** Traverse something which Trees contain, but which isn't a Tree itself. */
     def traverseName(name: Name): Unit                    = ()
@@ -2538,9 +2538,9 @@ trait Trees { self: Universe =>
     val treeCopy: TreeCopier = newLazyTreeCopier
 
     /** The current owner symbol. */
-    protected[scala] def currentOwner: Symbol = _currentOwner.get
-    protected[scala] def currentOwner_=(sym: Symbol): Unit = _currentOwner.set(sym)
-    private val _currentOwner: ThreadIdentityAwareThreadLocal[Symbol] = ThreadIdentityAwareThreadLocal[Symbol](rootMirror.RootClass)
+    @inline protected[scala] final def currentOwner: Symbol = _currentOwner.get
+    @inline protected[scala] final def currentOwner_=(sym: Symbol): Unit = _currentOwner.set(sym)
+    private final val _currentOwner: WorkerThreadLocal[Symbol] = WorkerThreadLocal(rootMirror.RootClass)
 
     /** The enclosing method of the currently transformed tree. */
     protected def currentMethod = {

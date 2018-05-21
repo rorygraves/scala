@@ -198,8 +198,9 @@ abstract class SpecializeTypes extends InfoTransform with TypingTransformers {
   override def newPhase(prev: scala.tools.nsc.Phase): StdPhase = new SpecializationPhase(prev)
   class SpecializationPhase(prev: scala.tools.nsc.Phase) extends super.Phase(prev) {
     override def checkable = false
-    override def run(): Unit = {
-      super.run()
+    override def wrapRun(code: => Unit): Unit = {
+      code
+
       exitingSpecialize {
         FunctionClass.seq.map(_.info)
         TupleClass.seq.map(_.info)
