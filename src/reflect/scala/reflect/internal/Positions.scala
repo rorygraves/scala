@@ -114,6 +114,7 @@ trait Positions extends api.Positions { self: SymbolTable =>
             inform("%15s %s".format("enclosing", treeStatus(encltree)))
             encltree.children foreach (t => inform("%15s %s".format("sibling", treeStatus(t, encltree))))
           }
+        val childSolidDescendants = tree.children flatMap solidDescendants
         if (tree.pos.isRange) {
           if (!encltree.pos.isRange)
             positionError("Synthetic tree ["+encltree.id+"] contains nonsynthetic tree ["+tree.id+"]") {
@@ -126,7 +127,7 @@ trait Positions extends api.Positions { self: SymbolTable =>
               reportTree("Enclosed", tree)
             }
 
-          findOverlapping(tree.children flatMap solidDescendants) match {
+          findOverlapping(childSolidDescendants) match {
             case List() => ;
             case xs => {
               positionError("Overlapping trees "+xs.map { case (x, y) => (x.id, y.id) }.mkString("", ", ", "")) {
@@ -139,7 +140,7 @@ trait Positions extends api.Positions { self: SymbolTable =>
             }
           }
         }
-        for (ct <- tree.children flatMap solidDescendants) validate(ct, tree)
+        for (ct <- childSolidDescendants) validate(ct, tree)
       }
     }
 
@@ -158,10 +159,10 @@ trait Positions extends api.Positions { self: SymbolTable =>
   /** The maximal free range */
   private lazy val maxFree: Range = free(0, Int.MaxValue)
 
-  /** A singleton list of a non-empty range from `lo` to `hi`, or else the empty List */
-  private def maybeFree(lo: Int, hi: Int) =
-    if (lo < hi) List(free(lo, hi))
-    else List()
+  /** Adds a singleton list of a non-empty range from `lo` to `hi`, or else the empty List */
+  private def addMaybeFree(lo: Int, hi: Int, tail: List[Range]) =
+    if (lo < hi) free(lo, hi) :: tail
+    else tail
 
   /** Insert `pos` into ranges `rs` if possible;
    *  otherwise add conflicting trees to `conflicting`.
@@ -174,7 +175,7 @@ trait Positions extends api.Positions { self: SymbolTable =>
       assert(!t.pos.isTransparent)
       if (r.isFree && (r.pos includes t.pos)) {
 //      inform("subdividing "+r+"/"+t.pos)
-        maybeFree(t.pos.end, r.pos.end) ::: List(Range(t.pos, t)) ::: maybeFree(r.pos.start, t.pos.start) ::: rs1
+        addMaybeFree(t.pos.end, r.pos.end, Range(t.pos, t) :: addMaybeFree(r.pos.start, t.pos.start, rs1) )
       } else {
         if (!r.isFree && (r.pos overlaps t.pos)) conflicting += r.tree
         r :: insert(rs1, t, conflicting)
@@ -190,10 +191,14 @@ trait Positions extends api.Positions { self: SymbolTable =>
    *  pre: None of the trees is transparent
    */
   def findOverlapping(cts: List[Tree]): List[(Tree, Tree)] = {
-    var ranges = List(maxFree)
+    var ranges: List[Range] = null
+    var conflicting: ListBuffer[Tree] = null
     for (ct <- cts) {
       if (ct.pos.isOpaqueRange) {
-        val conflicting = new ListBuffer[Tree]
+        if (ranges eq null) {
+          conflicting = new ListBuffer[Tree]
+          ranges = maxFree :: Nil
+        }
         ranges = insert(ranges, ct, conflicting)
         if (conflicting.nonEmpty) return conflicting.toList map (t => (t, ct))
       }
