@@ -17,7 +17,7 @@ final class BufferedReporter extends Reporter {
     val sev = Array(reporter.INFO, reporter.WARNING, reporter.ERROR)
     buffered.reverse.foreach {
       msg =>
-        reporter.info1(msg.pos, msg.msg, sev(msg.severity.id), msg.force)
+        reporter.info(msg.pos, msg.msg, sev(msg.severity.id), msg.force)
     }
     buffered = Nil
   }
