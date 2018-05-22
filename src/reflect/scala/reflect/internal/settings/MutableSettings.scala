@@ -21,10 +21,17 @@ abstract class MutableSettings extends AbsSettings {
   trait SettingValue extends AbsSettingValue {
     protected var v: T
     protected var setByUser: Boolean = false
+    var count_setByUser = 0
 
     def postSetHook(): Unit = ()
-    def isDefault = !setByUser
-    def isSetByUser = setByUser
+    def isDefault = {
+      count_setByUser += 1
+      !setByUser
+    }
+    def isSetByUser = {
+      count_setByUser += 1
+      setByUser
+    }
     def value: T = v
     def value_=(arg: T) = {
       setByUser = true
@@ -70,6 +77,7 @@ abstract class MutableSettings extends AbsSettings {
 }
 
 object MutableSettings {
+
   import scala.language.implicitConversions
   /** Support the common use case, `if (settings.debug) println("Hello, martin.")` */
   @inline implicit def reflectSettingToBoolean(s: MutableSettings#BooleanSetting): Boolean = s.value

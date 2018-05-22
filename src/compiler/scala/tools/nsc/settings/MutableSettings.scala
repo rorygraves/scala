@@ -356,11 +356,61 @@ class MutableSettings(val errorFn: String => Unit)
       }
     }
   }
+  def clearCounts() = {
+    allSettingsCounts.values.foreach {
+      setting =>
+        setting.count_value = 0
+        setting.count_setByUser = 0
+        setting match {
+          case s : BooleanSetting =>
+          case s : StringSetting =>
+          case s : ChoiceSetting =>
+          case s : ScalaVersionSetting =>
+          case s : IntSetting =>
+          case s : PrefixSetting =>
+          case s : MultiChoiceSetting[_] =>
+            s.count_contains = 0
+          case s : MultiStringSetting =>
+            s.count_contains = 0
+          case s : PhasesSetting =>
+            s.count_doAllPhases = 0
+            s.count_contains = 0
+            s.count_allValue = 0
+            s.count_containsId = 0
+            s.count_containsName = 0
+            s.count_containsPhase = 0
+        }
+    }
+  }
+  def displayCount(phase:Phase, runId:Int) = {
+    allSettingsCounts.values.foreach {
+      setting =>
+        var res = s"###,runId,${runId},${phase.name},'${setting.getClass.getSimpleName},${setting.name},value ${setting.count_value},setByUser ${setting.count_setByUser},"
+        setting match {
+          case s : BooleanSetting =>
+          case s : StringSetting =>
+          case s : ChoiceSetting =>
+          case s : ScalaVersionSetting =>
+          case s : IntSetting =>
+          case s : PrefixSetting =>
+          case s : MultiChoiceSetting[_] =>
+            res =  s"$res,contains ${s.count_contains}"
+          case s : MultiStringSetting =>
+            res =  s"$res,contains ${s.count_contains}"
+          case s : PhasesSetting =>
+            res =  s"$res,count_doAllPhases ${s.count_doAllPhases},count_contains ${s.count_contains},count_allValue ${s.count_allValue},count_containsId ${s.count_containsId},count_containsName ${s.count_containsName},count_containsPhase ${s.count_containsPhase}"
+        }
+        println(res)
+    }
+  }
+
+  lazy val allSettingsCounts = scala.collection.mutable.Map.empty[String, Setting]
 
   /** A base class for settings of all types.
    *  Subclasses each define a `value` field of the appropriate type.
    */
   abstract class Setting(val name: String, val helpDescription: String) extends AbsSetting with SettingValue with Mutable {
+    allSettingsCounts(name) = this
     /** Will be called after this Setting is set for any extra work. */
     private var _postSetHook: this.type => Unit = (x: this.type) => ()
     override def postSetHook(): Unit = _postSetHook(this)
@@ -384,6 +434,12 @@ class MutableSettings(val errorFn: String => Unit)
     private var _deprecationMessage: Option[String] = None
     override def deprecationMessage = _deprecationMessage
     def withDeprecationMessage(msg: String): this.type = { _deprecationMessage = Some(msg) ; this }
+
+    var count_value = 0
+    override def value: T = {
+      count_value += 1
+      super.value
+    }
   }
 
   /** A setting represented by an integer. */
@@ -396,7 +452,7 @@ class MutableSettings(val errorFn: String => Unit)
   extends Setting(name, descr) {
     type T = Int
     protected var v: Int = default
-    override def value: Int = v
+    override def value: Int = {super.value;v}
 
     // not stable values!
     val IntMin = Int.MinValue
@@ -454,7 +510,11 @@ class MutableSettings(val errorFn: String => Unit)
   extends Setting(name, descr) {
     type T = Boolean
     protected var v: Boolean = false
-    override def value: Boolean = v
+    override def value: Boolean = {
+      super.value
+      v
+    }
+
 
     def tryToSet(args: List[String]) = { value = true ; Some(args) }
     def unparse: List[String] = if (value) List(name) else Nil
@@ -757,7 +817,11 @@ class MutableSettings(val errorFn: String => Unit)
       Some(rest)
     }
 
-    def contains(choice: domain.Value): Boolean = value contains choice
+    var count_contains = 0
+    def contains(choice: domain.Value): Boolean = {
+      count_contains += 1
+      value contains choice
+    }
 
     // programmatically.
     def enable(choice: domain.Value): Unit = { nays -= choice ; yeas += choice ; compute() }
@@ -829,7 +893,11 @@ class MutableSettings(val errorFn: String => Unit)
 
     def clear(): Unit         = (v = Nil)
     def unparse: List[String] = value map (name + ":" + _)
-    def contains(s: String)   = value contains s
+    var count_contains = 0
+    def contains(s: String)   = {
+      count_contains += 1
+      value contains s
+    }
 
     override def isHelping: Boolean = sawHelp
 
@@ -919,7 +987,16 @@ class MutableSettings(val errorFn: String => Unit)
       _names = numsAndStrs._2
       _v     = t
     }
-    override def value = if (v contains "all") List("all") else super.value // i.e., v
+    var count_allValue = 0
+    var count_contains = 0
+    var count_containsName = 0
+    var count_containsId = 0
+    var count_containsPhase = 0
+    var count_doAllPhases = 0
+    override def value = if (v contains "all") {
+      count_allValue += 1
+      List("all")
+    } else super.value // i.e., v
     private def numericValues = _numbs
     private def stringValues  = _names
     private def phaseIdTest(i: Int): Boolean = numericValues exists (_ match {
@@ -942,12 +1019,12 @@ class MutableSettings(val errorFn: String => Unit)
 
     // we slightly abuse the usual meaning of "contains" here by returning
     // true if our phase list contains "all", regardless of the incoming argument
-    def contains(phName: String)     = doAllPhases || containsName(phName)
-    def containsName(phName: String) = stringValues exists (phName startsWith _)
-    def containsId(phaseId: Int)     = phaseIdTest(phaseId)
-    def containsPhase(ph: Phase)     = contains(ph.name) || containsId(ph.id)
+    def contains(phName: String)     = {count_contains += 1; doAllPhases || containsName(phName)}
+    def containsName(phName: String) = {count_containsName += 1; stringValues exists (phName startsWith _)}
+    def containsId(phaseId: Int)     = {count_containsId += 1; phaseIdTest(phaseId)}
+    def containsPhase(ph: Phase)     = {count_containsPhase += 1; contains(ph.name) || containsId(ph.id)}
 
-    def doAllPhases = stringValues contains "all"
+    def doAllPhases = {count_doAllPhases += 1;stringValues contains "all"}
     def unparse: List[String] = value map (name + ":" + _)
 
     withHelpSyntax(

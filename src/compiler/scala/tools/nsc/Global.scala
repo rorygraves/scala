@@ -10,6 +10,7 @@ package nsc
 import java.io.{File, FileNotFoundException, IOException}
 import java.net.URL
 import java.nio.charset.{Charset, CharsetDecoder, IllegalCharsetNameException, UnsupportedCharsetException}
+
 import scala.collection.{immutable, mutable}
 import io.{AbstractFile, Path, SourceReader}
 import reporters.Reporter
@@ -26,9 +27,11 @@ import typechecker._
 import transform.patmat.PatternMatching
 import transform._
 import backend.{JavaPlatform, ScalaPrimitives}
-import backend.jvm.{GenBCode, BackendStats}
+import backend.jvm.{BackendStats, GenBCode}
+import scala.collection.mutable.ListBuffer
 import scala.concurrent.Future
 import scala.language.postfixOps
+import scala.reflect.internal.settings.MutableSettings
 import scala.tools.nsc.ast.{TreeGen => AstTreeGen}
 import scala.tools.nsc.classpath._
 import scala.tools.nsc.profile.Profiler
@@ -396,9 +399,35 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
     phaseWithId(id) = this
 
     def run() {
+      assertOnMainThread()
+      val pending = new ListBuffer[(CompilationUnit, Future[Unit])]
+
+      @tailrec def runParallel(unit: CompilationUnit): Unit = {
+        try {
+          val task = Future(applyPhase(unit))
+          pending += ((unit, task))
+        } catch {
+          case CantScheduleAsFull =>
+            endPhase(pending.remove(0))
+            runParallel(unit)
+        }
+      }
+      def startPhase(unit: CompilationUnit) = {
+        if (parallel) runParallel(unit)
+        else endPhase(unit, Future.fromTry(scala.util.Try(apply(unit))))
+      }
+      def endPhase(unit: CompilationUnit, complete: Future[Unit]) = {
+        Await.result(complete, Duration.Inf)
+        process buffered data from CU
+      }
+
       echoPhaseSummary(this)
-      currentRun.units foreach applyPhase
+      currentRun.units foreach startPhase
+      pending foreach {
+        case ((unit, complete) => endPhase(unit, complete)
+      }
     }
+    def parallel = false
 
     def apply(unit: CompilationUnit): Unit
 
@@ -423,6 +452,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
     }
 
     final def withCurrentUnitNoLog(unit: CompilationUnit)(task: => Unit) {
+      assert (currentUnit eq null)
       val unit0 = currentUnit
       try {
         currentRun.currentUnit = unit
@@ -1443,6 +1473,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
       val timePhases = statistics.areStatisticsLocallyEnabled
       val startTotal = if (timePhases) statistics.startTimer(totalCompileTime) else null
 
+      settings.clearCounts()
       while (globalPhase.hasNext && !reporter.hasErrors) {
         phase = globalPhase
         val phaseTimer = if (timePhases) statistics.newSubTimer(s"  ${phase.name}", totalCompileTime) else null
@@ -1486,6 +1517,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
         if (settings.YstatisticsEnabled && settings.Ystatistics.contains(phase.name))
           printStatisticsFor(phase)
 
+        settings.displayCount(phase, curRunId)
         advancePhase()
       }
       profiler.finished()
