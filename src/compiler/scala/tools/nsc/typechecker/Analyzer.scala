@@ -91,9 +91,9 @@ trait Analyzer extends AnyRef
 
       override def afterUnit(unit: CompilationUnit): Unit = undoLog.clear()
 
-      override def wrapRun(code: => Unit): Unit = {
+      override def run(): Unit = {
         val start = if (StatisticsStatics.areSomeColdStatsEnabled) statistics.startTimer(statistics.typerNanos) else null
-        code
+        super.run()
         // defensive measure in case the bookkeeping in deferred macro expansion is buggy
         clearDelayed()
         if (StatisticsStatics.areSomeColdStatsEnabled) statistics.stopTimer(statistics.typerNanos, start)

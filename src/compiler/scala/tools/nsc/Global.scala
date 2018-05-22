@@ -10,6 +10,7 @@ package nsc
 import java.io.{File, FileNotFoundException, IOException}
 import java.net.URL
 import java.nio.charset.{Charset, CharsetDecoder, IllegalCharsetNameException, UnsupportedCharsetException}
+import java.util.concurrent.Executor
 
 import scala.collection.{immutable, mutable}
 import io.{AbstractFile, Path, SourceReader}
@@ -398,28 +399,22 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
       reporter.cancelled || unit.isJava && this.id > maxJavaPhase
     }
 
-    // Method added to allow stacking functionality on top of the`run` (e..g measuring run time).
-    // Overriding `run` is now not allowed since we want to be in charge of how units are processed.
-    def wrapRun(code: => Unit): Unit = code
-
     def afterUnit(unit: CompilationUnit): Unit = {}
 
-    final def run(): Unit = wrapRun {
+    def run(): Unit = {
       assertOnMain()
 
       if (isDebugPrintEnabled) inform("[running phase " + name + " on " + currentRun.size +  " compilation units]")
 
-      implicit val ec: ExecutionContextExecutorService = createExecutionContext()
-
-      def task(unit: CompilationUnit): Reporter = {
-        processUnit(unit)
-        afterUnit(unit)
-        reporter
-      }
+      implicit val ec: ExecutionContextExecutor = createExecutionContext()
 
       val futures = currentRun.units.collect {
         case unit if !cancelled(unit) =>
-          if(isParallel) Future(task(unit)) else Future.fromTry(scala.util.Try(asWorkerThread(task(unit))))
+          Future {
+            processUnit(unit)
+            afterUnit(unit)
+            reporter
+          }
       }
 
       futures.foreach { future =>
@@ -455,13 +450,13 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
     /* Only output a summary message under debug if we aren't echoing each file. */
     private def isDebugPrintEnabled: Boolean = settings.debug && !(settings.verbose || currentRun.size < 5)
 
-    private def isParallel = settings.YparallelPhases.containsPhase(this)
-
-    private def createExecutionContext(): ExecutionContextExecutorService = {
-      val parallelThreads = if (isParallel) settings.YparallelThreads.value else 1
-      val threadPoolFactory = ThreadPoolFactory(Global.this, this)
-      val javaExecutor = threadPoolFactory.newUnboundedQueueFixedThreadPool(parallelThreads, "worker")
-      scala.concurrent.ExecutionContext.fromExecutorService(javaExecutor, _ => ())
+    private def createExecutionContext(): ExecutionContextExecutor = {
+      if (settings.YparallelPhases.containsPhase(this)) {
+        val parallelThreads = settings.YparallelThreads.value
+        val threadPoolFactory = ThreadPoolFactory(Global.this, this)
+        val javaExecutor = threadPoolFactory.newUnboundedQueueFixedThreadPool(parallelThreads, "worker")
+        ExecutionContext.fromExecutorService(javaExecutor, _ => ())
+      } else ExecutionContext.fromExecutor((task: Runnable) => asWorkerThread(task.run()))
     }
   }
 
