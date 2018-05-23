@@ -67,19 +67,22 @@ object Parallel {
     assert(isWorkerThread)
   }
 
-  def isWorkerThread: Boolean = {
-    Thread.currentThread.isInstanceOf[WorkerThread] || isWorker.get()
+  def synchronizeAccess[T <: Object, U](obj: T)(block: => U): U = {
+    obj.synchronized[U](block)
   }
 
-  // This needs to be a ThreadLocal to support parallel compilation
-  val isWorker: ThreadLocal[Boolean] = new ThreadLocal[Boolean] {
-    override def initialValue(): Boolean = false
-  }
-
-  @inline def asWorkerThread[T](fn: => T): T = {
+  @inline final def asWorkerThread[T](fn: => T): T = {
     assertOnMain()
     isWorker.set(true)
     try fn finally isWorker.set(false)
   }
 
+  private def isWorkerThread: Boolean = {
+    Thread.currentThread.isInstanceOf[WorkerThread] || isWorker.get()
+  }
+
+  // This needs to be a ThreadLocal to support parallel compilation
+  private val isWorker: ThreadLocal[Boolean] = new ThreadLocal[Boolean] {
+    override def initialValue(): Boolean = false
+  }
 }
