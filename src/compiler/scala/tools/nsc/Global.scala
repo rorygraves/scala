@@ -419,7 +419,7 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
 
       futures.foreach { future =>
         val workerReporter = Await.result(future, Duration.Inf)
-        workerReporter.asInstanceOf[BufferedReporter].flushTo(reporter)
+        if (isParallel) workerReporter.asInstanceOf[BufferedReporter].flushTo(reporter)
       }
     }
 
@@ -431,7 +431,7 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
     private def processUnit(unit: CompilationUnit): Unit = {
       assertOnWorker()
 
-      reporter = new BufferedReporter
+      if (isParallel) reporter = new BufferedReporter
 
       if (isDebugPrintEnabled) inform("[running phase " + name + " on " + unit + "]")
 
@@ -450,8 +450,10 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
     /* Only output a summary message under debug if we aren't echoing each file. */
     private def isDebugPrintEnabled: Boolean = settings.debug && !(settings.verbose || currentRun.size < 5)
 
+    private def isParallel = settings.YparallelPhases.containsPhase(this)
+
     private def createExecutionContext(): ExecutionContextExecutor = {
-      if (settings.YparallelPhases.containsPhase(this)) {
+      if (isParallel) {
         val parallelThreads = settings.YparallelThreads.value
         val threadPoolFactory = ThreadPoolFactory(Global.this, this)
         val javaExecutor = threadPoolFactory.newUnboundedQueueFixedThreadPool(parallelThreads, "worker")
@@ -1120,7 +1122,7 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
      */
     var isDefined = false
     /** The currently compiled unit; set from GlobalPhase */
-    private[this] final val _currentUnit: WorkerOrMainThreadLocal[CompilationUnit] = WorkerThreadLocal(NoCompilationUnit, NoCompilationUnit)
+    private[this] final val _currentUnit: WorkerOrMainThreadLocal[CompilationUnit] = WorkerThreadLocal(NoCompilationUnit)
     def currentUnit: CompilationUnit = _currentUnit.get
     def currentUnit_=(unit: CompilationUnit): Unit = _currentUnit.set(unit)
 
