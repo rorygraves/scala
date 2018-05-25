@@ -552,7 +552,7 @@ lazy val junit = project.in(file("test") / "junit")
   .settings(disableDocs)
   .settings(disablePublishing)
   .settings(
-    fork in Test := false,
+    fork in Test := true,
     javaOptions in Test += "-Xss1M",
     libraryDependencies ++= Seq(junitDep, junitInterfaceDep, jolDep),
     testOptions += Tests.Argument(TestFrameworks.JUnit, "-a", "-v"),

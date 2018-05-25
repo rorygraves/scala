@@ -72,17 +72,23 @@ object Parallel {
   }
 
   @inline final def asWorkerThread[T](fn: => T): T = {
-    assertOnMain()
+    val previous = isWorker.get()
     isWorker.set(true)
-    try fn finally isWorker.set(false)
+    try fn finally isWorker.set(previous)
+  }
+
+  @inline final def asMainThread[T](fn: => T): T = {
+    val previous = isWorker.get()
+    isWorker.set(false)
+    try fn finally isWorker.set(previous)
   }
 
   private def isWorkerThread: Boolean = {
-    Thread.currentThread.isInstanceOf[WorkerThread] || isWorker.get()
+     Thread.currentThread.isInstanceOf[WorkerThread] || isWorker.get()
   }
 
   // This needs to be a ThreadLocal to support parallel compilation
   private val isWorker: ThreadLocal[Boolean] = new ThreadLocal[Boolean] {
-    override def initialValue(): Boolean = false
+    override def initialValue(): Boolean = true
   }
 }
