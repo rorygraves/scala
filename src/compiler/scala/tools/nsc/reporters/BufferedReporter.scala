@@ -3,6 +3,9 @@ package scala.tools.nsc.reporters
 import scala.reflect.internal.util.Parallel.{assertOnMain, assertOnWorker}
 import scala.reflect.internal.util.Position
 
+/* Simple Reporter which allows us to accumulate messages over time
+ * and then at suitable time forward them to other reporter using `flushTo` method
+ */
 final class BufferedReporter extends Reporter {
   private[this] var buffered = List.empty[BufferedMessage]
 

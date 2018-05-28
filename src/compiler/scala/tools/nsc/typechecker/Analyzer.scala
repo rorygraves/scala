@@ -93,6 +93,8 @@ trait Analyzer extends AnyRef
 
       override def run(): Unit = {
         val start = if (StatisticsStatics.areSomeColdStatsEnabled) statistics.startTimer(statistics.typerNanos) else null
+        // We never want to completely override `run` without calling `super.run()` inside.
+        // `run` is now more complicated that for over the units and there is no point in duplicating that logic
         super.run()
         // defensive measure in case the bookkeeping in deferred macro expansion is buggy
         clearDelayed()

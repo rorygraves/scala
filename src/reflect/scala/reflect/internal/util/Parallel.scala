@@ -4,44 +4,6 @@ import java.util.concurrent.atomic.AtomicInteger
 
 object Parallel {
 
-  class WorkerThread(group: ThreadGroup, target: Runnable, name: String,
-                     stackSize: Long) extends Thread(group, target, name, stackSize)
-
-  def WorkerThreadLocal[T <: AnyRef](valueOnWorker: => T, valueOnMain: => T) = new WorkerOrMainThreadLocal[T](valueOnWorker, valueOnMain)
-
-  def WorkerThreadLocal[T <: AnyRef](valueOnWorker: => T) = new WorkerThreadLocal[T](valueOnWorker)
-
-  // `WorkerOrMainThreadLocal` allows us to have different (sub)type of values on main and worker threads.
-  // It's useful in cases like reporter, when on workers we want to just store messages and on main we want to print them,
-  class WorkerOrMainThreadLocal[T](valueOnWorker: => T, valueOnMain: => T) {
-
-    private var main: T = null.asInstanceOf[T]
-
-    private val worker: ThreadLocal[T] = new ThreadLocal[T] {
-      override def initialValue(): T = valueOnWorker
-    }
-
-    final def get: T = {
-      if (isWorkerThread) worker.get()
-      else {
-        if (main == null) main = valueOnMain
-        main
-      }
-    }
-
-    final def set(value: T): Unit = if (isWorkerThread) worker.set(value) else main = value
-
-    final def reset(): Unit = {
-      worker.remove()
-      main = valueOnMain
-    }
-  }
-
-  // `WorkerThreadLocal` allows us to detect some value to be read/write on the main thread,
-  // and we want to discover violations of that rule.
-  class WorkerThreadLocal[T](valueOnWorker: => T)
-    extends WorkerOrMainThreadLocal(valueOnWorker, throw new IllegalStateException("not allowed on main thread"))
-
   class Counter {
     private val count = new AtomicInteger
 
@@ -59,35 +21,80 @@ object Parallel {
     override def toString: String = s"Counter[$count]"
   }
 
-  def assertOnMain(): Unit = {
-    assert(!isWorkerThread)
-  }
-
-  def assertOnWorker(): Unit = {
-    assert(isWorkerThread)
-  }
-
+  // Wrapper for `synchronized` method. In future could provide additional logging, safety checks, etc.
   def synchronizeAccess[T <: Object, U](obj: T)(block: => U): U = {
     obj.synchronized[U](block)
   }
 
+  def WorkerThreadLocal[T <: AnyRef](valueOnWorker: => T, valueOnMain: => T) = new WorkerOrMainThreadLocal[T](valueOnWorker, valueOnMain)
+
+  def WorkerThreadLocal[T <: AnyRef](valueOnWorker: => T) = new WorkerThreadLocal[T](valueOnWorker)
+
+  // `WorkerOrMainThreadLocal` allows us to have different type of values on main and worker threads.
+  // It's useful in cases like reporter, when on workers we want to just store messages and on main we want to print them,
+  class WorkerOrMainThreadLocal[T](valueOnWorker: => T, valueOnMain: => T) {
+
+    private var main: T = null.asInstanceOf[T]
+
+    private val worker: ThreadLocal[T] = new ThreadLocal[T] {
+      override def initialValue(): T = valueOnWorker
+    }
+
+    final def get: T = {
+      if (isWorker.get()) worker.get()
+      else {
+        if (main == null) main = valueOnMain
+        main
+      }
+    }
+
+    final def set(value: T): Unit = if (isWorker.get()) worker.set(value) else main = value
+
+    final def reset(): Unit = {
+      worker.remove()
+      main = valueOnMain
+    }
+  }
+
+  // `WorkerThreadLocal` detects reads/writes of given value on the main thread and
+  // and report such violations by throwing exception.
+  class WorkerThreadLocal[T](valueOnWorker: => T)
+    extends WorkerOrMainThreadLocal(valueOnWorker, throw new IllegalStateException("not allowed on main thread"))
+
+  // Asserts that current execution happens on the main thread
+  def assertOnMain(): Unit = {
+    assert(!isWorker.get())
+  }
+
+  // Asserts that current execution happens on the worker thread
+  def assertOnWorker(): Unit = {
+    assert(isWorker.get())
+  }
+
+  // Runs block of the code in the 'worker thread' mode
+  // All unit processing should always happen in the worker thread
   @inline final def asWorkerThread[T](fn: => T): T = {
     val previous = isWorker.get()
     isWorker.set(true)
     try fn finally isWorker.set(previous)
   }
 
+  // Runs block of the code in the 'main thread' mode.
+  // In 'main' mode we mostly sets/resets global variables, initialize contexts,
+  // and orchestrate processing of phases/units
   @inline final def asMainThread[T](fn: => T): T = {
     val previous = isWorker.get()
     isWorker.set(false)
     try fn finally isWorker.set(previous)
   }
 
-  private def isWorkerThread: Boolean = {
-     Thread.currentThread.isInstanceOf[WorkerThread] || isWorker.get()
-  }
-
-  // This needs to be a ThreadLocal to support parallel compilation
+  // ThreadLocal variable which allows us to mark current thread as main or worker.
+  // This is important because real main thread is not necessarily always running 'main' code.
+  // Good example may be tests which all runs in one main thread, although often processes units
+  // (what conceptually should always happen in workers).
+  // Because there is much more entry points to unit processing than to Global,
+  // it's much easier to start with assuming everything is initially worker thread
+  // and just mark main accordingly when needed.
   private val isWorker: ThreadLocal[Boolean] = new ThreadLocal[Boolean] {
     override def initialValue(): Boolean = true
   }

@@ -281,6 +281,8 @@ trait Positions extends api.Positions { self: SymbolTable =>
   trait PosAssigner extends InternalTraverser {
     var pos: Position
   }
+
+  // Reported by umad
   protected[this] val _posAssigner: WorkerThreadLocal[PosAssigner] = WorkerThreadLocal(new DefaultPosAssigner)
   @inline protected[this] final def posAssigner: PosAssigner = _posAssigner.get
 
