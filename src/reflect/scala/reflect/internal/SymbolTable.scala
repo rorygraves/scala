@@ -54,6 +54,8 @@ abstract class SymbolTable extends macros.Universe
 
   val gen = new InternalTreeGen { val global: SymbolTable.this.type = SymbolTable.this }
 
+  // Wrapper for `synchronized` method. In future could provide additional logging, safety checks, etc.
+  // We are locking on `synchronizeSymbolsAccess` object which is created per `SymbolTable` instance
   object synchronizeSymbolsAccess {
     def apply[T](block: => T): T = synchronizeAccess(this)(block)
   }

@@ -79,6 +79,17 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
 
   override def settings = currentSettings
 
+  // Umad reported violation on: `scala.reflect.internal.SymbolTable.scala$reflect$internal$Names$$nc_$eq(int)`
+  // To synchronize access we can re-use mechanism from `scala.reflect.internal.Names` so far used for runtime mirror.
+  // For efficiency want to enable it only for phases which are parallelized.
+  override protected def synchronizeNames: Boolean = _synchronizeNames
+  private[this] var _synchronizeNames = false
+
+  /* `currentReporter` is used on both main thread as well as worker threads.
+   * On worker threads for every unit we are creating new `BufferedReporter`
+   * which at the end of the unit processing is dumped to the main reporter.
+   * We need to do it if we want to retain the same messages order as in case of single threaded execution.
+   */
   private[this] val currentReporter: WorkerOrMainThreadLocal[Reporter] = WorkerThreadLocal(reporter0, reporter0)
   def reporter: Reporter =  currentReporter.get
   def reporter_=(newReporter: Reporter): Unit =
@@ -397,6 +408,7 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
       reporter.cancelled || unit.isJava && this.id > maxJavaPhase
     }
 
+    // Cleanup method needed for some phases, for example typer
     def afterUnit(unit: CompilationUnit): Unit = {}
 
     def run(): Unit = {
@@ -406,21 +418,31 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
 
       implicit val ec: ExecutionContextExecutor = createExecutionContext()
 
+      /* Every unit is now run in separate `Future`. If given phase is not ran as parallel one
+       * (which is indicated by `isParallel`) it's swill run on the main thread. This is accomplished by
+       * properly modified `ExecutionContext` returned by `createExecutionContext`.
+       */
       val futures = currentRun.units.collect {
         case unit if !cancelled(unit) =>
           Future {
-            processUnit(unit)
-            afterUnit(unit)
-            reporter
+            asWorkerThread {
+              processUnit(unit)
+              afterUnit(unit)
+              reporter
+            }
           }
       }
 
+      /* Dumping messages from unit's `BufferedReporter` to main reporter.
+       * Since we are awaiting for previous units this allows us to retain messages order.
+       */
       futures.foreach { future =>
         val workerReporter = Await.result(future, Duration.Inf)
         if (isParallel) workerReporter.asInstanceOf[BufferedReporter].flushTo(reporter)
       }
     }
 
+    // Used in methods like `compileLate`
     final def applyPhase(unit: CompilationUnit): Unit = {
       assertOnWorker()
       if (!cancelled(unit)) processUnit(unit)
@@ -429,6 +451,9 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
     private def processUnit(unit: CompilationUnit): Unit = {
       assertOnWorker()
 
+      /* In worker threads if we are processing units in parallel we want to use temporary `BufferedReporter` for every unit.
+       * Then later we can then keep it until all previous units are processed and then dump all messages to main reporter.
+       */
       if (isParallel) reporter = new BufferedReporter
 
       if (isDebugPrintEnabled) inform("[running phase " + name + " on " + unit + "]")
@@ -438,10 +463,12 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
       try {
         if ((unit ne null) && unit.exists) lastSeenSourceFile = unit.source
         currentRun.currentUnit = unit
+        _synchronizeNames = isParallel
         apply(unit)
       } finally {
         currentRun.currentUnit = unit0
         currentRun.advanceUnit()
+        _synchronizeNames = false
       }
     }
 
@@ -450,13 +477,16 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
 
     private def isParallel = settings.YparallelPhases.containsPhase(this)
 
+    /* Depending if we are in the parallel phase or not it creates executor with fixed thread pool size or
+     * executor whichruns everything on the current thread.
+     */
     private def createExecutionContext(): ExecutionContextExecutor = {
       if (isParallel) {
         val parallelThreads = settings.YparallelThreads.value
         val threadPoolFactory = ThreadPoolFactory(Global.this, this)
         val javaExecutor = threadPoolFactory.newUnboundedQueueFixedThreadPool(parallelThreads, "worker")
         ExecutionContext.fromExecutorService(javaExecutor, _ => ())
-      } else ExecutionContext.fromExecutor((task: Runnable) => asWorkerThread(task.run()))
+      } else ExecutionContext.fromExecutor((task: Runnable) => task.run())
     }
   }
 
@@ -983,9 +1013,14 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
   } with typechecker.StructuredTypeStrings
 
   /** There are common error conditions where when the exception hits
-   *  here, currentRun.currentUnit is null.  This robs us of the knowledge
-   *  of what file was being compiled when it broke.  Since I really
-   *  really want to know, this hack.
+    * here, currentRun.currentUnit is null.  This robs us of the knowledge
+    * of what file was being compiled when it broke.  Since I really
+    * really want to know, this hack.
+    *
+    * pkukielka: I'm not sure if I believe above comment but nevertheless
+    * if we want to keep that design we need to keep one `lastSeenSourceFile` per thread.
+    * Othervise in case of failure we would be reporting last unit/file which started to be processing
+    * which may or may not be the same as the one which failed.
    */
   private[this] final val _lastSeenSourceFile: WorkerThreadLocal[SourceFile] = WorkerThreadLocal(NoSourceFile)
   @inline protected def lastSeenSourceFile: SourceFile = _lastSeenSourceFile.get
@@ -1461,6 +1496,12 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
     private final val GlobalPhaseName = "global (synthetic)"
     protected final val totalCompileTime = statistics.newTimer("#total compile time", GlobalPhaseName)
 
+    /* We assumes that everything that is done while compiling unit is done on the worker thread.
+     * Most work is done (and most code is run) in the workers thread, comparing to main.
+     * Because of that we make design decision that every thread is marked as worker by default.
+     * It makes our life easier when dealing with tests, toolbox, and virtually everything which not goes through `Global`.
+     * But now we need to somehow mark the main thread. That is done by `Parallel.asMainThread`.
+     */
     def compileUnits(units: List[CompilationUnit], fromPhase: Phase = firstPhase): Unit = Parallel.asMainThread {
       compileUnitsInternal(units, fromPhase)
     }

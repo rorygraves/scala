@@ -19,6 +19,9 @@ abstract class Reporter extends scala.reflect.internal.Reporter {
   /** Informational messages. If `!force`, they may be suppressed. */
   final def info(pos: Position, msg: String, force: Boolean): Unit = info0(pos, msg, INFO, force)
 
+  /* Ugly hack as we need access to internal info0 method from other reporter.
+   * Unluckily base `Reporter` class is in different package: `scala.reflect.internal`.
+   */
   protected[reporters] def info(pos: Position, msg: String, severity: Severity, force: Boolean): Unit =
     info0(pos, msg, severity, force)
 

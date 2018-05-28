@@ -51,7 +51,8 @@ import scala.reflect.internal.util.Parallel.WorkerThreadLocal
  *  @groupprio Factories 1
  *  @groupname Copying   Tree Copying
  *  @groupprio Copying   1
-  *  @contentDiagram hideNodes "*Api"
+ *
+ *  @contentDiagram hideNodes "*Api"
  *  @group ReflectionAPI
  */
 trait Trees { self: Universe =>
@@ -2464,6 +2465,10 @@ trait Trees { self: Universe =>
    *  @group Traversal
    */
   class Traverser {
+    /** Access from multiple threads was reported by umad.
+      * That possibly could be solved by ensuring that every unit operates on it's own copy of the tree,
+      * but it would require much bigger refactorings and would be more memory consuming.
+      */
     @inline final protected[scala] def currentOwner: Symbol = _currentOwner.get
     @inline final protected[scala] def currentOwner_=(sym: Symbol): Unit = _currentOwner.set(sym)
     private final val _currentOwner: WorkerThreadLocal[Symbol] = WorkerThreadLocal(rootMirror.RootClass)
@@ -2537,7 +2542,12 @@ trait Trees { self: Universe =>
     /** The underlying tree copier. */
     val treeCopy: TreeCopier = newLazyTreeCopier
 
-    /** The current owner symbol. */
+    /** The current owner symbol.
+      *
+      * Access from multiple threads was reported by umad.
+      * That possibly could be solved by ensuring that every unit operates on it's own copy of the tree,
+      * but it would require much bigger refactorings and would be more memory consuming.
+      */
     @inline protected[scala] final def currentOwner: Symbol = _currentOwner.get
     @inline protected[scala] final def currentOwner_=(sym: Symbol): Unit = _currentOwner.set(sym)
     private final val _currentOwner: WorkerThreadLocal[Symbol] = WorkerThreadLocal(rootMirror.RootClass)

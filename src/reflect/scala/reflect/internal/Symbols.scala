@@ -3116,6 +3116,8 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
      * type arguments.
      */
     override def tpe_* : Type = {
+      // We are simply locking all completers on current `SymbolTable` for now.
+      // Should we see if that will be efficient enough.
       synchronizeSymbolsAccess {
         maybeUpdateTypeCache()
         tpeCache
