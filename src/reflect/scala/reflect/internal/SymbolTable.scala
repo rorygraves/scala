@@ -142,7 +142,7 @@ abstract class SymbolTable extends macros.Universe
 
   // Let's consider re-deprecating this in the 2.13 series, to encourage informative messages.
   //@deprecated("prefer to use the two-argument form", since = "2.12.5")
-  final def assert(assertion: Boolean): Unit = {
+  @inline final def assert(assertion: Boolean): Unit = {
     assert(assertion, "")
   }
 
@@ -154,7 +154,7 @@ abstract class SymbolTable extends macros.Universe
 
   // Let's consider re-deprecating this in the 2.13 series, to encourage informative messages.
   //@deprecated("prefer to use the two-argument form", since = "2.12.5")
-  final def require(requirement: Boolean): Unit = {
+  @inline final def require(requirement: Boolean): Unit = {
     require(requirement, "")
   }
 

@@ -102,26 +102,28 @@ trait Positions extends api.Positions { self: SymbolTable =>
       throw new ValidateException(msg)
     }
 
-    def validate(tree: Tree, encltree: Tree): Unit = {
+    def validate(tree: Tree, encltree: Tree, trace: Boolean): Unit = {
 
       if (!tree.isEmpty && tree.canHaveAttrs) {
-        if (settings.Yposdebug && (settings.verbose || settings.Yrangepos))
+        val treePos = tree.pos
+        if (trace)
           inform("[%10s] %s".format("validate", treeStatus(tree, encltree)))
 
-        if (!tree.pos.isDefined)
+        if (!treePos.isDefined)
           positionError("Unpositioned tree #"+tree.id) {
             inform("%15s %s".format("unpositioned", treeStatus(tree, encltree)))
             inform("%15s %s".format("enclosing", treeStatus(encltree)))
             encltree.children foreach (t => inform("%15s %s".format("sibling", treeStatus(t, encltree))))
           }
         val childSolidDescendants = tree.children flatMap solidDescendants
-        if (tree.pos.isRange) {
-          if (!encltree.pos.isRange)
+        if (treePos.isRange) {
+          val enclPos = encltree.pos
+          if (!enclPos.isRange)
             positionError("Synthetic tree ["+encltree.id+"] contains nonsynthetic tree ["+tree.id+"]") {
             reportTree("Enclosing", encltree)
             reportTree("Enclosed", tree)
             }
-          if (!(encltree.pos includes tree.pos))
+          if (!(enclPos includes treePos))
             positionError("Enclosing tree ["+encltree.id+"] does not include tree ["+tree.id+"]") {
               reportTree("Enclosing", encltree)
               reportTree("Enclosed", tree)
@@ -140,17 +142,30 @@ trait Positions extends api.Positions { self: SymbolTable =>
             }
           }
         }
-        for (ct <- childSolidDescendants) validate(ct, tree)
+        for (ct <- childSolidDescendants) validate(ct, tree, trace)
       }
     }
 
     if (!isPastTyper)
-      validate(tree, tree)
+      validate(tree, tree, settings.Yposdebug && (settings.verbose || settings.Yrangepos))
   }
 
-  def solidDescendants(tree: Tree): List[Tree] =
-    if (tree.pos.isTransparent) tree.children flatMap solidDescendants
-    else List(tree)
+  final def solidDescendants(tree: Tree): List[Tree] =
+    if (tree.pos.isTransparent) {
+      val children = tree.children
+      if (children isEmpty) Nil else {
+        val result = new ListBuffer[Tree]
+        def solidDescendantsImpl(tree: Tree) : Unit = {
+          if (tree.pos.isTransparent)
+            tree.children foreach solidDescendantsImpl
+          else result += tree
+        }
+        children foreach solidDescendantsImpl
+        result.toList
+      }
+    }
+    else tree :: Nil
+
 
   /** A free range from `lo` to `hi` */
   private def free(lo: Int, hi: Int): Range =
@@ -172,12 +187,14 @@ trait Positions extends api.Positions { self: SymbolTable =>
       assert(conflicting.nonEmpty)
       rs
     case r :: rs1 =>
-      assert(!t.pos.isTransparent)
-      if (r.isFree && (r.pos includes t.pos)) {
-//      inform("subdividing "+r+"/"+t.pos)
-        addMaybeFree(t.pos.end, r.pos.end, Range(t.pos, t) :: addMaybeFree(r.pos.start, t.pos.start, rs1) )
+      val tPos = t.pos
+      val rPos = r.pos
+      assert(!tPos.isTransparent)
+      if (r.isFree && (rPos includes tPos)) {
+//      inform("subdividing "+r+"/"+tPos)
+        addMaybeFree(tPos.end, rPos.end, Range(tPos, t) :: addMaybeFree(rPos.start, tPos.start, rs1) )
       } else {
-        if (!r.isFree && (r.pos overlaps t.pos)) conflicting += r.tree
+        if (!r.isFree && (rPos overlaps tPos)) conflicting += r.tree
         r :: insert(rs1, t, conflicting)
       }
   }
@@ -190,10 +207,13 @@ trait Positions extends api.Positions { self: SymbolTable =>
   /** Does given list of trees have mutually non-overlapping positions?
    *  pre: None of the trees is transparent
    */
-  def findOverlapping(cts: List[Tree]): List[(Tree, Tree)] = {
+  private def findOverlapping(cts: List[Tree]): List[(Tree, Tree)] = {
+    // manually unrolled to avoid ObjectRefs and unneeded ListBuffers
     var ranges: List[Range] = null
     var conflicting: ListBuffer[Tree] = null
-    for (ct <- cts) {
+    var rest = cts
+    while (rest nonEmpty) {
+      val ct = rest.head
       if (ct.pos.isOpaqueRange) {
         if (ranges eq null) {
           conflicting = new ListBuffer[Tree]
@@ -202,6 +222,7 @@ trait Positions extends api.Positions { self: SymbolTable =>
         ranges = insert(ranges, ct, conflicting)
         if (conflicting.nonEmpty) return conflicting.toList map (t => (t, ct))
       }
+      rest = rest.tail
     }
     List()
   }
