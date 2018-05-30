@@ -154,14 +154,14 @@ trait Positions extends api.Positions { self: SymbolTable =>
     if (tree.pos.isTransparent) {
       val children = tree.children
       if (children isEmpty) Nil else {
-        val result = new ListBuffer[Tree]
-        def solidDescendantsImpl(tree: Tree) : Unit = {
+        val resultBuilder = new ListBuffer[Tree]
+        def gatherSolidDescendants(tree: Tree, gatherer: ListBuffer[Tree]) : Unit = {
           if (tree.pos.isTransparent)
-            tree.children foreach solidDescendantsImpl
-          else result += tree
+            tree.children foreach (child => gatherSolidDescendants(child, gatherer))
+          else gatherer += tree
         }
-        children foreach solidDescendantsImpl
-        result.toList
+        children.foreach(child => gatherSolidDescendants(child, resultBuilder))
+        resultBuilder.toList
       }
     }
     else tree :: Nil
