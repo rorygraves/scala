@@ -116,7 +116,7 @@ trait Positions extends api.Positions { self: SymbolTable =>
             inform("%15s %s".format("enclosing", treeStatus(encltree)))
             encltree.children foreach (t => inform("%15s %s".format("sibling", treeStatus(t, encltree))))
           }
-        val childSolidDescendants = ChildSolidDescendants2(tree)//.children flatMap solidDescendants
+        val childSolidDescendants = ChildSolidDescendants3(tree)//.children flatMap solidDescendants
         if (treePos.isRange) {
           val enclPos = encltree.pos
           if (!enclPos.isRange)
