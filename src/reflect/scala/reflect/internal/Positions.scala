@@ -116,7 +116,7 @@ trait Positions extends api.Positions { self: SymbolTable =>
             inform("%15s %s".format("enclosing", treeStatus(encltree)))
             encltree.children foreach (t => inform("%15s %s".format("sibling", treeStatus(t, encltree))))
           }
-        val childSolidDescendants = ChildSolidDescendants1(tree)//.children flatMap solidDescendants
+        val childSolidDescendants = ChildSolidDescendants2(tree)//.children flatMap solidDescendants
         if (treePos.isRange) {
           val enclPos = encltree.pos
           if (!enclPos.isRange)
@@ -297,13 +297,13 @@ trait Positions extends api.Positions { self: SymbolTable =>
   /** Does given list of trees have mutually non-overlapping positions?
    *  pre: None of the trees is transparent
    */
-  private def findOverlapping(cts: List[Tree]): List[(Tree, Tree)] = {
+  private def findOverlapping(cts: Iterable[Tree]): List[(Tree, Tree)] = {
     // manually unrolled to avoid ObjectRefs and unneeded ListBuffers
     var ranges: List[Range] = null
     var conflicting: ListBuffer[Tree] = null
-    var rest = cts
-    while (rest nonEmpty) {
-      val ct = rest.head
+    var rest = cts.iterator
+    while (!rest.isEmpty) {
+      val ct = rest.next()
       if (ct.pos.isOpaqueRange) {
         if (ranges eq null) {
           conflicting = new ListBuffer[Tree]
@@ -312,7 +312,6 @@ trait Positions extends api.Positions { self: SymbolTable =>
         ranges = insert(ranges, ct, conflicting)
         if (conflicting.nonEmpty) return conflicting.toList map (t => (t, ct))
       }
-      rest = rest.tail
     }
     List()
   }
