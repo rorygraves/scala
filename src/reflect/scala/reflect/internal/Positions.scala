@@ -116,7 +116,7 @@ trait Positions extends api.Positions { self: SymbolTable =>
             inform("%15s %s".format("enclosing", treeStatus(encltree)))
             encltree.children foreach (t => inform("%15s %s".format("sibling", treeStatus(t, encltree))))
           }
-        val childSolidDescendants = tree.children flatMap solidDescendants
+        val childSolidDescendants = ChildSolidDescendants1(tree)//.children flatMap solidDescendants
         if (treePos.isRange) {
           val enclPos = encltree.pos
           if (!enclPos.isRange)
@@ -150,6 +150,95 @@ trait Positions extends api.Positions { self: SymbolTable =>
     if (!isPastTyper)
       validate(tree, tree, settings.Yposdebug && (settings.verbose || settings.Yrangepos))
   }
+  object ChildSolidDescendants1 extends Traverser {
+    val result = ListBuffer.empty[Tree]
+    // don't traverse annotations
+    override def traverseModifiers(mods: Modifiers): Unit = ()
+    override def traverse(tree: Tree): Unit =
+      if (tree ne EmptyTree) {
+        if (tree.pos.isTransparent) super.traverse(tree)
+        else result += tree
+      }
+    def apply(tree: Tree) = {
+      super.traverse(tree)
+      val r = result.toList
+      result.clear()
+      r
+    }
+  }
+  object ChildSolidDescendants2 extends Traverser {
+    val result = Vector.newBuilder[Tree]
+    // don't traverse annotations
+    override def traverseModifiers(mods: Modifiers): Unit = ()
+    override def traverse(tree: Tree): Unit =
+    if (tree ne EmptyTree) {
+      if (tree.pos.isTransparent) super.traverse(tree)
+      else result += tree
+    }
+
+    def apply(tree: Tree) = {
+      super.traverse(tree)
+      val r = result.result()
+      result.clear()
+      r
+    }
+  }
+
+  object ChildSolidDescendants3 extends Traverser {
+
+    private var elems: Array[Tree] = _
+    private var capacity: Int = 0
+    private var size: Int = 0
+
+    private def add (elem: Tree): Unit = {
+      if (capacity == size) {
+        if (capacity == 0) {
+          capacity = 16
+          elems = new Array[Tree](capacity)
+        } else {
+          capacity *= 2
+          elems = java.util.Arrays.copyOf(elems,capacity)
+        }
+      }
+      elems(size) = elem
+      size += 1
+    }
+    // don't traverse annotations
+    override def traverseModifiers(mods: Modifiers): Unit = ()
+    override def traverse(tree: Tree): Unit =
+      if (tree ne EmptyTree) {
+        if (tree.pos.isTransparent) super.traverse(tree)
+        else add (tree)
+      }
+
+    def apply(tree: Tree): Iterable[Tree] = {
+      super.traverse(tree)
+      val res: Iterable[Tree] = size match {
+        case 0 => Nil
+        case 1 =>
+          val r = elems(0) :: Nil
+          elems(0) = null
+          r
+        case _ => if (size == capacity) {
+          val r = elems
+          capacity = 0
+          elems = null
+          r
+        } else {
+          val r = java.util.Arrays.copyOf(elems,size)
+          if (capacity > 64) {
+            elems = null
+            capacity = 0
+          } else
+            java.util.Arrays.fill(elems.asInstanceOf[Array[AnyRef]], 0, size, null)
+          r
+        }
+      }
+      size = 0
+      res
+    }
+  }
+
 
   final def solidDescendants(tree: Tree): List[Tree] =
     if (tree.pos.isTransparent) {
