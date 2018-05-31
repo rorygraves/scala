@@ -171,8 +171,8 @@ trait Positions extends api.Positions { self: SymbolTable =>
   private def free(lo: Int, hi: Int): Range =
     Range(Position.range(null, lo, lo, hi), EmptyTree)
 
-  /** The maximal free range */
-  private lazy val maxFree: Range = free(0, Int.MaxValue)
+  /** The maximal free range list */
+  private lazy val maxFree: List[Range] = free(0, Int.MaxValue) :: Nil
 
   /** Adds a singleton list of a non-empty range from `lo` to `hi`, or else the empty List */
   private def addMaybeFree(lo: Int, hi: Int, tail: List[Range]) =
@@ -217,7 +217,7 @@ trait Positions extends api.Positions { self: SymbolTable =>
       if (ct.pos.isOpaqueRange) {
         if (ranges eq null) {
           conflicting = new ListBuffer[Tree]
-          ranges = maxFree :: Nil
+          ranges = maxFree
         }
         ranges = insert(ranges, ct, conflicting)
         if (conflicting.nonEmpty) return conflicting.toList map (t => (t, ct))
