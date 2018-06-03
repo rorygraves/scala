@@ -130,7 +130,7 @@ trait Positions extends api.Positions { self: SymbolTable =>
               reportTree("Enclosed", tree)
             }
 
-          findOverlapping(childSolidDescendants) match {
+          Overlaps(childSolidDescendants) match {
             case List() => ;
             case xs => {
               positionError("Overlapping trees "+xs.map { case (x, y) => (x.id, y.id) }.mkString("", ", ", "")) {
@@ -323,23 +323,25 @@ trait Positions extends api.Positions { self: SymbolTable =>
   /** Does given list of trees have mutually non-overlapping positions?
    *  pre: None of the trees is transparent
    */
-  private def findOverlapping(cts: Iterable[Tree]): List[(Tree, Tree)] = {
-    // manually unrolled to avoid ObjectRefs and unneeded ListBuffers
-    var ranges: List[Range] = null
-    var conflicting: ListBuffer[Tree] = null
-    var rest = cts.iterator
-    while (!rest.isEmpty) {
-      val ct = rest.next()
-      if (ct.pos.isOpaqueRange) {
-        if (ranges eq null) {
-          conflicting = new ListBuffer[Tree]
-          ranges = maxFree
+  private object Overlaps{
+    val conflicting = new ListBuffer[Tree]
+    def apply(cts: Iterable[Tree]) : List[(Tree, Tree)] = {
+      // manually unrolled to avoid ObjectRefs and unneeded ListBuffers
+      var ranges: List[Range] = maxFree
+      val rest = cts.iterator
+      while (!rest.isEmpty && conflicting.isEmpty) {
+        val ct = rest.next()
+        if (ct.pos.isOpaqueRange) {
+          ranges = insert(ranges, ct, conflicting)
+          if (conflicting.nonEmpty) {
+            val res =  conflicting.toList map (t => (t, ct))
+            conflicting.clear()
+            return res
+          }
         }
-        ranges = insert(ranges, ct, conflicting)
-        if (conflicting.nonEmpty) return conflicting.toList map (t => (t, ct))
       }
+      Nil
     }
-    List()
   }
 
   /** Set position of all children of a node
