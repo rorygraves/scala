@@ -35,11 +35,31 @@ trait Positions extends api.Positions { self: SymbolTable =>
    *  Otherwise returns default position that is either focused or not.
    */
   def wrappingPos(default: Position, trees: List[Tree]): Position = wrappingPos(default, trees, focus = true)
+//  def wrappingPos(default: Position, trees: List[Tree], focus: Boolean): Position = {
+//    if (useOffsetPositions) default else {
+//      val ranged = trees filter (_.pos.isRange)
+//      if (ranged.isEmpty) if (focus) default.focus else default
+//      else Position.range(default.source, (ranged map (_.pos.start)).min, default.point, (ranged map (_.pos.end)).max)
+//    }
+//  }
   def wrappingPos(default: Position, trees: List[Tree], focus: Boolean): Position = {
     if (useOffsetPositions) default else {
-      val ranged = trees filter (_.pos.isRange)
-      if (ranged.isEmpty) if (focus) default.focus else default
-      else Position.range(default.source, (ranged map (_.pos.start)).min, default.point, (ranged map (_.pos.end)).max)
+      var rest = trees
+      var min = Int.MaxValue
+      var max = Int.MinValue
+      while(rest ne Nil) {
+        val head = rest.head
+        rest = rest.tail
+        val pos = head.pos
+        if (pos.isRange) {
+          min = Math.min(min, pos.start)
+          max = Math.max(min, pos.end)
+        }
+      }
+      if (min > max)
+        //there are no ranges
+        if (focus) default.focus else default
+      else Position.range(default.source, min, default.point, max)
     }
   }
 
