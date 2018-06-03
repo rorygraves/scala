@@ -66,12 +66,13 @@ trait Positions extends api.Positions { self: SymbolTable =>
     def isOverlapping(pos: Position) =
       pos.isRange && (others exists (pos overlaps _.pos))
 
-    if (isOverlapping(tree.pos)) {
+    val treePos = tree.pos
+    if (isOverlapping(treePos)) {
       val children = tree.children
       children foreach (ensureNonOverlapping(_, others, focus))
-      if (tree.pos.isOpaqueRange) {
-        val wpos = wrappingPos(tree.pos, children, focus)
-        tree setPos (if (isOverlapping(wpos)) tree.pos.makeTransparent else wpos)
+      if (treePos.isOpaqueRange) {
+        val wpos = wrappingPos(treePos, children, focus)
+        tree setPos (if (isOverlapping(wpos)) treePos.makeTransparent else wpos)
       }
     }
   }
