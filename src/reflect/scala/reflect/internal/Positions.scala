@@ -116,7 +116,7 @@ trait Positions extends api.Positions { self: SymbolTable =>
             inform("%15s %s".format("enclosing", treeStatus(encltree)))
             encltree.children foreach (t => inform("%15s %s".format("sibling", treeStatus(t, encltree))))
           }
-        val childSolidDescendants = ChildSolidDescendants3(tree)//.children flatMap solidDescendants
+        val childSolidDescendants = ChildSolidDescendants4(tree)//.children flatMap solidDescendants
         if (treePos.isRange) {
           val enclPos = encltree.pos
           if (!enclPos.isRange)
@@ -236,6 +236,32 @@ trait Positions extends api.Positions { self: SymbolTable =>
       }
       size = 0
       res
+    }
+  }
+  object ChildSolidDescendants4 extends Traverser {
+    val result = Array.newBuilder[Tree]
+    val empty = new Array[Tree](0)
+    var isEmpty = true
+    // don't traverse annotations
+    override def traverseModifiers(mods: Modifiers): Unit = ()
+    override def traverse(tree: Tree): Unit =
+      if (tree ne EmptyTree) {
+        if (tree.pos.isTransparent) super.traverse(tree)
+        else {
+          result += tree
+          isEmpty = false
+        }
+      }
+
+    def apply(tree: Tree) = {
+      super.traverse(tree)
+      if (isEmpty) empty else {
+        isEmpty = true
+
+        val r = result.result()
+        result.clear()
+        r
+      }
     }
   }
 
