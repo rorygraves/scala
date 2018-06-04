@@ -101,8 +101,16 @@ trait Positions extends api.Positions { self: SymbolTable =>
     if (useOffsetPositions) Position.offset(source, point)
     else Position.range(source, start, point, end)
 
-  def validatePositions(tree: Tree) {
-    if (useOffsetPositions) return
+  object validatePositions {
+    var topTree : Tree = _
+    var trace = false
+    def apply(tree: Tree) {
+      if (!useOffsetPositions && !isPastTyper) {
+        trace = settings.Yposdebug && (settings.verbose || settings.Yrangepos)
+        topTree = tree
+        validate(tree, tree)
+      }
+    }
 
     def reportTree(prefix : String, tree : Tree) {
       val source = if (tree.pos.isDefined) tree.pos.source else ""
@@ -115,15 +123,15 @@ trait Positions extends api.Positions { self: SymbolTable =>
     def positionError(msg: String)(body : => Unit) {
       inform("======= Position error\n" + msg)
       body
-      inform("\nWhile validating #" + tree.id)
-      inform(treeStatus(tree))
+      inform("\nWhile validating #" + topTree.id)
+      inform(treeStatus(topTree))
       inform("\nChildren:")
-      tree.children foreach (t => inform("  " + treeStatus(t, tree)))
+      topTree.children foreach (t => inform("  " + treeStatus(t, topTree)))
       inform("=======")
       throw new ValidateException(msg)
     }
 
-    def validate(tree: Tree, encltree: Tree, trace: Boolean): Unit = {
+    def validate(tree: Tree, encltree: Tree): Unit = {
 
       if (!tree.isEmpty && tree.canHaveAttrs) {
         val treePos = tree.pos
@@ -141,8 +149,8 @@ trait Positions extends api.Positions { self: SymbolTable =>
           val enclPos = encltree.pos
           if (!enclPos.isRange)
             positionError("Synthetic tree ["+encltree.id+"] contains nonsynthetic tree ["+tree.id+"]") {
-            reportTree("Enclosing", encltree)
-            reportTree("Enclosed", tree)
+              reportTree("Enclosing", encltree)
+              reportTree("Enclosed", tree)
             }
           if (!(enclPos includes treePos))
             positionError("Enclosing tree ["+encltree.id+"] does not include tree ["+tree.id+"]") {
@@ -163,12 +171,9 @@ trait Positions extends api.Positions { self: SymbolTable =>
             }
           }
         }
-        for (ct <- childSolidDescendants) validate(ct, tree, trace)
+        for (ct <- childSolidDescendants) validate(ct, tree)
       }
     }
-
-    if (!isPastTyper)
-      validate(tree, tree, settings.Yposdebug && (settings.verbose || settings.Yrangepos))
   }
   object ChildSolidDescendants1 extends Traverser {
     val result = ListBuffer.empty[Tree]
