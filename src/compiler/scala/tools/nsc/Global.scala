@@ -415,7 +415,7 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
 
       if (isDebugPrintEnabled) inform("[running phase " + name + " on " + currentRun.size +  " compilation units]")
 
-      implicit val ec: ExecutionContextExecutor = createExecutionContext()
+      implicit val ec: ExecutionContext = createExecutionContext()
 
       try {
         _synchronizeNames = isParallel
@@ -424,7 +424,7 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
          * (which is indicated by `isParallel`) it's swill run on the main thread. This is accomplished by
          * properly modified `ExecutionContext` returned by `createExecutionContext`.
          */
-        val futures = currentRun.units.collect {
+        val futures = currentRun.units.toList.collect {
           case unit if !cancelled(unit) =>
             Future {
               asWorkerThread {
@@ -481,9 +481,9 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
     private def isParallel = settings.YparallelPhases.containsPhase(this)
 
     /* Depending if we are in the parallel phase or not it creates executor with fixed thread pool size or
-     * executor whichruns everything on the current thread.
+     * executor which runs everything on the current thread.
      */
-    private def createExecutionContext(): ExecutionContextExecutor = {
+    private def createExecutionContext(): ExecutionContext = {
       if (isParallel) {
         val parallelThreads = settings.YparallelThreads.value
         val threadPoolFactory = ThreadPoolFactory(Global.this, this)
