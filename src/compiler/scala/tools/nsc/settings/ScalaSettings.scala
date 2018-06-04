@@ -146,7 +146,7 @@ trait ScalaSettings extends AbsScalaSettings
   val XnoPatmatAnalysis  = BooleanSetting      ("-Xno-patmat-analysis", "Don't perform exhaustivity/unreachability analysis. Also, ignore @switch annotation.")
 
   val YparallelPhases    = PhasesSetting       ("-Yparallel-phases", "Which phases to run in parallel")
-  val YparallelThreads   = IntSetting          ("-Yparallel-threads", "worker threads for parallel compilation", 4, Some((0,64)), _ => None )
+  val YparallelThreads   = IntSetting          ("-Yparallel-threads", "Worker threads for parallel compilation", 4, Some((0,64)), _ => None )
 
   val XmixinForceForwarders = ChoiceSetting(
     name    = "-Xmixin-force-forwarders",
