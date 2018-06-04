@@ -10,7 +10,6 @@ package nsc
 import java.io.{File, FileNotFoundException, IOException}
 import java.net.URL
 import java.nio.charset.{Charset, CharsetDecoder, IllegalCharsetNameException, UnsupportedCharsetException}
-import java.util.concurrent.Executor
 
 import scala.collection.{immutable, mutable}
 import io.{AbstractFile, Path, SourceReader}
@@ -418,27 +417,33 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
 
       implicit val ec: ExecutionContextExecutor = createExecutionContext()
 
-      /* Every unit is now run in separate `Future`. If given phase is not ran as parallel one
-       * (which is indicated by `isParallel`) it's swill run on the main thread. This is accomplished by
-       * properly modified `ExecutionContext` returned by `createExecutionContext`.
-       */
-      val futures = currentRun.units.collect {
-        case unit if !cancelled(unit) =>
-          Future {
-            asWorkerThread {
-              processUnit(unit)
-              afterUnit(unit)
-              reporter
-            }
-          }
-      }
+      try {
+        _synchronizeNames = isParallel
 
-      /* Dumping messages from unit's `BufferedReporter` to main reporter.
-       * Since we are awaiting for previous units this allows us to retain messages order.
-       */
-      futures.foreach { future =>
-        val workerReporter = Await.result(future, Duration.Inf)
-        if (isParallel) workerReporter.asInstanceOf[BufferedReporter].flushTo(reporter)
+        /* Every unit is now run in separate `Future`. If given phase is not ran as parallel one
+         * (which is indicated by `isParallel`) it's swill run on the main thread. This is accomplished by
+         * properly modified `ExecutionContext` returned by `createExecutionContext`.
+         */
+        val futures = currentRun.units.collect {
+          case unit if !cancelled(unit) =>
+            Future {
+              asWorkerThread {
+                processUnit(unit)
+                afterUnit(unit)
+                reporter
+              }
+            }
+        }
+
+        /* Dumping messages from unit's `BufferedReporter` to main reporter.
+         * Since we are awaiting for previous units this allows us to retain messages order.
+         */
+        futures.foreach { future =>
+          val workerReporter = Await.result(future, Duration.Inf)
+          if (isParallel) workerReporter.asInstanceOf[BufferedReporter].flushTo(reporter)
+        }
+      } finally {
+        _synchronizeNames = false
       }
     }
 
@@ -463,12 +468,10 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
       try {
         if ((unit ne null) && unit.exists) lastSeenSourceFile = unit.source
         currentRun.currentUnit = unit
-        _synchronizeNames = isParallel
         apply(unit)
       } finally {
         currentRun.currentUnit = unit0
         currentRun.advanceUnit()
-        _synchronizeNames = false
       }
     }
 

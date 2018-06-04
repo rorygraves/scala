@@ -7,18 +7,18 @@ object Parallel {
   class Counter {
     private val count = new AtomicInteger
 
-    def get: Int = count.get()
+    @inline final def get: Int = count.get()
 
-    def reset(): Unit = {
+    @inline final def reset(): Unit = {
       assertOnMain()
       count.set(0)
     }
 
-    def incrementAndGet(): Int = count.incrementAndGet
+    @inline final def incrementAndGet(): Int = count.incrementAndGet
 
-    def getAndIncrement(): Int = count.getAndIncrement
+    @inline final def getAndIncrement(): Int = count.getAndIncrement
 
-    override def toString: String = s"Counter[$count]"
+    @inline final override def toString: String = s"Counter[$count]"
   }
 
   // Wrapper for `synchronized` method. In future could provide additional logging, safety checks, etc.
@@ -40,7 +40,7 @@ object Parallel {
       override def initialValue(): T = valueOnWorker
     }
 
-    final def get: T = {
+    @inline final def get: T = {
       if (isWorker.get()) worker.get()
       else {
         if (main == null) main = valueOnMain
@@ -48,9 +48,9 @@ object Parallel {
       }
     }
 
-    final def set(value: T): Unit = if (isWorker.get()) worker.set(value) else main = value
+    @inline final def set(value: T): Unit = if (isWorker.get()) worker.set(value) else main = value
 
-    final def reset(): Unit = {
+    @inline final def reset(): Unit = {
       worker.remove()
       main = valueOnMain
     }
@@ -62,13 +62,13 @@ object Parallel {
     extends WorkerOrMainThreadLocal(valueOnWorker, throw new IllegalStateException("not allowed on main thread"))
 
   // Asserts that current execution happens on the main thread
-  def assertOnMain(): Unit = {
-    assert(!isWorker.get())
+  @inline final def assertOnMain(): Unit = {
+    if (ParallelSettings.areAssertionsEnabled) assert(!isWorker.get())
   }
 
   // Asserts that current execution happens on the worker thread
-  def assertOnWorker(): Unit = {
-    assert(isWorker.get())
+  @inline final def assertOnWorker(): Unit = {
+    if (ParallelSettings.areAssertionsEnabled) assert(isWorker.get())
   }
 
   // Runs block of the code in the 'worker thread' mode
