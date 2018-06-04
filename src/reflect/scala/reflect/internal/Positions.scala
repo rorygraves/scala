@@ -335,22 +335,18 @@ trait Positions extends api.Positions { self: SymbolTable =>
       }
   }
 
-  /** Replace elem `t` of `ts` by `replacement` list. */
-  private def replace(ts: List[Tree], t: Tree, replacement: List[Tree]): List[Tree] =
-    if (ts.head == t) replacement ::: ts.tail
-    else ts.head :: replace(ts.tail, t, replacement)
-
   /** Does given list of trees have mutually non-overlapping positions?
    *  pre: None of the trees is transparent
    */
   private object Overlaps{
     val conflicting = new ListBuffer[Tree]
-    def apply(cts: Iterable[Tree]) : List[(Tree, Tree)] = {
+    def apply(cts: Array[Tree]) : List[(Tree, Tree)] = {
       // manually unrolled to avoid ObjectRefs and unneeded ListBuffers
       var ranges: List[Range] = maxFree
-      val rest = cts.iterator
-      while (!rest.isEmpty && conflicting.isEmpty) {
-        val ct = rest.next()
+      var idx = 0
+      while (idx < cts.length) {
+        val ct = cts(idx)
+        idx += 1
         if (ct.pos.isOpaqueRange) {
           ranges = insert(ranges, ct, conflicting)
           if (conflicting.nonEmpty) {
