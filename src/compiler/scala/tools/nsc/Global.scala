@@ -414,8 +414,7 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
       assertOnMain()
 
       if (isDebugPrintEnabled) inform("[running phase " + name + " on " + currentRun.size +  " compilation units]")
-
-      implicit val ec: ExecutionContext = createExecutionContext()
+      implicit val ec: ExecutionContextExecutor = createExecutionContext()
 
       try {
         _synchronizeNames = isParallel
@@ -444,6 +443,11 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
         }
       } finally {
         _synchronizeNames = false
+
+        ec match {
+          case ecxs: ExecutionContextExecutorService => ecxs.shutdown()
+          case _ =>
+        }
       }
     }
 
@@ -483,7 +487,7 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
     /* Depending if we are in the parallel phase or not it creates executor with fixed thread pool size or
      * executor which runs everything on the current thread.
      */
-    private def createExecutionContext(): ExecutionContext = {
+    private def createExecutionContext(): ExecutionContextExecutor = {
       if (isParallel) {
         val parallelThreads = settings.YparallelThreads.value
         val threadPoolFactory = ThreadPoolFactory(Global.this, this)
