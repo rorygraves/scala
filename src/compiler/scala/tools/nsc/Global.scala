@@ -10,6 +10,7 @@ package nsc
 import java.io.{File, FileNotFoundException, IOException}
 import java.net.URL
 import java.nio.charset.{Charset, CharsetDecoder, IllegalCharsetNameException, UnsupportedCharsetException}
+import java.util.concurrent.TimeUnit
 
 import scala.collection.{immutable, mutable}
 import io.{AbstractFile, Path, SourceReader}
@@ -445,7 +446,9 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
         _synchronizeNames = false
 
         ec match {
-          case ecxs: ExecutionContextExecutorService => ecxs.shutdown()
+          case ecxs: ExecutionContextExecutorService =>
+            ecxs.shutdown()
+            assert(ecxs.awaitTermination(1, TimeUnit.MINUTES))
           case _ =>
         }
       }
