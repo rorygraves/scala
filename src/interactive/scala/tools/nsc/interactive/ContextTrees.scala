@@ -109,7 +109,7 @@ trait ContextTrees { self: Global =>
   def addContext(contexts: Contexts, context: Context): Unit = {
     val cpos = context.tree.pos
     if (cpos.isTransparent)
-      for (t <- context.tree.children flatMap solidDescendants)
+      for (t <- childSolidDescendants(context.tree))
         addContext(contexts, context, t.pos)
     else
       addContext(contexts, context, cpos)
