@@ -13,6 +13,7 @@ import util._
 import java.util.concurrent.TimeUnit
 
 import scala.collection.mutable.ArrayBuffer
+import scala.reflect.internal.util.Parallel.synchronizeAccess
 import scala.reflect.internal.{TreeGen => InternalTreeGen}
 
 abstract class SymbolTable extends macros.Universe
@@ -52,6 +53,12 @@ abstract class SymbolTable extends macros.Universe
 {
 
   val gen = new InternalTreeGen { val global: SymbolTable.this.type = SymbolTable.this }
+
+  // Wrapper for `synchronized` method. In future could provide additional logging, safety checks, etc.
+  // We are locking on `synchronizeSymbolsAccess` object which is created per `SymbolTable` instance
+  object synchronizeSymbolsAccess {
+    def apply[T](block: => T): T = synchronizeAccess(this)(block)
+  }
 
   trait ReflectStats extends BaseTypeSeqsStats
                         with TypesStats

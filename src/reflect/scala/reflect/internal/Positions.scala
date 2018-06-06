@@ -5,6 +5,7 @@ package internal
 import scala.collection.mutable
 import util._
 import scala.collection.mutable.ListBuffer
+import scala.reflect.internal.util.Parallel.WorkerThreadLocal
 
 /** Handling range positions
  *  atPos, the main method in this trait, will add positions to a tree,
@@ -280,7 +281,10 @@ trait Positions extends api.Positions { self: SymbolTable =>
   trait PosAssigner extends InternalTraverser {
     var pos: Position
   }
-  protected[this] lazy val posAssigner: PosAssigner = new DefaultPosAssigner
+
+  // Reported by umad
+  protected[this] val _posAssigner: WorkerThreadLocal[PosAssigner] = WorkerThreadLocal(new DefaultPosAssigner)
+  @inline protected[this] final def posAssigner: PosAssigner = _posAssigner.get
 
   protected class DefaultPosAssigner extends PosAssigner {
     var pos: Position = _

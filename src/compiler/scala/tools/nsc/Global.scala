@@ -10,12 +10,15 @@ package nsc
 import java.io.{File, FileNotFoundException, IOException}
 import java.net.URL
 import java.nio.charset.{Charset, CharsetDecoder, IllegalCharsetNameException, UnsupportedCharsetException}
+import java.util.concurrent.TimeUnit
+
 import scala.collection.{immutable, mutable}
 import io.{AbstractFile, Path, SourceReader}
-import reporters.Reporter
+import reporters.{BufferedReporter, Reporter}
 import util.{ClassPath, returning}
 import scala.reflect.ClassTag
-import scala.reflect.internal.util.{BatchSourceFile, NoSourceFile, ScalaClassLoader, ScriptSourceFile, SourceFile, StatisticsStatics}
+import scala.reflect.internal.util.{BatchSourceFile, NoSourceFile, Parallel, ScalaClassLoader, ScriptSourceFile, SourceFile, StatisticsStatics}
+import scala.reflect.internal.util.Parallel._
 import scala.reflect.internal.pickling.PickleBuffer
 import symtab.{Flags, SymbolTable, SymbolTrackers}
 import symtab.classfile.Pickler
@@ -26,12 +29,13 @@ import typechecker._
 import transform.patmat.PatternMatching
 import transform._
 import backend.{JavaPlatform, ScalaPrimitives}
-import backend.jvm.{GenBCode, BackendStats}
-import scala.concurrent.Future
+import backend.jvm.{BackendStats, GenBCode}
+import scala.concurrent.duration.Duration
+import scala.concurrent._
 import scala.language.postfixOps
 import scala.tools.nsc.ast.{TreeGen => AstTreeGen}
 import scala.tools.nsc.classpath._
-import scala.tools.nsc.profile.Profiler
+import scala.tools.nsc.profile.{Profiler, ThreadPoolFactory}
 
 class Global(var currentSettings: Settings, reporter0: Reporter)
     extends SymbolTable
@@ -75,16 +79,26 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
 
   override def settings = currentSettings
 
-  private[this] var currentReporter: Reporter = { reporter = reporter0 ; currentReporter }
+  // Umad reported violation on: `scala.reflect.internal.SymbolTable.scala$reflect$internal$Names$$nc_$eq(int)`
+  // To synchronize access we can re-use mechanism from `scala.reflect.internal.Names` so far used for runtime mirror.
+  // For efficiency want to enable it only for phases which are parallelized.
+  override protected def synchronizeNames: Boolean = _synchronizeNames
+  private[this] var _synchronizeNames = false
 
-  def reporter: Reporter = currentReporter
+  /* `currentReporter` is used on both main thread as well as worker threads.
+   * On worker threads for every unit we are creating new `BufferedReporter`
+   * which at the end of the unit processing is dumped to the main reporter.
+   * We need to do it if we want to retain the same messages order as in case of single threaded execution.
+   */
+  private[this] val currentReporter: WorkerOrMainThreadLocal[Reporter] = WorkerThreadLocal(reporter0, reporter0)
+  def reporter: Reporter =  currentReporter.get
   def reporter_=(newReporter: Reporter): Unit =
-    currentReporter = newReporter match {
+    currentReporter.set(newReporter match {
       case _: reporters.ConsoleReporter | _: reporters.LimitingReporter => newReporter
       case _ if settings.maxerrs.isSetByUser && settings.maxerrs.value < settings.maxerrs.default =>
         new reporters.LimitingReporter(settings, newReporter)
       case _ => newReporter
-    }
+    })
 
   /** Switch to turn on detailed type logs */
   var printTypings = settings.Ytyperdebug.value
@@ -385,11 +399,6 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
   abstract class GlobalPhase(prev: Phase) extends Phase(prev) {
     phaseWithId(id) = this
 
-    def run(): Unit = {
-      echoPhaseSummary(this)
-      currentRun.units foreach applyPhase
-    }
-
     def apply(unit: CompilationUnit): Unit
 
     /** Is current phase cancelled on this unit? */
@@ -399,31 +408,96 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
       reporter.cancelled || unit.isJava && this.id > maxJavaPhase
     }
 
-    final def withCurrentUnit(unit: CompilationUnit)(task: => Unit): Unit = {
-      if ((unit ne null) && unit.exists)
-        lastSeenSourceFile = unit.source
+    // Cleanup method needed for some phases, for example typer
+    def afterUnit(unit: CompilationUnit): Unit = {}
 
-      if (settings.debug && (settings.verbose || currentRun.size < 5))
-        inform("[running phase " + name + " on " + unit + "]")
-      if (!cancelled(unit)) {
-        currentRun.informUnitStarting(this, unit)
-        try withCurrentUnitNoLog(unit)(task)
-        finally currentRun.advanceUnit()
-      }
-    }
+    def run(): Unit = {
+      assertOnMain()
 
-    final def withCurrentUnitNoLog(unit: CompilationUnit)(task: => Unit): Unit = {
-      val unit0 = currentUnit
+      if (isDebugPrintEnabled) inform("[running phase " + name + " on " + currentRun.size +  " compilation units]")
+      implicit val ec: ExecutionContextExecutor = createExecutionContext()
+
       try {
-        currentRun.currentUnit = unit
-        task
+        _synchronizeNames = isParallel
+
+        /* Every unit is now run in separate `Future`. If given phase is not ran as parallel one
+         * (which is indicated by `isParallel`) it's swill run on the main thread. This is accomplished by
+         * properly modified `ExecutionContext` returned by `createExecutionContext`.
+         */
+        val futures = currentRun.units.toList.collect {
+          case unit if !cancelled(unit) =>
+            Future {
+              asWorkerThread {
+                processUnit(unit)
+                afterUnit(unit)
+                reporter
+              }
+            }
+        }
+
+        /* Dumping messages from unit's `BufferedReporter` to main reporter.
+         * Since we are awaiting for previous units this allows us to retain messages order.
+         */
+        futures.foreach { future =>
+          val workerReporter = Await.result(future, Duration.Inf)
+          if (isParallel) workerReporter.asInstanceOf[BufferedReporter].flushTo(reporter)
+        }
       } finally {
-        //assert(currentUnit == unit)
-        currentRun.currentUnit = unit0
+        _synchronizeNames = false
+
+        ec match {
+          case ecxs: ExecutionContextExecutorService =>
+            ecxs.shutdown()
+            assert(ecxs.awaitTermination(1, TimeUnit.MINUTES))
+          case _ =>
+        }
       }
     }
 
-    final def applyPhase(unit: CompilationUnit) = withCurrentUnit(unit)(apply(unit))
+    // Used in methods like `compileLate`
+    final def applyPhase(unit: CompilationUnit): Unit = {
+      assertOnWorker()
+      if (!cancelled(unit)) processUnit(unit)
+    }
+
+    private def processUnit(unit: CompilationUnit): Unit = {
+      assertOnWorker()
+
+      /* In worker threads if we are processing units in parallel we want to use temporary `BufferedReporter` for every unit.
+       * Then later we can then keep it until all previous units are processed and then dump all messages to main reporter.
+       */
+      if (isParallel) reporter = new BufferedReporter
+
+      if (isDebugPrintEnabled) inform("[running phase " + name + " on " + unit + "]")
+
+      val unit0 = currentUnit
+
+      try {
+        if ((unit ne null) && unit.exists) lastSeenSourceFile = unit.source
+        currentRun.currentUnit = unit
+        apply(unit)
+      } finally {
+        currentRun.currentUnit = unit0
+        currentRun.advanceUnit()
+      }
+    }
+
+    /* Only output a summary message under debug if we aren't echoing each file. */
+    private def isDebugPrintEnabled: Boolean = settings.debug && !(settings.verbose || currentRun.size < 5)
+
+    private def isParallel = settings.YparallelPhases.containsPhase(this)
+
+    /* Depending if we are in the parallel phase or not it creates executor with fixed thread pool size or
+     * executor which runs everything on the current thread.
+     */
+    private def createExecutionContext(): ExecutionContextExecutor = {
+      if (isParallel) {
+        val parallelThreads = settings.YparallelThreads.value
+        val threadPoolFactory = ThreadPoolFactory(Global.this, this)
+        val javaExecutor = threadPoolFactory.newUnboundedQueueFixedThreadPool(parallelThreads, "worker")
+        ExecutionContext.fromExecutorService(javaExecutor, _ => ())
+      } else ExecutionContext.fromExecutor((task: Runnable) => task.run())
+    }
   }
 
   // phaseName = "parser"
@@ -949,11 +1023,18 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
   } with typechecker.StructuredTypeStrings
 
   /** There are common error conditions where when the exception hits
-   *  here, currentRun.currentUnit is null.  This robs us of the knowledge
-   *  of what file was being compiled when it broke.  Since I really
-   *  really want to know, this hack.
+    * here, currentRun.currentUnit is null.  This robs us of the knowledge
+    * of what file was being compiled when it broke.  Since I really
+    * really want to know, this hack.
+    *
+    * pkukielka: I'm not sure if I believe above comment but nevertheless
+    * if we want to keep that design we need to keep one `lastSeenSourceFile` per thread.
+    * Othervise in case of failure we would be reporting last unit/file which started to be processing
+    * which may or may not be the same as the one which failed.
    */
-  protected var lastSeenSourceFile: SourceFile = NoSourceFile
+  private[this] final val _lastSeenSourceFile: WorkerThreadLocal[SourceFile] = WorkerThreadLocal(NoSourceFile)
+  @inline protected def lastSeenSourceFile: SourceFile = _lastSeenSourceFile.get
+  @inline protected def lastSeenSourceFile_=(source: SourceFile): Unit = _lastSeenSourceFile.set(source)
 
   /** Let's share a lot more about why we crash all over the place.
    *  People will be very grateful.
@@ -1058,12 +1139,6 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
    */
   override def currentRunId = curRunId
 
-  def echoPhaseSummary(ph: Phase) = {
-    /* Only output a summary message under debug if we aren't echoing each file. */
-    if (settings.debug && !(settings.verbose || currentRun.size < 5))
-      inform("[running phase " + ph.name + " on " + currentRun.size +  " compilation units]")
-  }
-
   def newSourceFile(code: String, filename: String = "<console>") =
     new BatchSourceFile(filename, code)
 
@@ -1090,7 +1165,9 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
      */
     var isDefined = false
     /** The currently compiled unit; set from GlobalPhase */
-    var currentUnit: CompilationUnit = NoCompilationUnit
+    private[this] final val _currentUnit: WorkerOrMainThreadLocal[CompilationUnit] = WorkerThreadLocal(NoCompilationUnit)
+    def currentUnit: CompilationUnit = _currentUnit.get
+    def currentUnit_=(unit: CompilationUnit): Unit = _currentUnit.set(unit)
 
     val profiler: Profiler = Profiler(settings)
     keepPhaseStack = settings.log.isSetByUser
@@ -1128,8 +1205,8 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
     /** A map from compiled top-level symbols to their picklers */
     val symData = new mutable.AnyRefMap[Symbol, PickleBuffer]
 
-    private var phasec: Int  = 0   // phases completed
-    private var unitc: Int   = 0   // units completed this phase
+    private var phasec: Int = 0                     // phases completed
+    private final val unitc: Counter = new Counter  // units completed this phase
 
     def size = unitbuf.size
     override def toString = "scalac Run for:\n  " + compiledFiles.toList.sorted.mkString("\n  ")
@@ -1250,7 +1327,7 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
      *  (for progress reporting)
      */
     def advancePhase(): Unit = {
-      unitc = 0
+      unitc.reset()
       phasec += 1
       refreshProgress()
     }
@@ -1258,14 +1335,14 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
      *  (for progress reporting)
      */
     def advanceUnit(): Unit = {
-      unitc += 1
+      unitc.incrementAndGet()
       refreshProgress()
     }
 
     // for sbt
     def cancel(): Unit = { reporter.cancelled = true }
 
-    private def currentProgress   = (phasec * size) + unitc
+    private def currentProgress   = (phasec * size) + unitc.get
     private def totalProgress     = (phaseDescriptors.size - 1) * size // -1: drops terminal phase
     private def refreshProgress() = if (size > 0) progress(currentProgress, totalProgress)
 
@@ -1429,8 +1506,16 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
     private final val GlobalPhaseName = "global (synthetic)"
     protected final val totalCompileTime = statistics.newTimer("#total compile time", GlobalPhaseName)
 
-    def compileUnits(units: List[CompilationUnit], fromPhase: Phase = firstPhase): Unit =
+    /* We assumes that everything that is done while compiling unit is done on the worker thread.
+     * Most work is done (and most code is run) in the workers thread, comparing to main.
+     * Because of that we make design decision that every thread is marked as worker by default.
+     * It makes our life easier when dealing with tests, toolbox, and virtually everything which not goes through `Global`.
+     * But now we need to somehow mark the main thread. That is done by `Parallel.asMainThread`.
+     */
+    def compileUnits(units: List[CompilationUnit], fromPhase: Phase = firstPhase): Unit = Parallel.asMainThread {
       compileUnitsInternal(units, fromPhase)
+    }
+
     private def compileUnitsInternal(units: List[CompilationUnit], fromPhase: Phase): Unit = {
       units foreach addUnit
       reporter.reset()

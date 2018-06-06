@@ -3116,13 +3116,19 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
      * type arguments.
      */
     override def tpe_* : Type = {
-      maybeUpdateTypeCache()
-      tpeCache
+      // We are simply locking all completers on current `SymbolTable` for now.
+      // Should we see if that will be efficient enough.
+      synchronizeSymbolsAccess {
+        maybeUpdateTypeCache()
+        tpeCache
+      }
     }
     override def typeConstructor: Type = {
-      if (tyconCacheNeedsUpdate)
-        setTyconCache(newTypeRef(Nil))
-      tyconCache
+      synchronizeSymbolsAccess {
+        if (tyconCacheNeedsUpdate)
+          setTyconCache(newTypeRef(Nil))
+        tyconCache
+      }
     }
     override def tpeHK: Type = typeConstructor
 
@@ -3141,6 +3147,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
           updateTypeCache()   // perform the actual update
       }
     }
+
     private def updateTypeCache() {
       if (tpeCache eq NoType)
         throw CyclicReference(this, typeConstructor)

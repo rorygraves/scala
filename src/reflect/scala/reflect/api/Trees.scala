@@ -6,6 +6,8 @@ package scala
 package reflect
 package api
 
+import scala.reflect.internal.util.Parallel.WorkerThreadLocal
+
 /**
  * <span class="badge badge-red" style="float: right;">EXPERIMENTAL</span>
  *
@@ -2463,7 +2465,13 @@ trait Trees { self: Universe =>
    *  @group Traversal
    */
   class Traverser {
-    protected[scala] var currentOwner: Symbol = rootMirror.RootClass
+    /** Access from multiple threads was reported by umad.
+      * That possibly could be solved by ensuring that every unit operates on it's own copy of the tree,
+      * but it would require much bigger refactorings and would be more memory consuming.
+      */
+    @inline final protected[scala] def currentOwner: Symbol = _currentOwner.get
+    @inline final protected[scala] def currentOwner_=(sym: Symbol): Unit = _currentOwner.set(sym)
+    private final val _currentOwner: WorkerThreadLocal[Symbol] = WorkerThreadLocal(rootMirror.RootClass)
 
     /** Traverse something which Trees contain, but which isn't a Tree itself. */
     def traverseName(name: Name): Unit                    = ()
@@ -2534,8 +2542,15 @@ trait Trees { self: Universe =>
     /** The underlying tree copier. */
     val treeCopy: TreeCopier = newLazyTreeCopier
 
-    /** The current owner symbol. */
-    protected[scala] var currentOwner: Symbol = rootMirror.RootClass
+    /** The current owner symbol.
+      *
+      * Access from multiple threads was reported by umad.
+      * That possibly could be solved by ensuring that every unit operates on it's own copy of the tree,
+      * but it would require much bigger refactorings and would be more memory consuming.
+      */
+    @inline protected[scala] final def currentOwner: Symbol = _currentOwner.get
+    @inline protected[scala] final def currentOwner_=(sym: Symbol): Unit = _currentOwner.set(sym)
+    private final val _currentOwner: WorkerThreadLocal[Symbol] = WorkerThreadLocal(rootMirror.RootClass)
 
     /** The enclosing method of the currently transformed tree. */
     protected def currentMethod = {
