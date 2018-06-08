@@ -35,7 +35,7 @@ object ThreadPoolFactory {
     protected def wrapWorker(worker: Runnable, shortId: String): Runnable = worker
 
     protected final class CommonThreadFactory(
-        shortId: String,
+        val shortId: String,
         daemon: Boolean = true,
         priority: Int) extends ThreadFactory {
       private val group: ThreadGroup = childGroup(shortId)
@@ -73,31 +73,28 @@ object ThreadPoolFactory {
     override def newUnboundedQueueFixedThreadPool(nThreads: Int, shortId: String, priority: Int): ThreadPoolExecutor = {
       val threadFactory = new CommonThreadFactory(shortId, priority = priority)
       //like Executors.newFixedThreadPool
-      new SinglePhaseInstrumentedThreadPoolExecutor(nThreads, nThreads, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue[Runnable], threadFactory, new AbortPolicy)
+      new SinglePhaseInstrumentedThreadPoolExecutor(nThreads, nThreads, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue[Runnable], threadFactory, new AbortPolicy, baseGroup)
     }
 
     override def newBoundedQueueFixedThreadPool(nThreads: Int, maxQueueSize: Int, rejectHandler: RejectedExecutionHandler, shortId: String, priority: Int): ThreadPoolExecutor = {
       val threadFactory = new CommonThreadFactory(shortId, priority = priority)
       //like Executors.newFixedThreadPool
-      new SinglePhaseInstrumentedThreadPoolExecutor(nThreads, nThreads, 0L, TimeUnit.MILLISECONDS, new ArrayBlockingQueue[Runnable](maxQueueSize), threadFactory, rejectHandler)
+      new SinglePhaseInstrumentedThreadPoolExecutor(nThreads, nThreads, 0L, TimeUnit.MILLISECONDS, new ArrayBlockingQueue[Runnable](maxQueueSize), threadFactory, rejectHandler, baseGroup)
     }
 
     override protected def wrapWorker(worker: Runnable, shortId: String): Runnable = () => {
       val data = new ThreadProfileData
-      localData.set(data)
-
-      val profileStart = profiler.snapThread(0)
-      try worker.run finally {
-        val snap = profiler.snapThread(data.idleNs)
-        val threadRange = ProfileRange(profileStart, snap, phase, shortId, data.taskCount, Thread.currentThread())
-        profiler.completeBackground(threadRange)
-      }
+      data.profileStart = profiler.snapThread(0)
+      localData.put(Thread.currentThread().getId, data)
+      worker.run()
     }
 
     /**
       * data for thread run. Not threadsafe, only written from a single thread
       */
     final class ThreadProfileData {
+      var profileStart: ProfileSnap = _
+
       var firstStartNs = 0L
       var taskCount = 0
 
@@ -108,15 +105,28 @@ object ThreadPoolFactory {
       var lastEndNs = 0L
     }
 
-    val localData = new ThreadLocal[ThreadProfileData]
+    val localData = new ConcurrentHashMap[Long, ThreadProfileData]
 
     private class SinglePhaseInstrumentedThreadPoolExecutor(
         corePoolSize: Int, maximumPoolSize: Int, keepAliveTime: Long, unit: TimeUnit,
-        workQueue: BlockingQueue[Runnable], threadFactory: ThreadFactory, handler: RejectedExecutionHandler)
+        workQueue: BlockingQueue[Runnable], threadFactory: CommonThreadFactory, handler: RejectedExecutionHandler, group: ThreadGroup)
       extends ThreadPoolExecutor(corePoolSize, maximumPoolSize, keepAliveTime, unit, workQueue, threadFactory, handler) {
 
+      override def shutdown(): Unit = {
+        val arr = new Array[Thread](group.activeCount())
+        group.enumerate(arr)
+        arr.foreach { thread =>
+          val data = localData.get(thread.getId)
+          val snap = profiler.snapThread(data.idleNs, thread)
+          val threadRange = ProfileRange(data.profileStart, snap, phase, threadFactory.shortId, data.taskCount, thread)
+          profiler.completeBackground(threadRange)
+        }
+
+        super.shutdown()
+      }
+
       override def beforeExecute(t: Thread, r: Runnable): Unit = {
-        val data = localData.get
+        val data = localData.get(t.getId)
         data.taskCount += 1
         val now = System.nanoTime()
 
@@ -130,7 +140,7 @@ object ThreadPoolFactory {
 
       override def afterExecute(r: Runnable, t: Throwable): Unit = {
         val now = System.nanoTime()
-        val data = localData.get
+        val data = localData.get(Thread.currentThread().getId)
 
         data.lastEndNs = now
         data.runningNs += now - data.lastStartNs
