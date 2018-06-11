@@ -147,22 +147,22 @@ trait Positions extends api.Positions { self: SymbolTable =>
     val trace = settings.Yposdebug && (settings.verbose || settings.Yrangepos)
     val topTree = tree
     object solidChildrenCollector extends ChildSolidDescendantsCollector {
-      private[this] val childSolidDescendantBuffer = new java.util.ArrayList[Tree]
+      private[this] var size = 0
       private[this] var childSolidDescendants = new Array[Tree](32)
-      def collectedSize = childSolidDescendantBuffer.size
+      def collectedSize = size
       def sortedArray: Array[Tree] = {
-        val numChildren = childSolidDescendantBuffer.size
-        if (childSolidDescendants.length < numChildren) {
-          Integer.highestOneBit(numChildren)
-          childSolidDescendants = new Array[Tree](Integer.highestOneBit(numChildren - 1) << 1)
-        }
-        childSolidDescendantBuffer.toArray(childSolidDescendants)
-        java.util.Arrays.sort(childSolidDescendants, 0, numChildren, posStartOrdering)
+        if (size > 1)
+          java.util.Arrays.sort(childSolidDescendants, 0, size, posStartOrdering)
         childSolidDescendants
       }
-      def clear() {childSolidDescendantBuffer.clear}
+      //we dont care about zeroing the array
+      def clear() {size = 0}
       def traverseSolidChild(t: Tree): Unit = {
-        childSolidDescendantBuffer.add(t)
+        if (size == childSolidDescendants.length) {
+          childSolidDescendants = java.util.Arrays.copyOf(childSolidDescendants, size << 1)
+        }
+        childSolidDescendants(size) = t
+        size += 1
       }
     }
 
