@@ -131,10 +131,16 @@ trait Positions extends api.Positions { self: SymbolTable =>
 
   private val posStartOrdering: Ordering[Tree] = new Ordering[Tree] {
     override def compare(x: Tree, y: Tree): Int = {
-      def posOf(t: Tree): Int = {
-        if (t == null || t.pos == NoPosition) Int.MinValue else t.pos.start
+      @inline def posOf(t: Tree): Int = {
+        val pos = t.pos
+        if (pos eq NoPosition) Int.MinValue else pos.start
       }
-      Integer.compare(posOf(x), posOf(y))
+      // avoid pos lookup if tree is null
+      // FIXME - not sure how it can be null though
+      if (x eq null)
+        if (y eq null) 0 else -1
+      if (y eq null) 1
+      else Integer.compare(posOf(x), posOf(y))
     }
   }
   def validatePositions(tree: Tree): Unit = if (!isPastTyper && !useOffsetPositions) {
