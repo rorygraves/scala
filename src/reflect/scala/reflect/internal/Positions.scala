@@ -146,9 +146,21 @@ trait Positions extends api.Positions { self: SymbolTable =>
   def validatePositions(tree: Tree): Unit = if (!isPastTyper && !useOffsetPositions) {
     val trace = settings.Yposdebug && (settings.verbose || settings.Yrangepos)
     val topTree = tree
-    val childSolidDescendantBuffer = new java.util.ArrayList[Tree]
-    var childSolidDescendants = new Array[Tree](32)
-    val solidChildrenCollector = new ChildSolidDescendantsCollector {
+    object solidChildrenCollector extends ChildSolidDescendantsCollector {
+      private[this] val childSolidDescendantBuffer = new java.util.ArrayList[Tree]
+      private[this] var childSolidDescendants = new Array[Tree](32)
+      def collectedSize = childSolidDescendantBuffer.size
+      def sortedArray: Array[Tree] = {
+        val numChildren = childSolidDescendantBuffer.size
+        if (childSolidDescendants.length < numChildren) {
+          Integer.highestOneBit(numChildren)
+          childSolidDescendants = new Array[Tree](Integer.highestOneBit(numChildren - 1) << 1)
+        }
+        childSolidDescendantBuffer.toArray(childSolidDescendants)
+        java.util.Arrays.sort(childSolidDescendants, 0, numChildren, posStartOrdering)
+        childSolidDescendants
+      }
+      def clear() {childSolidDescendantBuffer.clear}
       def traverseSolidChild(t: Tree): Unit = {
         childSolidDescendantBuffer.add(t)
       }
@@ -181,15 +193,10 @@ trait Positions extends api.Positions { self: SymbolTable =>
             }
 
           solidChildrenCollector(tree)
-          val numChildren = childSolidDescendantBuffer.size
-          if (childSolidDescendants.length < numChildren) {
-            Integer.highestOneBit(numChildren)
-            childSolidDescendants = new Array[Tree](Integer.highestOneBit(numChildren - 1) << 1)
-          }
-          childSolidDescendantBuffer.toArray(childSolidDescendants)
+          val numChildren = solidChildrenCollector.collectedSize
 
           if (numChildren > 1) {
-            java.util.Arrays.sort(childSolidDescendants, 0, numChildren, posStartOrdering)
+            val childSolidDescendants = solidChildrenCollector.sortedArray
             var t1 = childSolidDescendants(0)
             var i = 1
             while (i < numChildren) {
@@ -204,7 +211,7 @@ trait Positions extends api.Positions { self: SymbolTable =>
             }
           }
         }
-        childSolidDescendantBuffer.clear()
+        solidChildrenCollector.clear()
         new ChildSolidDescendantsCollector {
           override def traverseSolidChild(ct: Tree): Unit = loop(ct, tree)
         }.apply(tree)
