@@ -155,6 +155,7 @@ trait Positions extends api.Positions { self: SymbolTable =>
           java.util.Arrays.sort(childSolidDescendants, 0, size, posStartOrdering)
         childSolidDescendants
       }
+      def array: Array[Tree] = childSolidDescendants
       //we dont care about zeroing the array
       def clear() {size = 0}
       def traverseSolidChild(t: Tree): Unit = {
@@ -212,10 +213,18 @@ trait Positions extends api.Positions { self: SymbolTable =>
           }
         }
         if (numChildren > 0) {
+          val childSolidDescendants = solidChildrenCollector.array
           solidChildrenCollector.clear()
-          new ChildSolidDescendantsCollector {
-            override def traverseSolidChild(ct: Tree): Unit = loop(ct, tree)
-          }.apply(tree)
+          if (numChildren == 1) {
+            loop(childSolidDescendants(0), tree)
+          } else {
+            val snap = java.util.Arrays.copyOf(childSolidDescendants, numChildren)
+            var i = 0
+            while (i < snap.length) {
+              loop(snap(i), tree)
+              i += 1
+            }
+          }
         }
       }
     }
