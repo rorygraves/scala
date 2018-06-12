@@ -179,6 +179,9 @@ trait Positions extends api.Positions { self: SymbolTable =>
             encltree.children foreach (t => inform("%15s %s".format("sibling", treeStatus(t, encltree))))
           }
 
+        solidChildrenCollector(tree)
+        val numChildren = solidChildrenCollector.collectedSize
+
         if (treePos.isRange) {
           val enclPos = encltree.pos
           if (!enclPos.isRange)
@@ -191,9 +194,6 @@ trait Positions extends api.Positions { self: SymbolTable =>
               reportTree("Enclosing", encltree)
               reportTree("Enclosed", tree)
             }
-
-          solidChildrenCollector(tree)
-          val numChildren = solidChildrenCollector.collectedSize
 
           if (numChildren > 1) {
             val childSolidDescendants = solidChildrenCollector.sortedArray
@@ -211,10 +211,12 @@ trait Positions extends api.Positions { self: SymbolTable =>
             }
           }
         }
-        solidChildrenCollector.clear()
-        new ChildSolidDescendantsCollector {
-          override def traverseSolidChild(ct: Tree): Unit = loop(ct, tree)
-        }.apply(tree)
+        if (numChildren > 0) {
+          solidChildrenCollector.clear()
+          new ChildSolidDescendantsCollector {
+            override def traverseSolidChild(ct: Tree): Unit = loop(ct, tree)
+          }.apply(tree)
+        }
       }
     }
     loop(tree, tree)
