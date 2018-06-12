@@ -420,11 +420,15 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
       try {
         _synchronizeNames = isParallel
 
+        // Funny hack which allows us to create futures lazily or eagerly,
+        // which in turn causes them to be run sequentially or in parallel
+        val units = if (settings.YparallelSequential.value) currentRun.units else currentRun.units.toList.iterator()
+
         /* Every unit is now run in separate `Future`. If given phase is not ran as parallel one
          * (which is indicated by `isParallel`) it's swill run on the main thread. This is accomplished by
          * properly modified `ExecutionContext` returned by `createExecutionContext`.
          */
-        val futures = currentRun.units.toList.collect {
+        val futures = units.collect {
           case unit if !cancelled(unit) =>
             Future {
               asWorkerThread {
@@ -1043,7 +1047,6 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
   protected def lastSeenContext: analyzer.Context = _lastSeenContext.get
   protected def lastSeenContext_=(v: analyzer.Context): Unit = _lastSeenContext.set(v)
 
-
   /** The currently active run
    */
   def currentRun: Run              = curRun
@@ -1168,7 +1171,7 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
      */
     var isDefined = false
     /** The currently compiled unit; set from GlobalPhase */
-    private[this] final val _currentUnit: WorkerOrMainThreadLocal[CompilationUnit] = WorkerThreadLocal(NoCompilationUnit)
+    private[this] final val _currentUnit: WorkerThreadLocal[CompilationUnit] = WorkerThreadLocal(NoCompilationUnit)
     def currentUnit: CompilationUnit = _currentUnit.get
     def currentUnit_=(unit: CompilationUnit): Unit = _currentUnit.set(unit)
 

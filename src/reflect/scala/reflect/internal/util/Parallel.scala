@@ -32,10 +32,7 @@ object Parallel {
 
   def WorkerThreadLocal[T <: AnyRef](valueOnWorker: => T) = new WorkerThreadLocal[T](valueOnWorker)
 
-  // `WorkerOrMainThreadLocal` allows us to have different type of values on main and worker threads.
-  // It's useful in cases like reporter, when on workers we want to just store messages and on main we want to print them,
-  class WorkerOrMainThreadLocal[T](valueOnWorker: => T, valueOnMain: => T) {
-
+  abstract class AbstractThreadLocal[T](valueOnWorker: => T, valueOnMain: => T) {
     private var main: T = null.asInstanceOf[T]
 
     private val worker: ThreadLocal[T] = new ThreadLocal[T] {
@@ -60,11 +57,11 @@ object Parallel {
 
   // `WorkerThreadLocal` detects reads/writes of given value on the main thread and
   // and report such violations by throwing exception.
-  class WorkerThreadLocal[T](valueOnWorker: => T)
-    extends WorkerOrMainThreadLocal(valueOnWorker, throw new IllegalStateException("not allowed on main thread"))
+  class WorkerThreadLocal[T](valueOnWorker: => T) extends AbstractThreadLocal(valueOnWorker, throw new IllegalStateException("not allowed on main thread"))
 
-  class AnyThreadLocal[T](value: => T)
-    extends WorkerOrMainThreadLocal(value, value)
+  // `WorkerOrMainThreadLocal` allows us to have different type of values on main and worker threads.
+  // It's useful in cases like reporter, when on workers we want to just store messages and on main we want to print them,
+  class WorkerOrMainThreadLocal[T](valueOnWorker: => T, valueOnMain: => T) extends AbstractThreadLocal(valueOnWorker, valueOnMain)
 
   // Asserts that current execution happens on the main thread
   @inline final def assertOnMain(): Unit = {
