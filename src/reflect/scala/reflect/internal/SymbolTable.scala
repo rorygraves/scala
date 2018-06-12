@@ -405,13 +405,10 @@ abstract class SymbolTable extends macros.Universe
     // Weak references so the garbage collector will take care of
     // letting us know when a cache is really out of commission.
     import java.lang.ref.WeakReference
-    private val _caches = new Parallel.AnyThreadLocal(List[WeakReference[Clearable]]())
-    private def caches = _caches.get
-    private def caches_=(v: List[WeakReference[Clearable]]): Unit = _caches.set(v)
-
+    private var caches = List[WeakReference[Clearable]]()
     private var javaCaches = List[JavaClearable[_]]()
 
-    def recordCache[T <: Clearable](cache: T): T = {
+    def recordCache[T <: Clearable](cache: T): T = Parallel.synchronizeAccess(perRunCaches) {
       cache match {
         case jc: JavaClearable[_] =>
           javaCaches ::= jc
@@ -425,7 +422,7 @@ abstract class SymbolTable extends macros.Universe
      * Removes a cache from the per-run caches. This is useful for testing: it allows running the
      * compiler and then inspect the state of a cache.
      */
-    def unrecordCache[T <: Clearable](cache: T): Unit = {
+    def unrecordCache[T <: Clearable](cache: T): Unit = Parallel.synchronizeAccess(perRunCaches) {
       cache match {
         case jc: JavaClearable[_] =>
           javaCaches = javaCaches.filterNot(cache == _)
@@ -434,7 +431,8 @@ abstract class SymbolTable extends macros.Universe
       }
     }
 
-    def clearAll() = {
+    def clearAll() = Parallel.synchronizeAccess(perRunCaches) {
+       // Non needed anymore since caches are now local to thread and cleaned up after every phase
       debuglog("Clearing " + (caches.size + javaCaches.size) + " caches.")
       caches foreach (ref => Option(ref.get).foreach(_.clear))
       caches = caches.filterNot(_.get == null)
@@ -475,8 +473,6 @@ abstract class SymbolTable extends macros.Universe
       recordCache(clearable)
     }
   }
-
-
 
   private var _infoTransformers = new InfoTransformer {
     val pid = NoPhase.id

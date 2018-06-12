@@ -19,7 +19,6 @@ trait Scopes extends api.Scopes { self: SymbolTable =>
   private[scala] def scopeCount: Int = _scopeCount.get
   private[scala] def scopeCount_=(v: Int) = _scopeCount.set(v)
 
-
   perRunCaches.recordCache {
     val clearCount: Clearable = () => {scopeCount = 0}
     clearCount
