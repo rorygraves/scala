@@ -405,7 +405,10 @@ abstract class SymbolTable extends macros.Universe
     // Weak references so the garbage collector will take care of
     // letting us know when a cache is really out of commission.
     import java.lang.ref.WeakReference
-    private var caches = List[WeakReference[Clearable]]()
+    private val _caches = new Parallel.AnyThreadLocal(List[WeakReference[Clearable]]())
+    private def caches = _caches.get
+    private def caches_=(v: List[WeakReference[Clearable]]): Unit = _caches.set(v)
+
     private var javaCaches = List[JavaClearable[_]]()
 
     def recordCache[T <: Clearable](cache: T): T = {
@@ -473,12 +476,16 @@ abstract class SymbolTable extends macros.Universe
     }
   }
 
-  /** The set of all installed infotransformers. */
-  var infoTransformers = new InfoTransformer {
+
+
+  private var _infoTransformers = new InfoTransformer {
     val pid = NoPhase.id
     val changesBaseClasses = true
     def transform(sym: Symbol, tpe: Type): Type = tpe
   }
+  /** The set of all installed infotransformers. */
+  def infoTransformers = Parallel.synchronizeAccess(this){_infoTransformers}
+  def infoTransformers_=(v: InfoTransformer) = Parallel.synchronizeAccess(this){_infoTransformers = v}
 
   /** The phase which has given index as identifier. */
   val phaseWithId: Array[Phase]
