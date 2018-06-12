@@ -12,9 +12,6 @@ import scala.reflect.internal.Depth
  */
 private[reflect] trait SynchronizedTypes extends internal.Types { self: SymbolTable =>
 
-  // No sharing of map objects:
-  override protected def commonOwnerMap = new CommonOwnerMap
-
   // we can keep this lock fine-grained, because super.unique just updates the cache
   // and, in particular, doesn't call any reflection APIs which makes deadlocks impossible
   private lazy val uniqueLock = new Object

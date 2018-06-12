@@ -3,10 +3,9 @@ package reflect
 package internal
 package tpe
 
-import scala.collection.{ mutable }
-import util.TriState
+import scala.collection.mutable
+import util.{Parallel, StatisticsStatics, TriState}
 import scala.annotation.tailrec
-import scala.reflect.internal.util.StatisticsStatics
 
 trait TypeComparers {
   self: SymbolTable =>
@@ -31,9 +30,9 @@ trait TypeComparers {
     override def toString = tp1+" <:<? "+tp2
   }
 
-  private var _subsametypeRecursions: Int = 0
-  def subsametypeRecursions = _subsametypeRecursions
-  def subsametypeRecursions_=(value: Int) = _subsametypeRecursions = value
+  private var _subsametypeRecursions = Parallel.Counter()
+  def subsametypeRecursions = _subsametypeRecursions.get
+  def subsametypeRecursions_=(value: Int): Unit = _subsametypeRecursions.set(value)
 
   private def isUnifiable(pre1: Type, pre2: Type) = (
        (isEligibleForPrefixUnification(pre1) || isEligibleForPrefixUnification(pre2))

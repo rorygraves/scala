@@ -5,6 +5,7 @@ package tpe
 
 import scala.collection.{ generic }
 import generic.Clearable
+import scala.reflect.internal.util.Parallel
 
 private[internal] trait TypeConstraints {
   self: SymbolTable =>
@@ -20,7 +21,9 @@ private[internal] trait TypeConstraints {
   class UndoLog extends Clearable {
     type UndoPairs = List[UndoPair[TypeVar, TypeConstraint]]
     //OPT this method is public so we can do `manual inlining`
-    var log: UndoPairs = List()
+    private var _log: UndoPairs = List()
+    def log = Parallel.synchronizeAccess(this)(_log)
+    def log_=(value: UndoPairs) = Parallel.synchronizeAccess(this){ _log = value }
 
     // register with the auto-clearing cache manager
     perRunCaches.recordCache(this)
