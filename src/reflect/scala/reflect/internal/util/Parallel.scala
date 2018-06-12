@@ -63,9 +63,6 @@ object Parallel {
   class WorkerThreadLocal[T](valueOnWorker: => T)
     extends WorkerOrMainThreadLocal(valueOnWorker, throw new IllegalStateException("not allowed on main thread"))
 
-  class AnyThreadLocal[T](value: => T)
-    extends WorkerOrMainThreadLocal(value, value)
-
   // Asserts that current execution happens on the main thread
   @inline final def assertOnMain(): Unit = {
     if (ParallelSettings.areAssertionsEnabled) assert(!isWorker.get())
