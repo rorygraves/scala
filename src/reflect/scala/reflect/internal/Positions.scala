@@ -146,18 +146,32 @@ trait Positions extends api.Positions { self: SymbolTable =>
       object solidChildrenCollector extends ChildSolidDescendantsCollector {
         private[this] var size = 0
         private[this] var childSolidDescendants = new Array[Tree](32)
+        private[this] val spares = new java.util.ArrayList[Array[Tree]]
+
+        def borrowArray:  Array[Tree] = {
+          val borrowed = childSolidDescendants
+          childSolidDescendants = if (spares.isEmpty) new Array[Tree](32) else spares.remove(spares.size - 1)
+          clear()
+          borrowed
+        }
+        def spareArray(array: Array[Tree]): Unit = {
+          spares.add(array)
+        }
+
+        def child(i:Int) = childSolidDescendants(i)
         def collectedSize = size
         def sortedArray: Array[Tree] = {
           if (size > 1)
             java.util.Arrays.sort(childSolidDescendants, 0, size, posStartOrdering)
           childSolidDescendants
         }
-        def array: Array[Tree] = childSolidDescendants
+
         //we dont care about zeroing the array
         def clear() {size = 0}
 
         def traverseSolidChild(t: Tree): Unit = {
           if (size == childSolidDescendants.length) {
+            spareArray(childSolidDescendants)
             childSolidDescendants = java.util.Arrays.copyOf(childSolidDescendants, size << 1)
           }
           childSolidDescendants(size) = t
@@ -216,17 +230,18 @@ trait Positions extends api.Positions { self: SymbolTable =>
             }
           }
           if (numChildren > 0) {
-            val childSolidDescendants = solidChildrenCollector.array
-            solidChildrenCollector.clear()
             if (numChildren == 1) {
-              loop(childSolidDescendants(0), tree)
+              val first = solidChildrenCollector.child(0)
+              solidChildrenCollector.clear()
+              loop(first, tree)
             } else {
-              val snap = java.util.Arrays.copyOf(childSolidDescendants, numChildren)
+              val snap = solidChildrenCollector.borrowArray
               var i = 0
-              while (i < snap.length) {
+              while (i < numChildren) {
                 loop(snap(i), tree)
                 i += 1
               }
+              solidChildrenCollector.spareArray(snap)
             }
           }
         }
