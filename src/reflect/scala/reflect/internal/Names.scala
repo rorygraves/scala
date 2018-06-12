@@ -32,7 +32,9 @@ trait Names extends api.Names {
 
   /** Memory to store all names sequentially. */
   var chrs: Array[Char] = new Array[Char](NAME_SIZE)
-  private var nc = 0
+  private var nc_counter = new util.Parallel.Counter
+  private def nc: Int = nc_counter.get
+  private def nc_=(v: Int): Unit = nc_counter.set(v)
 
   /** Hashtable for finding term names quickly. */
   private val termHashtable = new Array[TermName](HASH_SIZE)

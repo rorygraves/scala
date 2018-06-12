@@ -10,12 +10,16 @@ package internal
 import scala.annotation.tailrec
 import scala.collection.AbstractIterable
 import scala.collection.generic.Clearable
-import scala.reflect.internal.util.{Statistics, StatisticsStatics}
+import scala.reflect.internal.util.{Parallel, Statistics, StatisticsStatics}
 
 trait Scopes extends api.Scopes { self: SymbolTable =>
 
   // Reset `scopeCount` per every run
-  private[scala] var scopeCount = 0
+  private val _scopeCount = new Parallel.Counter
+  private[scala] def scopeCount: Int = _scopeCount.get
+  private[scala] def scopeCount_=(v: Int) = _scopeCount.set(v)
+
+
   perRunCaches.recordCache {
     val clearCount: Clearable = () => {scopeCount = 0}
     clearCount
