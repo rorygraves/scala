@@ -199,15 +199,20 @@ trait Positions extends api.Positions { self: SymbolTable =>
           if (numChildren > 1) {
             val childSolidDescendants = solidChildrenCollector.sortedArray
             var t1 = childSolidDescendants(0)
+            var t1Pos = t1.pos
             var i = 1
             while (i < numChildren) {
               val t2 = childSolidDescendants(i)
-              if (t1.pos.overlaps(t2.pos)) {
+              val t2Pos = t2.pos
+              if (t1Pos.overlaps(t2Pos)) {
                 reportTree("First overlapping", t1)
                 reportTree("Second overlapping", t2)
               }
-              if (t2.pos.isRange)
+              //why only for range
+              if (t2Pos.isRange) {
                 t1 = t2
+                t1Pos = t2Pos
+              }
               i += 1
             }
           }
