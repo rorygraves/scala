@@ -144,96 +144,100 @@ trait Positions extends api.Positions { self: SymbolTable =>
     }
   }
   def validatePositions(tree: Tree): Unit = if (!isPastTyper && !useOffsetPositions) {
-    val trace = settings.Yposdebug && (settings.verbose || settings.Yrangepos)
-    val topTree = tree
-    object solidChildrenCollector extends ChildSolidDescendantsCollector {
-      private[this] var size = 0
-      private[this] var childSolidDescendants = new Array[Tree](32)
-      def collectedSize = size
-      def sortedArray: Array[Tree] = {
-        if (size > 1)
-          java.util.Arrays.sort(childSolidDescendants, 0, size, posStartOrdering)
-        childSolidDescendants
-      }
-      def array: Array[Tree] = childSolidDescendants
-      //we dont care about zeroing the array
-      def clear() {size = 0}
-      def traverseSolidChild(t: Tree): Unit = {
-        if (size == childSolidDescendants.length) {
-          childSolidDescendants = java.util.Arrays.copyOf(childSolidDescendants, size << 1)
+    object worker {
+      val trace = settings.Yposdebug && (settings.verbose || settings.Yrangepos)
+      val topTree = tree
+
+      object solidChildrenCollector extends ChildSolidDescendantsCollector {
+        private[this] var size = 0
+        private[this] var childSolidDescendants = new Array[Tree](32)
+        def collectedSize = size
+        def sortedArray: Array[Tree] = {
+          if (size > 1)
+            java.util.Arrays.sort(childSolidDescendants, 0, size, posStartOrdering)
+          childSolidDescendants
         }
-        childSolidDescendants(size) = t
-        size += 1
+        def array: Array[Tree] = childSolidDescendants
+        //we dont care about zeroing the array
+        def clear() {size = 0}
+
+        def traverseSolidChild(t: Tree): Unit = {
+          if (size == childSolidDescendants.length) {
+            childSolidDescendants = java.util.Arrays.copyOf(childSolidDescendants, size << 1)
+          }
+          childSolidDescendants(size) = t
+          size += 1
+        }
+      }
+
+      def loop(tree: Tree, encltree: Tree) {
+        if (!tree.isEmpty && tree.canHaveAttrs) {
+          val treePos = tree.pos
+          if (trace)
+            inform("[%10s] %s".format("validate", treeStatus(tree, encltree)))
+
+          if (!treePos.isDefined)
+            positionError(topTree, "Unpositioned tree #" + tree.id) {
+              inform("%15s %s".format("unpositioned", treeStatus(tree, encltree)))
+              inform("%15s %s".format("enclosing", treeStatus(encltree)))
+              encltree.children foreach (t => inform("%15s %s".format("sibling", treeStatus(t, encltree))))
+            }
+
+          solidChildrenCollector(tree)
+          val numChildren = solidChildrenCollector.collectedSize
+
+          if (treePos.isRange) {
+            val enclPos = encltree.pos
+            if (!enclPos.isRange)
+              positionError(topTree, "Synthetic tree [" + encltree.id + "] contains nonsynthetic tree [" + tree.id + "]") {
+                reportTree("Enclosing", encltree)
+                reportTree("Enclosed", tree)
+              }
+            if (!(enclPos includes treePos))
+              positionError(topTree, "Enclosing tree [" + encltree.id + "] does not include tree [" + tree.id + "]") {
+                reportTree("Enclosing", encltree)
+                reportTree("Enclosed", tree)
+              }
+
+            if (numChildren > 1) {
+              val childSolidDescendants = solidChildrenCollector.sortedArray
+              var t1 = childSolidDescendants(0)
+              var t1Pos = t1.pos
+              var i = 1
+              while (i < numChildren) {
+                val t2 = childSolidDescendants(i)
+                val t2Pos = t2.pos
+                if (t1Pos.overlaps(t2Pos)) {
+                  reportTree("First overlapping", t1)
+                  reportTree("Second overlapping", t2)
+                }
+                //why only for range
+                if (t2Pos.isRange) {
+                  t1 = t2
+                  t1Pos = t2Pos
+                }
+                i += 1
+              }
+            }
+          }
+          if (numChildren > 0) {
+            val childSolidDescendants = solidChildrenCollector.array
+            solidChildrenCollector.clear()
+            if (numChildren == 1) {
+              loop(childSolidDescendants(0), tree)
+            } else {
+              val snap = java.util.Arrays.copyOf(childSolidDescendants, numChildren)
+              var i = 0
+              while (i < snap.length) {
+                loop(snap(i), tree)
+                i += 1
+              }
+            }
+          }
+        }
       }
     }
-
-    def loop(tree: Tree, encltree: Tree) {
-      if (!tree.isEmpty && tree.canHaveAttrs) {
-        val treePos = tree.pos
-        if (trace)
-          inform("[%10s] %s".format("validate", treeStatus(tree, encltree)))
-
-        if (!treePos.isDefined)
-          positionError(topTree, "Unpositioned tree #" + tree.id) {
-            inform("%15s %s".format("unpositioned", treeStatus(tree, encltree)))
-            inform("%15s %s".format("enclosing", treeStatus(encltree)))
-            encltree.children foreach (t => inform("%15s %s".format("sibling", treeStatus(t, encltree))))
-          }
-
-        solidChildrenCollector(tree)
-        val numChildren = solidChildrenCollector.collectedSize
-
-        if (treePos.isRange) {
-          val enclPos = encltree.pos
-          if (!enclPos.isRange)
-            positionError(topTree, "Synthetic tree [" + encltree.id + "] contains nonsynthetic tree [" + tree.id + "]") {
-              reportTree("Enclosing", encltree)
-              reportTree("Enclosed", tree)
-            }
-          if (!(enclPos includes treePos))
-            positionError(topTree, "Enclosing tree [" + encltree.id + "] does not include tree [" + tree.id + "]") {
-              reportTree("Enclosing", encltree)
-              reportTree("Enclosed", tree)
-            }
-
-          if (numChildren > 1) {
-            val childSolidDescendants = solidChildrenCollector.sortedArray
-            var t1 = childSolidDescendants(0)
-            var t1Pos = t1.pos
-            var i = 1
-            while (i < numChildren) {
-              val t2 = childSolidDescendants(i)
-              val t2Pos = t2.pos
-              if (t1Pos.overlaps(t2Pos)) {
-                reportTree("First overlapping", t1)
-                reportTree("Second overlapping", t2)
-              }
-              //why only for range
-              if (t2Pos.isRange) {
-                t1 = t2
-                t1Pos = t2Pos
-              }
-              i += 1
-            }
-          }
-        }
-        if (numChildren > 0) {
-          val childSolidDescendants = solidChildrenCollector.array
-          solidChildrenCollector.clear()
-          if (numChildren == 1) {
-            loop(childSolidDescendants(0), tree)
-          } else {
-            val snap = java.util.Arrays.copyOf(childSolidDescendants, numChildren)
-            var i = 0
-            while (i < snap.length) {
-              loop(snap(i), tree)
-              i += 1
-            }
-          }
-        }
-      }
-    }
-    loop(tree, tree)
+    worker.loop(tree, tree)
   }
 
   /** Set position of all children of a node
