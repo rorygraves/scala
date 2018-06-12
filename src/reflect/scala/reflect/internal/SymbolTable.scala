@@ -10,7 +10,7 @@ package internal
 import scala.annotation.elidable
 import scala.collection.mutable
 import util._
-import java.util.concurrent.TimeUnit
+import java.util.concurrent.{ConcurrentHashMap, TimeUnit}
 
 import scala.collection.mutable.ArrayBuffer
 import scala.reflect.internal.util.Parallel.synchronizeAccess
@@ -447,6 +447,8 @@ abstract class SymbolTable extends macros.Universe
     def newWeakSet[K <: AnyRef]() = recordCache(new WeakHashSet[K]())
 
     def newAnyRefMap[K <: AnyRef, V]() = recordCache(mutable.AnyRefMap[K, V]())
+    def newSafeAnyRefMap[K <: AnyRef, V]() = recordCache(new ConcurrentHashMap[K, V]() with Clearable)
+
     /**
       * Register a cache specified by a factory function and (optionally) a cleanup function.
       *

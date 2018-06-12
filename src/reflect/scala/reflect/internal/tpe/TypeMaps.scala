@@ -7,6 +7,7 @@ import scala.collection.{ mutable, immutable }
 import Flags._
 import scala.annotation.tailrec
 import Variance._
+import scala.reflect.internal.util.Parallel
 
 private[internal] trait TypeMaps {
   self: SymbolTable =>
@@ -207,14 +208,11 @@ private[internal] trait TypeMaps {
     def apply(tp: Type): Type = { traverse(tp); tp }
   }
 
-  abstract class TypeTraverserWithResult[T] extends TypeTraverser {
-    def result: T
-    def clear(): Unit
-  }
-
   abstract class TypeCollector[T](initial: T) extends TypeTraverser {
     var result: T = _
-    def collect(tp: Type) = {
+    // TODO This probably could be done better - without synchronization
+    // Or this is umad false positive
+    def collect(tp: Type) = Parallel.synchronizeAccess(this){
       result = initial
       traverse(tp)
       result

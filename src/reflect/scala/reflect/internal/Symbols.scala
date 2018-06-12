@@ -70,7 +70,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
    * The original owner of a symbol is needed in some places in the backend. Ideally, owners should
    * be versioned like the type history.
    */
-  private val originalOwnerMap = perRunCaches.newAnyRefMap[Symbol, Symbol]()
+  private val originalOwnerMap = perRunCaches.newSafeAnyRefMap[Symbol, Symbol]()
 
   // TODO - don't allow the owner to be changed without checking invariants, at least
   // when under some flag. Define per-phase invariants for owner/owned relationships,
@@ -86,7 +86,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
   }
 
   def defineOriginalOwner(sym: Symbol, owner: Symbol): Unit = {
-    originalOwnerMap(sym) = owner
+    originalOwnerMap.put(sym, owner)
   }
 
   def symbolOf[T: WeakTypeTag]: TypeSymbol = weakTypeOf[T].typeSymbolDirect.asType
@@ -1210,7 +1210,15 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     /**
      * The initial owner of this symbol.
      */
-    def originalOwner: Symbol = originalOwnerMap.getOrElse(this, rawowner)
+    def originalOwner: Symbol =
+      originalOwnerMap.get(this) match {
+        case null =>
+          val raw = rawowner
+          originalOwnerMap.put(this, raw)
+          raw
+        case other =>
+          other
+      }
 
     // TODO - don't allow the owner to be changed without checking invariants, at least
     // when under some flag. Define per-phase invariants for owner/owned relationships,

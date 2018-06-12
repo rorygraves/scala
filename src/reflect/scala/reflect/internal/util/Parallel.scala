@@ -4,8 +4,9 @@ import java.util.concurrent.atomic.AtomicInteger
 
 object Parallel {
 
-  class Counter {
+  class Counter(initial: Int = 0) {
     private val count = new AtomicInteger
+    count.set(initial)
 
     @inline final def get: Int = count.get()
 
@@ -21,6 +22,10 @@ object Parallel {
     @inline final def set(v: Int): Int = count.getAndSet(v)
 
     @inline final override def toString: String = s"Counter[$count]"
+  }
+
+  object Counter {
+    def apply(initial: Int = 0): Counter = new Counter(initial)
   }
 
   // Wrapper for `synchronized` method. In future could provide additional logging, safety checks, etc.

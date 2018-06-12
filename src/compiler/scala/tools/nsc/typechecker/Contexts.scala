@@ -10,7 +10,7 @@ import scala.collection.{ immutable, mutable }
 import scala.annotation.tailrec
 import scala.reflect.internal.util.shortClassOfInstance
 import scala.tools.nsc.reporters.Reporter
-
+import scala.reflect.internal.util.Parallel
 /**
  *  @author  Martin Odersky
  *  @version 1.0
@@ -75,7 +75,9 @@ trait Contexts { self: Analyzer =>
   def isIndividualImport(s: ImportSelector): Boolean = s.name != nme.WILDCARD && s.rename != nme.WILDCARD
   def isWildcardImport(s: ImportSelector): Boolean = s.name == nme.WILDCARD
 
-  var lastAccessCheckDetails: String = ""
+  private var _lastAccessCheckDetails = Parallel.WorkerThreadLocal("")
+  def lastAccessCheckDetails = _lastAccessCheckDetails.get
+  def lastAccessCheckDetails_=(v: String): Unit = _lastAccessCheckDetails.set(v)
 
   /** List of symbols to import from in a root context.  Typically that
    *  is `java.lang`, `scala`, and [[scala.Predef]], in that order.  Exceptions:
