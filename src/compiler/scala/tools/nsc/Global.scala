@@ -1039,7 +1039,10 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
   /** Let's share a lot more about why we crash all over the place.
    *  People will be very grateful.
    */
-  protected var lastSeenContext: analyzer.Context = analyzer.NoContext
+  private val _lastSeenContext: WorkerThreadLocal[analyzer.Context] = Parallel.WorkerThreadLocal(analyzer.NoContext)
+  protected def lastSeenContext: analyzer.Context = _lastSeenContext.get
+  protected def lastSeenContext_=(v: analyzer.Context): Unit = _lastSeenContext.set(v)
+
 
   /** The currently active run
    */
