@@ -135,12 +135,7 @@ trait Positions extends api.Positions { self: SymbolTable =>
         val pos = t.pos
         if (pos eq NoPosition) Int.MinValue else pos.start
       }
-      // avoid pos lookup if tree is null
-      // FIXME - not sure how it can be null though
-      if (x eq null)
-        if (y eq null) 0 else -1
-      if (y eq null) 1
-      else Integer.compare(posOf(x), posOf(y))
+      Integer.compare(posOf(x), posOf(y))
     }
   }
   def validatePositions(tree: Tree): Unit = if (!isPastTyper && !useOffsetPositions) {
