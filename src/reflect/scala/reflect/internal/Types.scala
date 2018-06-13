@@ -112,7 +112,7 @@ trait Types
   /** The current skolemization level, needed for the algorithms
    *  in isSameType, isSubType that do constraint solving under a prefix.
    */
-  private val _skolemizationLevel = Parallel.Counter()
+  private val _skolemizationLevel = Parallel.WorkerThreadLocal(0)
   def skolemizationLevel = _skolemizationLevel.get
   def skolemizationLevel_=(value: Int): Unit = _skolemizationLevel.set(value)
 
@@ -1390,14 +1390,16 @@ trait Types
     private[reflect] var baseTypeSeqPeriod = NoPeriod
     private[reflect] var baseClassesCache: List[Symbol] = _
     private[reflect] var baseClassesPeriod = NoPeriod
-    private[Types] def invalidatedCompoundTypeCaches() {
+    private[reflect] object Lock
+
+    private[Types] def invalidatedCompoundTypeCaches() = Parallel.synchronizeAccess(Lock) {
       baseTypeSeqCache = null
       baseTypeSeqPeriod = NoPeriod
       baseClassesCache = null
       baseClassesPeriod = NoPeriod
     }
 
-    override def baseTypeSeq: BaseTypeSeq = {
+    override def baseTypeSeq: BaseTypeSeq = Parallel.synchronizeAccess(Lock) {
       val cached = baseTypeSeqCache
       if (baseTypeSeqPeriod == currentPeriod && cached != null && cached != undetBaseTypeSeq)
         cached
@@ -1412,7 +1414,7 @@ trait Types
 
     override def baseTypeSeqDepth: Depth = baseTypeSeq.maxDepth
 
-    override def baseClasses: List[Symbol] = {
+    override def baseClasses: List[Symbol] = Parallel.synchronizeAccess(Lock) {
       val cached = baseClassesCache
       if (baseClassesPeriod == currentPeriod && cached != null) cached
       else {
@@ -1494,7 +1496,7 @@ trait Types
     tpe.typeSymbol :: baseTail
   }
 
-  protected def defineBaseTypeSeqOfCompoundType(tpe: CompoundType) = {
+  protected def defineBaseTypeSeqOfCompoundType(tpe: CompoundType) = Parallel.synchronizeAccess(tpe.Lock) {
     val period = tpe.baseTypeSeqPeriod
     if (period != currentPeriod) {
       tpe.baseTypeSeqPeriod = currentPeriod
@@ -1590,7 +1592,7 @@ trait Types
         define()
     }
   }
-  private def defineBaseClassesOfCompoundType(tpe: CompoundType, force: Boolean) {
+  private def defineBaseClassesOfCompoundType(tpe: CompoundType, force: Boolean)= Parallel.synchronizeAccess(tpe.Lock) {
     val period = tpe.baseClassesPeriod
     if (period == currentPeriod) {
       if (force && breakCycles) {
