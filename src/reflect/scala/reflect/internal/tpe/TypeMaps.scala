@@ -3,11 +3,12 @@ package reflect
 package internal
 package tpe
 
-import scala.collection.{ mutable, immutable }
+import scala.collection.{immutable, mutable}
 import Flags._
 import scala.annotation.tailrec
 import Variance._
-import scala.reflect.internal.util.Parallel
+import scala.reflect.internal.util.Parallel.WorkerThreadLocal
+import scala.reflect.internal.util.{NoSourceFile, Parallel, SourceFile}
 
 private[internal] trait TypeMaps {
   self: SymbolTable =>
@@ -209,10 +210,11 @@ private[internal] trait TypeMaps {
   }
 
   abstract class TypeCollector[T](initial: T) extends TypeTraverser {
-    var result: T = _
-    // TODO This probably could be done better - without synchronization
-    // Or this is umad false positive
-    def collect(tp: Type) = Parallel.synchronizeAccess(this){
+    private[this] final val _result: WorkerThreadLocal[T] = Parallel.WorkerThreadLocal[T](null.asInstanceOf[T])
+    def result: T = _result.get
+    def result_=(value: T) = _result.set(value)
+
+    def collect(tp: Type) = {
       result = initial
       traverse(tp)
       result

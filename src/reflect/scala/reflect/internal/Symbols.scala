@@ -1210,15 +1210,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     /**
      * The initial owner of this symbol.
      */
-    def originalOwner: Symbol =
-      originalOwnerMap.get(this) match {
-        case null =>
-          val raw = rawowner
-          originalOwnerMap.put(this, raw)
-          raw
-        case other =>
-          other
-      }
+    def originalOwner: Symbol = originalOwnerMap.computeIfAbsent(this, _ => rawowner)
 
     // TODO - don't allow the owner to be changed without checking invariants, at least
     // when under some flag. Define per-phase invariants for owner/owned relationships,

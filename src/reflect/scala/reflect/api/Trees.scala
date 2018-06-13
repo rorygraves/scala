@@ -2471,7 +2471,7 @@ trait Trees { self: Universe =>
       */
     @inline final protected[scala] def currentOwner: Symbol = _currentOwner.get
     @inline final protected[scala] def currentOwner_=(sym: Symbol): Unit = _currentOwner.set(sym)
-    private final val _currentOwner: WorkerThreadLocal[Symbol] = WorkerThreadLocal(rootMirror.RootClass)
+    private[this] final val _currentOwner: WorkerThreadLocal[Symbol] = WorkerThreadLocal(rootMirror.RootClass)
 
     /** Traverse something which Trees contain, but which isn't a Tree itself. */
     def traverseName(name: Name): Unit                    = ()
@@ -2550,7 +2550,7 @@ trait Trees { self: Universe =>
       */
     @inline protected[scala] final def currentOwner: Symbol = _currentOwner.get
     @inline protected[scala] final def currentOwner_=(sym: Symbol): Unit = _currentOwner.set(sym)
-    private final val _currentOwner: WorkerThreadLocal[Symbol] = WorkerThreadLocal(rootMirror.RootClass)
+    private[this] final val _currentOwner: WorkerThreadLocal[Symbol] = WorkerThreadLocal(rootMirror.RootClass)
 
     /** The enclosing method of the currently transformed tree. */
     protected def currentMethod = {

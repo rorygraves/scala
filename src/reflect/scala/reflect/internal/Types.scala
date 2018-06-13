@@ -4220,7 +4220,7 @@ trait Types
   def isSameTypes(tps1: List[Type], tps2: List[Type]): Boolean = (tps1 corresponds tps2)(_ =:= _)
 
   // TODO deeply anaylze that usage
-  private var _basetypeRecursions = new Parallel.Counter(0)
+  private var _basetypeRecursions = new Parallel.Counter()
   def basetypeRecursions = _basetypeRecursions.get
   def basetypeRecursions_=(value: Int): Unit = _basetypeRecursions.set(value)
 
