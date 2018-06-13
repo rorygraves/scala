@@ -52,6 +52,8 @@ abstract class SymbolTable extends macros.Universe
                               with Reporting
 {
 
+  object SymbolTableLock
+
   val gen = new InternalTreeGen { val global: SymbolTable.this.type = SymbolTable.this }
 
   // Wrapper for `synchronized` method. In future could provide additional logging, safety checks, etc.
@@ -242,7 +244,7 @@ abstract class SymbolTable extends macros.Universe
     ph = p
     per = period(currentRunId, p.id)
   }
-  final def pushPhase(ph: Phase): Phase = {
+  final def pushPhase(ph: Phase): Phase = Parallel.synchronizeAccess(SymbolTableLock) {
     val current = phase
     phase = ph
     if (keepPhaseStack) {
@@ -250,7 +252,7 @@ abstract class SymbolTable extends macros.Universe
     }
     current
   }
-  final def popPhase(ph: Phase) {
+  final def popPhase(ph: Phase) = Parallel.synchronizeAccess(SymbolTableLock){
     if (keepPhaseStack) {
       phStack.pop()
     }
@@ -300,7 +302,7 @@ abstract class SymbolTable extends macros.Universe
     }
     if (ph eq NoPhase) phase else ph
   }
-  final def enteringPhaseWithName[T](phaseName: String)(body: => T): T = {
+  final def enteringPhaseWithName[T](phaseName: String)(body: => T): T = Parallel.synchronizeAccess(SymbolTableLock) {
     val phase = findPhaseWithName(phaseName)
     enteringPhase(phase)(body)
   }

@@ -9,20 +9,21 @@ package internal
 
 import scala.collection.immutable
 import scala.collection.mutable.ListBuffer
-import util.{ Statistics, shortClassOfInstance, StatisticsStatics }
+import util.{Parallel, Statistics, StatisticsStatics, shortClassOfInstance}
 import Flags._
 import scala.annotation.tailrec
-import scala.reflect.io.{ AbstractFile, NoAbstractFile }
+import scala.reflect.io.{AbstractFile, NoAbstractFile}
 import Variance._
 
 trait Symbols extends api.Symbols { self: SymbolTable =>
   import definitions._
   import statistics._
 
-  protected var ids = 0
-  def getCurrentSymbolIdCount: Int = ids
+  private[this] var ids = 0
+  def getCurrentSymbolIdCount: Int = Parallel.synchronizeAccess(IdsLock)(ids)
+  private[this] object IdsLock
 
-  protected def nextId() = { ids += 1; ids }
+  protected def nextId() = Parallel.synchronizeAccess(IdsLock) { ids += 1; ids }
 
   /** Used for deciding in the IDE whether we can interrupt the compiler */
   //protected var activeLocks = 0
@@ -219,6 +220,8 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     // makes sure that all symbols that runtime reflection deals with are synchronized
     private def isSynchronized = this.isInstanceOf[scala.reflect.runtime.SynchronizedSymbols#SynchronizedSymbol]
     private def isAprioriThreadsafe = isThreadsafe(AllOps)
+
+    protected object SymbolLock
 
     if (!(isCompilerUniverse || isSynchronized || isAprioriThreadsafe))
       throw new AssertionError(s"unsafe symbol $initName (child of $initOwner) in runtime reflection universe") // Not an assert to avoid retention of `initOwner` as a field!
@@ -1509,44 +1512,46 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     /** Get type info associated with symbol at current phase, after
      *  ensuring that symbol is initialized (i.e. type is completed).
      */
-    def info: Type = try {
-      var cnt = 0
-      while (validTo == NoPeriod) {
-        assert(infos ne null, this.name)
-        assert(infos.prev eq null, this.name)
-        val tp = infos.info
+    def info: Type = Parallel.synchronizeAccess(SymbolLock) {
+      try {
+        var cnt = 0
+        while (validTo == NoPeriod) {
+          assert(infos ne null, this.name)
+          assert(infos.prev eq null, this.name)
+          val tp = infos.info
 
-        if ((_rawflags & LOCKED) != 0L) { // rolled out once for performance
-          lock {
-            setInfo(ErrorType)
-            throw CyclicReference(this, tp)
+          if ((_rawflags & LOCKED) != 0L) { // rolled out once for performance
+            lock {
+              setInfo(ErrorType)
+              throw CyclicReference(this, tp)
+            }
+          } else {
+            _rawflags |= LOCKED
+            // TODO another commented out lines - this should be solved in one way or another
+            //          activeLocks += 1
+            //         lockedSyms += this
           }
-        } else {
-          _rawflags |= LOCKED
-          // TODO another commented out lines - this should be solved in one way or another
-//          activeLocks += 1
- //         lockedSyms += this
+          val current = phase
+          try {
+            assertCorrectThread()
+            phase = phaseOf(infos.validFrom)
+            tp.complete(this)
+          } finally {
+            unlock()
+            phase = current
+          }
+          cnt += 1
+          // allow for two completions:
+          //   one: sourceCompleter to LazyType, two: LazyType to completed type
+          if (cnt == 3) abort(s"no progress in completing $this: $tp")
         }
-        val current = phase
-        try {
-          assertCorrectThread()
-          phase = phaseOf(infos.validFrom)
-          tp.complete(this)
-        } finally {
-          unlock()
-          phase = current
-        }
-        cnt += 1
-        // allow for two completions:
-        //   one: sourceCompleter to LazyType, two: LazyType to completed type
-        if (cnt == 3) abort(s"no progress in completing $this: $tp")
+        rawInfo
       }
-      rawInfo
-    }
-    catch {
-      case ex: CyclicReference =>
-        devWarning("... hit cycle trying to complete " + this.fullLocationString)
-        throw ex
+      catch {
+        case ex: CyclicReference =>
+          devWarning("... hit cycle trying to complete " + this.fullLocationString)
+          throw ex
+      }
     }
 
     def info_=(info: Type) {
@@ -1598,7 +1603,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     }
 
     /** Return info without checking for initialization or completing */
-    def rawInfo: Type = {
+    def rawInfo: Type = Parallel.synchronizeAccess(SymbolLock) {
       var infos = this.infos
       assert(infos != null)
       val curPeriod = currentPeriod

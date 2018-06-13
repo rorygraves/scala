@@ -30,6 +30,7 @@ trait TypeComparers {
     override def toString = tp1+" <:<? "+tp2
   }
 
+  // With Threadlocal it fails with NPE in GenBCode.scala:94
   private var _subsametypeRecursions = Parallel.Counter()
   def subsametypeRecursions = _subsametypeRecursions.get
   def subsametypeRecursions_=(value: Int): Unit = _subsametypeRecursions.set(value)
