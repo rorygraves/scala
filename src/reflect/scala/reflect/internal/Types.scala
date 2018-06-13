@@ -13,7 +13,7 @@ import mutable.ListBuffer
 import Flags._
 import scala.util.control.ControlThrowable
 import scala.annotation.tailrec
-import util.{Statistics, StatisticsStatics}
+import util.{Parallel, Statistics, StatisticsStatics}
 import util.ThreeValues._
 import Variance._
 import Depth._
@@ -112,9 +112,9 @@ trait Types
   /** The current skolemization level, needed for the algorithms
    *  in isSameType, isSubType that do constraint solving under a prefix.
    */
-  private var _skolemizationLevel = 0
-  def skolemizationLevel = _skolemizationLevel
-  def skolemizationLevel_=(value: Int) = _skolemizationLevel = value
+  private val _skolemizationLevel = Parallel.Counter()
+  def skolemizationLevel = _skolemizationLevel.get
+  def skolemizationLevel_=(value: Int): Unit = _skolemizationLevel.set(value)
 
   /** A map from lists to compound types that have the given list as parents.
    *  This is used to avoid duplication in the computation of base type sequences and baseClasses.
@@ -4219,9 +4219,10 @@ trait Types
   /** Are `tps1` and `tps2` lists of pairwise equivalent types? */
   def isSameTypes(tps1: List[Type], tps2: List[Type]): Boolean = (tps1 corresponds tps2)(_ =:= _)
 
-  private var _basetypeRecursions: Int = 0
-  def basetypeRecursions = _basetypeRecursions
-  def basetypeRecursions_=(value: Int) = _basetypeRecursions = value
+  // TODO deeply anaylze that usage
+  private var _basetypeRecursions = new Parallel.Counter(0)
+  def basetypeRecursions = _basetypeRecursions.get
+  def basetypeRecursions_=(value: Int): Unit = _basetypeRecursions.set(value)
 
   private val _pendingBaseTypes = new mutable.HashSet[Type]
   def pendingBaseTypes = _pendingBaseTypes
