@@ -75,7 +75,7 @@ trait Contexts { self: Analyzer =>
   def isIndividualImport(s: ImportSelector): Boolean = s.name != nme.WILDCARD && s.rename != nme.WILDCARD
   def isWildcardImport(s: ImportSelector): Boolean = s.name == nme.WILDCARD
 
-  private var _lastAccessCheckDetails = Parallel.WorkerThreadLocal("")
+  private[this] final val _lastAccessCheckDetails = Parallel.WorkerThreadLocal("")
   def lastAccessCheckDetails = _lastAccessCheckDetails.get
   def lastAccessCheckDetails_=(v: String): Unit = _lastAccessCheckDetails.set(v)
 

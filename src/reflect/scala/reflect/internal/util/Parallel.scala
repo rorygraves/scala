@@ -33,9 +33,9 @@ object Parallel {
     obj.synchronized[U](block)
   }
 
-  def WorkerThreadLocal[T <: AnyRef](valueOnWorker: => T, valueOnMain: => T) = new WorkerOrMainThreadLocal[T](valueOnWorker, valueOnMain)
+  def WorkerThreadLocal[T](valueOnWorker: => T, valueOnMain: => T) = new WorkerOrMainThreadLocal[T](valueOnWorker, valueOnMain)
 
-  def WorkerThreadLocal[T <: AnyRef](valueOnWorker: => T) = new WorkerThreadLocal[T](valueOnWorker)
+  def WorkerThreadLocal[T](valueOnWorker: => T) = new WorkerThreadLocal[T](valueOnWorker)
 
   abstract class AbstractThreadLocal[T](valueOnWorker: => T, valueOnMain: => T) {
     private var main: T = null.asInstanceOf[T]
