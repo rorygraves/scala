@@ -857,7 +857,7 @@ abstract class RefChecks extends Transform {
         seenTypes(i) = Nil
 
       /* validate all base types of a class in reverse linear order. */
-      def register(tp: Type): Unit = {
+      def register(tp: Type): Unit = tp.lockThisType {
 //        if (clazz.fullName.endsWith("Collection.Projection"))
 //            println("validate base type "+tp)
         val baseClass = tp.typeSymbol
