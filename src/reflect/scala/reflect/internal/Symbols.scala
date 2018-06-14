@@ -19,11 +19,13 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
   import definitions._
   import statistics._
 
-  private[this] var ids = 0
-  def getCurrentSymbolIdCount: Int = Parallel.synchronizeAccess(IdsLock)(ids)
+  // `ids` is used to generate unique ids so we don't need lock anything else
+  // The only problem is that with this we may break RT of scala compiler
+  private[this] var ids = Parallel.Counter()
+  def getCurrentSymbolIdCount: Int = ids.get
   private[this] object IdsLock
 
-  protected def nextId() = Parallel.synchronizeAccess(IdsLock) { ids += 1; ids }
+  protected def nextId() = ids.incrementAndGet()
 
   /** Used for deciding in the IDE whether we can interrupt the compiler */
   //protected var activeLocks = 0
