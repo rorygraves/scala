@@ -19,6 +19,11 @@ Using this example, one would simply run
 
 in the Scala sbt build.
 
+The runner will output results consumeable by gnuplot.  To run the benchmark directly replace `runMain` with `run` e.g.:
+
+    bench/jmh:run scala.collection.mutable.OpenHashMapRunner
+
+
 The JMH results can be found under `../../target/jmh-results/` (i.e. the main Scala build's `target`,
 not the one that contains the benchmark class files). `jmh-results` gets deleted on an sbt `bench/clean`,
 so you should copy these files out of `target` if you wish to preserve them.
@@ -41,29 +46,44 @@ The `benchmark.JmhRunner` trait should be woven into any runner class, for the s
 This includes creating output files in a subdirectory of `target/jmh-results`
 derived from the fully-qualified package name of the `Runner` class.
 
-## Some useful HotSpot options
-Adding these to the `jmh:run` or `jmh:runMain` command line may help if you're using the HotSpot (Oracle, OpenJDK) compiler.
-They require prefixing with `-jvmArgs`.
-See [the Java documentation](http://docs.oracle.com/javase/8/docs/technotes/tools/unix/java.html) for more options. 
+## Benchmarking Options
 
-### Viewing JIT compilation events
+There are a large number of configuration
+
+### Some useful HotSpot options
+
+jvm options can be added to `jmh:run` or `jmh:runMain`  by prefixing the using the `-vjmArgs` parameter:
+
+    bench/jmh:run -jvmArgs "-XX:+PrintCompilation" scala.collection.mutable.OpenHashMap
+
+For example if you are using the e HotSpot (Oracle, OpenJDK) compiler, you could experiment with the below options.
+See [the Java documentation](http://docs.oracle.com/javase/8/docs/technotes/tools/unix/java.html) for more options. 
+If you using an alternate JVM (such as Graal) look at their documentation for usable options.
+
+*n.b.* these options only work if you fork the jvm
+
+*n.b.* you can apply these to to the benchmark directly with the annotations e.g.:
+    
+    @Fork(jvmArgsAppend = "-XX:+PrintGCDetails") 
+
+#### Viewing JIT compilation events
 Adding `-XX:+PrintCompilation` shows when Java methods are being compiled or deoptimized.
 At the most basic level,
 these messages will tell you whether the code that you're measuring is still being tuned,
 so that you know whether you're running enough warm-up iterations.
 See [Kris Mok's notes](https://gist.github.com/rednaxelafx/1165804#file-notes-md) to interpret the output in detail.
 
-### Consider GC events
+#### Consider GC events
 If you're not explicitly performing `System.gc()` calls outside of your benchmarking code,
 you should add the JVM option `-verbose:gc` to understand the effect that GCs may be having on your tests.
 
-### "Diagnostic" options
+#### "Diagnostic" options
 These require the `-XX:+UnlockDiagnosticVMOptions` JVM option.
 
-#### Viewing inlining events
+##### Viewing inlining events
 Add `-XX:+PrintInlining`.
 
-#### Viewing the disassembled code
+##### Viewing the disassembled code
 If you're running OpenJDK or Oracle JVM,
 you may need to install the disassembler library (`hsdis-amd64.so` for the `amd64` architecture).
 In Debian, this is available in
