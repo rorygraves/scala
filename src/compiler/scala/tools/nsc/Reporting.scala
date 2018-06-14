@@ -8,6 +8,7 @@ package tools
 package nsc
 
 import scala.collection.mutable
+import scala.reflect.internal.util.Parallel.synchronizeAccess
 import scala.reflect.internal.util.StringOps.countElementsAsString
 
 /** Provides delegates to the reporter doing the actual work.
@@ -30,10 +31,16 @@ trait Reporting extends scala.reflect.internal.Reporting { self: ast.Positions w
       def this(what: String, booleanSetting: Settings#BooleanSetting) {
         this(what, () => booleanSetting, booleanSetting)
       }
-      val warnings = mutable.LinkedHashMap[Position, (String, String)]()
+
+      val _warnings = mutable.LinkedHashMap[Position, (String, String)]()
+      def warnings: collection.Map[Position, (String, String)] = synchronizeAccess(this)(_warnings)
+      def newWarnings(pos: Position, warn: (String, String)) = synchronizeAccess(this)(_warnings += ((pos, warn)))
+
+
       def warn(pos: Position, msg: String, since: String = "") =
         if (doReport()) reporter.warning(pos, msg)
-        else if (!(warnings contains pos)) warnings += ((pos, (msg, since)))
+        else if (!(warnings contains pos)) newWarnings(pos, (msg, since))
+
       def summarize() =
         if (warnings.nonEmpty && (setting.isDefault || doReport())) {
           val sinceAndAmount = mutable.TreeMap[String, Int]()
