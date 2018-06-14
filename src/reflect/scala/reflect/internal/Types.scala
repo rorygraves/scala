@@ -260,6 +260,10 @@ trait Types
 
   /** The base class for all types */
   abstract class Type extends TypeApiImpl with Annotatable[Type] {
+
+    @inline final def lockThisType[T](op: => T): T =
+      Parallel.synchronizeAccess(this)(op)
+
     /** Types for which asSeenFrom always is the identity, no matter what
      *  prefix or owner.
      */
@@ -1282,7 +1286,7 @@ trait Types
     }
   }
 
-  protected def defineUnderlyingOfSingleType(tpe: SingleType) = {
+  protected def defineUnderlyingOfSingleType(tpe: SingleType) = tpe.lockThisType {
     val period = tpe.underlyingPeriod
     if (period != currentPeriod) {
       tpe.underlyingPeriod = currentPeriod
@@ -2019,14 +2023,18 @@ trait Types
     private var relativeInfoCacheValidForPeriod: Period = NoPeriod
     private var relativeInfoCacheValidForSymInfo: Type = _
 
-    override private[Types] def invalidateTypeRefCaches(): Unit = {
+    object synchronizeRelativeInfoCacheAccess {
+      @inline final def apply[T](op: => T): T = Parallel.synchronizeAccess(this)(op)
+    }
+
+    override private[Types] def invalidateTypeRefCaches(): Unit = synchronizeRelativeInfoCacheAccess {
       super.invalidateTypeRefCaches()
       relativeInfoCache = NoType
       relativeInfoCacheValidForPeriod = NoPeriod
       relativeInfoCacheValidForSymInfo = null
     }
 
-    final override protected def relativeInfo = {
+    final override protected def relativeInfo = synchronizeRelativeInfoCacheAccess {
       val symInfo = sym.info
       if ((relativeInfoCache eq null) || (relativeInfoCacheValidForSymInfo ne symInfo) || (relativeInfoCacheValidForPeriod != currentPeriod)) {
         relativeInfoCache = super.relativeInfo
