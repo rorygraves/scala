@@ -424,7 +424,7 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
          * (which is indicated by `isParallel`) it's swill run on the main thread. This is accomplished by
          * properly modified `ExecutionContext` returned by `createExecutionContext`.
          */
-        val futures = currentRun.units.toList.iterator().collect {
+        val futures = currentRun.units.toList.collect {
           case unit if !cancelled(unit) =>
             Future {
               asWorkerThread {
