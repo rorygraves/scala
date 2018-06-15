@@ -242,7 +242,7 @@ abstract class SymbolTable extends macros.Universe
     ph = p
     per = period(currentRunId, p.id)
   }
-  final def pushPhase(ph: Phase): Phase = {
+  final def pushPhase(ph: Phase): Phase = synchronizeSymbolsAccess {
     val current = phase
     phase = ph
     if (keepPhaseStack) {
@@ -250,7 +250,7 @@ abstract class SymbolTable extends macros.Universe
     }
     current
   }
-  final def popPhase(ph: Phase) {
+  final def popPhase(ph: Phase) = synchronizeSymbolsAccess {
     if (keepPhaseStack) {
       phStack.pop()
     }
@@ -300,7 +300,7 @@ abstract class SymbolTable extends macros.Universe
     }
     if (ph eq NoPhase) phase else ph
   }
-  final def enteringPhaseWithName[T](phaseName: String)(body: => T): T = {
+  final def enteringPhaseWithName[T](phaseName: String)(body: => T): T = synchronizeSymbolsAccess {
     val phase = findPhaseWithName(phaseName)
     enteringPhase(phase)(body)
   }

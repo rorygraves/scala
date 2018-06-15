@@ -10,6 +10,7 @@ package transform
 import scala.tools.nsc.symtab.Flags
 import scala.collection.{ mutable, immutable }
 import scala.annotation.tailrec
+import scala.reflect.internal.util.Parallel
 
 /** Specialize code on types.
  *
@@ -200,9 +201,11 @@ abstract class SpecializeTypes extends InfoTransform with TypingTransformers {
     override def checkable = false
     override def run(): Unit = {
       super.run()
-      exitingSpecialize {
-        FunctionClass.seq.map(_.info)
-        TupleClass.seq.map(_.info)
+      Parallel.asWorkerThread {
+        exitingSpecialize {
+          FunctionClass.seq.map(_.info)
+          TupleClass.seq.map(_.info)
+        }
       }
 
       // Remove the final modifier and @inline annotation from anything in the

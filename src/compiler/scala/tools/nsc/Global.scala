@@ -10,7 +10,7 @@ package nsc
 import java.io.{File, FileNotFoundException, IOException}
 import java.net.URL
 import java.nio.charset.{Charset, CharsetDecoder, IllegalCharsetNameException, UnsupportedCharsetException}
-import java.util.concurrent.TimeUnit
+import java.util.concurrent.{Executor, TimeUnit}
 
 import scala.collection.{immutable, mutable}
 import io.{AbstractFile, Path, SourceReader}
@@ -420,15 +420,11 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
       try {
         _synchronizeNames = isParallel
 
-        // Funny hack which allows us to create futures lazily or eagerly,
-        // which in turn causes them to be run sequentially or in parallel
-        val units = if (settings.YparallelSequential.value) currentRun.units else currentRun.units.toList.iterator()
-
         /* Every unit is now run in separate `Future`. If given phase is not ran as parallel one
          * (which is indicated by `isParallel`) it's swill run on the main thread. This is accomplished by
          * properly modified `ExecutionContext` returned by `createExecutionContext`.
          */
-        val futures = units.collect {
+        val futures = currentRun.units.toList.collect {
           case unit if !cancelled(unit) =>
             Future {
               asWorkerThread {
@@ -496,10 +492,25 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
      */
     private def createExecutionContext(): ExecutionContextExecutor = {
       if (isParallel) {
-        val parallelThreads = settings.YparallelThreads.value
-        val threadPoolFactory = ThreadPoolFactory(Global.this, this)
-        val javaExecutor = threadPoolFactory.newUnboundedQueueFixedThreadPool(parallelThreads, "worker")
-        ExecutionContext.fromExecutorService(javaExecutor, _ => ())
+        if (settings.YparallelSequential) {
+          object SingleNewThreadExectuor extends Executor {
+            private var count: Int = 0
+            override def execute(command: Runnable): Unit = synchronized {
+              count += 1
+              val newThread = new Thread(command)
+              newThread.setName(s"worker-${phase.name}-$count")
+              newThread.start()
+              newThread.join()
+            }
+          }
+
+          ExecutionContext.fromExecutor(SingleNewThreadExectuor)
+        } else {
+          val parallelThreads = settings.YparallelThreads.value
+          val threadPoolFactory = ThreadPoolFactory(Global.this, this)
+          val javaExecutor = threadPoolFactory.newUnboundedQueueFixedThreadPool(parallelThreads, "worker")
+          ExecutionContext.fromExecutorService(javaExecutor, _ => ())
+        }
       } else ExecutionContext.fromExecutor((task: Runnable) => task.run())
     }
   }
