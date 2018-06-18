@@ -2,6 +2,9 @@ package scala.reflect.internal.util
 
 import java.util.concurrent.atomic.AtomicInteger
 
+import java.util.{HashSet => JHasjSet}
+import java.lang.{Long => JLong}
+
 object Parallel {
 
   class Counter(initial: Int = 0) {
@@ -28,9 +31,17 @@ object Parallel {
     def apply(initial: Int = 0): Counter = new Counter(initial)
   }
 
+  val locks: ThreadLocal[JHasjSet[JLong]] = new ThreadLocal[JHasjSet[JLong]]() {
+    override def initialValue(): JHasjSet[JLong] = new JHasjSet[JLong]()
+  }
+
   // Wrapper for `synchronized` method. In future could provide additional logging, safety checks, etc.
-  def synchronizeAccess[T <: Object, U](obj: T)(block: => U): U = {
-    obj.synchronized[U](block)
+  def synchronizeAccess[T <: Object, U](lock: T)(block: => U): U = {
+    val hash: java.lang.Long = System.identityHashCode(lock).toLong
+    try {
+      locks.get().add(hash)
+      lock.synchronized[U](block)
+    } finally locks.get().remove(hash)
   }
 
   def WorkerThreadLocal[T](valueOnWorker: => T, valueOnMain: => T) = new WorkerOrMainThreadLocal[T](valueOnWorker, valueOnMain)
