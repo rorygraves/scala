@@ -147,7 +147,8 @@ trait ScalaSettings extends AbsScalaSettings
 
   val YparallelPhases    = PhasesSetting       ("-Yparallel-phases", "Which phases to run in parallel")
   val YparallelThreads   = IntSetting          ("-Yparallel-threads", "Worker threads for parallel compilation", 4, Some((0,64)), _ => None )
-  val YparallelSequential= BooleanSetting      ("-Yparallel-sequential", "Keeps processing units in different threads but do it sequentially")
+  val YparallelSequential= BooleanSetting      ("-Yparallel-sequential", "Keeps processing units in different threads but do it sequentially") andThen (flag =>
+    if (flag) YparallelThreads.value = 1)
 
   val XmixinForceForwarders = ChoiceSetting(
     name    = "-Xmixin-force-forwarders",
