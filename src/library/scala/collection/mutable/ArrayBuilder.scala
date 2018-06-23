@@ -47,14 +47,14 @@ sealed abstract class ArrayBuilder[T]
 
   override def addAll(xs: IterableOnce[T]): this.type = {
     val k = xs.knownSize
-    if(k > 0) {
+    if (k > 0) {
       ensureSize(this.size + k)
       xs match {
         case xs: Iterable[T] => xs.copyToArray(elems, this.size)
         case _ => xs.iterator.copyToArray(elems, this.size)
       }
       size += k
-    } else if(k < 0) super.addAll(xs)
+    } else if (k < 0) super.addAll(xs)
     this
   }
 }
@@ -72,17 +72,20 @@ object ArrayBuilder {
    */
   def make[T: ClassTag]: ArrayBuilder[T] = {
     val tag = implicitly[ClassTag[T]]
-    tag.runtimeClass match {
-      case java.lang.Byte.TYPE      => new ArrayBuilder.ofByte().asInstanceOf[ArrayBuilder[T]]
-      case java.lang.Short.TYPE     => new ArrayBuilder.ofShort().asInstanceOf[ArrayBuilder[T]]
-      case java.lang.Character.TYPE => new ArrayBuilder.ofChar().asInstanceOf[ArrayBuilder[T]]
-      case java.lang.Integer.TYPE   => new ArrayBuilder.ofInt().asInstanceOf[ArrayBuilder[T]]
-      case java.lang.Long.TYPE      => new ArrayBuilder.ofLong().asInstanceOf[ArrayBuilder[T]]
-      case java.lang.Float.TYPE     => new ArrayBuilder.ofFloat().asInstanceOf[ArrayBuilder[T]]
-      case java.lang.Double.TYPE    => new ArrayBuilder.ofDouble().asInstanceOf[ArrayBuilder[T]]
-      case java.lang.Boolean.TYPE   => new ArrayBuilder.ofBoolean().asInstanceOf[ArrayBuilder[T]]
-      case java.lang.Void.TYPE      => new ArrayBuilder.ofUnit().asInstanceOf[ArrayBuilder[T]]
-      case _                        => new ArrayBuilder.ofRef[T with AnyRef]()(tag.asInstanceOf[ClassTag[T with AnyRef]]).asInstanceOf[ArrayBuilder[T]]
+    if (tag.runtimeClass.isPrimitive) {
+      tag.runtimeClass match {
+        case java.lang.Byte.TYPE => new ArrayBuilder.ofByte().asInstanceOf[ArrayBuilder[T]]
+        case java.lang.Short.TYPE => new ArrayBuilder.ofShort().asInstanceOf[ArrayBuilder[T]]
+        case java.lang.Character.TYPE => new ArrayBuilder.ofChar().asInstanceOf[ArrayBuilder[T]]
+        case java.lang.Integer.TYPE => new ArrayBuilder.ofInt().asInstanceOf[ArrayBuilder[T]]
+        case java.lang.Long.TYPE => new ArrayBuilder.ofLong().asInstanceOf[ArrayBuilder[T]]
+        case java.lang.Float.TYPE => new ArrayBuilder.ofFloat().asInstanceOf[ArrayBuilder[T]]
+        case java.lang.Double.TYPE => new ArrayBuilder.ofDouble().asInstanceOf[ArrayBuilder[T]]
+        case java.lang.Boolean.TYPE => new ArrayBuilder.ofBoolean().asInstanceOf[ArrayBuilder[T]]
+        case java.lang.Void.TYPE => new ArrayBuilder.ofUnit().asInstanceOf[ArrayBuilder[T]]
+      }
+    } else {
+      new ArrayBuilder.ofRef[T with AnyRef]()(tag.asInstanceOf[ClassTag[T with AnyRef]]).asInstanceOf[ArrayBuilder[T]]
     }
   }
 
@@ -98,13 +101,13 @@ object ArrayBuilder {
     protected var elems: Array[T] = _
 
     private def mkArray(size: Int): Array[T] = {
-      val newelems = new Array[T](size)
-      if (this.size > 0) Array.copy(elems, 0, newelems, 0, this.size)
-      newelems
+      if (elems eq null) new Array[T](size)
+      else Array.copyOf(elems, size)
     }
 
     protected[this] def resize(size: Int): Unit = {
-      elems = mkArray(size)
+      if ((elems eq null) || capacity != size)
+        elems = mkArray(size)
       capacity = size
     }
 
@@ -127,7 +130,7 @@ object ArrayBuilder {
 
     override def clear(): Unit = {
       super.clear()
-      if(elems ne null) java.util.Arrays.fill(elems.asInstanceOf[Array[AnyRef]], null)
+      if (elems ne null) java.util.Arrays.fill(elems.asInstanceOf[Array[AnyRef]], null)
     }
 
     override def equals(other: Any): Boolean = other match {
@@ -145,13 +148,13 @@ object ArrayBuilder {
     protected var elems: Array[Byte] = _
 
     private def mkArray(size: Int): Array[Byte] = {
-      val newelems = new Array[Byte](size)
-      if (this.size > 0) Array.copy(elems, 0, newelems, 0, this.size)
-      newelems
+      if (size == 0) Array.emptyByteArray
+      else Array.copyOf(elems, size)
     }
 
     protected[this] def resize(size: Int): Unit = {
-      elems = mkArray(size)
+      if ((elems eq null) || capacity != size)
+        elems = mkArray(size)
       capacity = size
     }
 
@@ -187,13 +190,13 @@ object ArrayBuilder {
     protected var elems: Array[Short] = _
 
     private def mkArray(size: Int): Array[Short] = {
-      val newelems = new Array[Short](size)
-      if (this.size > 0) Array.copy(elems, 0, newelems, 0, this.size)
-      newelems
+      if (size == 0) Array.emptyShortArray
+      else Array.copyOf(elems, size)
     }
 
     protected[this] def resize(size: Int): Unit = {
-      elems = mkArray(size)
+      if ((elems eq null) || capacity != size)
+        elems = mkArray(size)
       capacity = size
     }
 
@@ -229,13 +232,13 @@ object ArrayBuilder {
     protected var elems: Array[Char] = _
 
     private def mkArray(size: Int): Array[Char] = {
-      val newelems = new Array[Char](size)
-      if (this.size > 0) Array.copy(elems, 0, newelems, 0, this.size)
-      newelems
+      if (size == 0) Array.emptyCharArray
+      else Array.copyOf(elems, size)
     }
 
     protected[this] def resize(size: Int): Unit = {
-      elems = mkArray(size)
+      if ((elems eq null) || capacity != size)
+        elems = mkArray(size)
       capacity = size
     }
 
@@ -271,13 +274,13 @@ object ArrayBuilder {
     protected var elems: Array[Int] = _
 
     private def mkArray(size: Int): Array[Int] = {
-      val newelems = new Array[Int](size)
-      if (this.size > 0) Array.copy(elems, 0, newelems, 0, this.size)
-      newelems
+      if (size == 0) Array.emptyIntArray
+      else Array.copyOf(elems, size)
     }
 
     protected[this] def resize(size: Int): Unit = {
-      elems = mkArray(size)
+      if ((elems eq null) || capacity != size)
+        elems = mkArray(size)
       capacity = size
     }
 
@@ -313,13 +316,13 @@ object ArrayBuilder {
     protected var elems: Array[Long] = _
 
     private def mkArray(size: Int): Array[Long] = {
-      val newelems = new Array[Long](size)
-      if (this.size > 0) Array.copy(elems, 0, newelems, 0, this.size)
-      newelems
+      if (size == 0) Array.emptyLongArray
+      else Array.copyOf(elems, size)
     }
 
     protected[this] def resize(size: Int): Unit = {
-      elems = mkArray(size)
+      if ((elems eq null) || capacity != size)
+        elems = mkArray(size)
       capacity = size
     }
 
@@ -355,13 +358,13 @@ object ArrayBuilder {
     protected var elems: Array[Float] = _
 
     private def mkArray(size: Int): Array[Float] = {
-      val newelems = new Array[Float](size)
-      if (this.size > 0) Array.copy(elems, 0, newelems, 0, this.size)
-      newelems
+      if (size == 0) Array.emptyFloatArray
+      else Array.copyOf(elems, size)
     }
 
     protected[this] def resize(size: Int): Unit = {
-      elems = mkArray(size)
+      if ((elems eq null) || capacity != size)
+        elems = mkArray(size)
       capacity = size
     }
 
@@ -397,13 +400,13 @@ object ArrayBuilder {
     protected var elems: Array[Double] = _
 
     private def mkArray(size: Int): Array[Double] = {
-      val newelems = new Array[Double](size)
-      if (this.size > 0) Array.copy(elems, 0, newelems, 0, this.size)
-      newelems
+      if (size == 0) Array.emptyDoubleArray
+      else Array.copyOf(elems, size)
     }
 
     protected[this] def resize(size: Int): Unit = {
-      elems = mkArray(size)
+      if ((elems eq null) || capacity != size)
+        elems = mkArray(size)
       capacity = size
     }
 
@@ -439,13 +442,13 @@ object ArrayBuilder {
     protected var elems: Array[Boolean] = _
 
     private def mkArray(size: Int): Array[Boolean] = {
-      val newelems = new Array[Boolean](size)
-      if (this.size > 0) Array.copy(elems, 0, newelems, 0, this.size)
-      newelems
+      if (size == 0) Array.emptyBooleanArray
+      else Array.copyOf(elems, size)
     }
 
     protected[this] def resize(size: Int): Unit = {
-      elems = mkArray(size)
+      if ((elems eq null) || capacity != size)
+        elems = mkArray(size)
       capacity = size
     }
 
@@ -496,10 +499,12 @@ object ArrayBuilder {
     }
 
     def result() = {
-      val ans = new Array[Unit](size)
-      var i = 0
-      while (i < size) { ans(i) = (); i += 1 }
-      ans
+      if (size == 0) Array.emptyUnitArray
+      else {
+        val ans = new Array[Unit](size)
+        java.util.Arrays.fill(ans.asInstanceOf[Array[AnyRef]], ())
+        ans.asInstanceOf[Array[Unit]]
+      }
     }
 
     override def equals(other: Any): Boolean = other match {

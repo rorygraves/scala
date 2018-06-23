@@ -237,23 +237,39 @@ final class ArrayOps[A](val xs: Array[A]) extends AnyVal {
     val lo = max(from, 0)
     val hi = min(max(until, 0), xs.length)
     val len = max(hi - lo, 0)
-    if(len > 0) {
       ((xs: Array[_]) match {
-        case x: Array[AnyRef]     => java.util.Arrays.copyOfRange(x, lo, hi)
-        case x: Array[Int]        => java.util.Arrays.copyOfRange(x, lo, hi)
-        case x: Array[Double]     => java.util.Arrays.copyOfRange(x, lo, hi)
-        case x: Array[Long]       => java.util.Arrays.copyOfRange(x, lo, hi)
-        case x: Array[Float]      => java.util.Arrays.copyOfRange(x, lo, hi)
-        case x: Array[Char]       => java.util.Arrays.copyOfRange(x, lo, hi)
-        case x: Array[Byte]       => java.util.Arrays.copyOfRange(x, lo, hi)
-        case x: Array[Short]      => java.util.Arrays.copyOfRange(x, lo, hi)
-        case x: Array[Boolean]    => java.util.Arrays.copyOfRange(x, lo, hi)
+        case x: Array[AnyRef]     =>
+          if (len > 0) java.util.Arrays.copyOfRange(x, lo, hi)
+          else java.util.Arrays.copyOf(x,0)
+        case x: Array[Int]        =>
+          if (len > 0) java.util.Arrays.copyOfRange(x, lo, hi)
+          else Array.emptyIntArray
+        case x: Array[Double]     =>
+          if (len > 0) java.util.Arrays.copyOfRange(x, lo, hi)
+          else Array.emptyDoubleArray
+        case x: Array[Long]       =>
+          if (len > 0) java.util.Arrays.copyOfRange(x, lo, hi)
+          else Array.emptyLongArray
+        case x: Array[Float]      =>
+          if (len > 0) java.util.Arrays.copyOfRange(x, lo, hi)
+          else Array.emptyFloatArray
+        case x: Array[Char]       =>
+          if (len > 0) java.util.Arrays.copyOfRange(x, lo, hi)
+          else Array.emptyCharArray
+        case x: Array[Byte]       =>
+          if (len > 0) java.util.Arrays.copyOfRange(x, lo, hi)
+          else Array.emptyByteArray
+        case x: Array[Short]      =>
+          if (len > 0) java.util.Arrays.copyOfRange(x, lo, hi)
+          else Array.emptyShortArray
+        case x: Array[Boolean]    =>
+          if (len > 0) java.util.Arrays.copyOfRange(x, lo, hi)
+          else Array.emptyBooleanArray
         case x: Array[Unit]       =>
           val res = new Array[Unit](len)
           Array.copy(xs, lo, res, 0, len)
           res
       }).asInstanceOf[Array[A]]
-    } else new Array[A](0)
   }
 
   /** The rest of the array without its first element. */
@@ -370,14 +386,34 @@ final class ArrayOps[A](val xs: Array[A]) extends AnyVal {
 
   /** Returns a new array with the elements in reversed order. */
   def reverse: Array[A] = {
-    val len = xs.length
-    val res = new Array[A](len)
-    var i = 0
-    while(i < len) {
-      res(len-i-1) = xs(i)
-      i += 1
+    def f[@specialized(AnyRef, Int, Double, Long, Float, Char, Byte, Short, Boolean, Unit) T](xs: Array[T]): Array[T] = {
+      val length = xs.length
+      val res = java.lang.reflect.Array.newInstance(xs.getClass.getComponentType, length).asInstanceOf[Array[T]]
+      var i = 0
+      var j = length - 1
+      while(i < length) {
+        res(i) = xs(j)
+        i += 1
+        j -= 1
+      }
+      res
     }
-    res
+
+    if (isEmpty) xs
+    else   ((xs: Any) match {
+      case xs: Array[AnyRef]  => f(xs)
+      case xs: Array[Int]     => f(xs)
+      case xs: Array[Double]  => f(xs)
+      case xs: Array[Long]    => f(xs)
+      case xs: Array[Float]   => f(xs)
+      case xs: Array[Char]    => f(xs)
+      case xs: Array[Byte]    => f(xs)
+      case xs: Array[Short]   => f(xs)
+      case xs: Array[Boolean] => f(xs)
+      case xs: Array[Unit]    => f(xs)
+      case null => throw new NullPointerException
+    }).asInstanceOf[Array[A]]
+
   }
 
   /** An iterator yielding elements in reversed order.

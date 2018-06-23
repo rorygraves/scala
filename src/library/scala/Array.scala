@@ -40,6 +40,7 @@ object Array {
   val emptyLongArray    = new Array[Long](0)
   val emptyShortArray   = new Array[Short](0)
   val emptyObjectArray  = new Array[Object](0)
+  val emptyUnitArray    = new Array[Unit](0)
 
   /** Provides an implicit conversion from the Array object to a collection Factory */
   implicit def toFactory[A : ClassTag](dummy: Array.type): Factory[A, Array[A]] = new ArrayFactory(dummy)
