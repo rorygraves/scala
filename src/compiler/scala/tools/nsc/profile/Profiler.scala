@@ -107,18 +107,18 @@ private [profile] class RealProfiler(reporter : ProfileReporter, val settings: S
 
   private val mainThread = Thread.currentThread()
 
-  private[profile] def snapThread(idleTimeNanos:Long, thread: Thread = Thread.currentThread()): ProfileSnap = {
+  private[profile] def snapThread( idleTimeNanos:Long): ProfileSnap = {
     import RealProfiler._
-    val threadId = thread.getId
+    val current = Thread.currentThread()
 
     ProfileSnap(
-      threadId = threadId,
-      threadName = thread.getName,
+      threadId = current.getId,
+      threadName = current.getName,
       snapTimeNanos = System.nanoTime(),
       idleTimeNanos = idleTimeNanos,
-      cpuTimeNanos = threadMx.getThreadCpuTime(threadId),
-      userTimeNanos = threadMx.getThreadUserTime(threadId),
-      allocatedBytes = threadMx.getThreadAllocatedBytes(threadId),
+      cpuTimeNanos = threadMx.getCurrentThreadCpuTime,
+      userTimeNanos = threadMx.getCurrentThreadUserTime,
+      allocatedBytes = threadMx.getThreadAllocatedBytes(Thread.currentThread().getId),
       heapBytes = readHeapUsage()
     )
   }

@@ -444,13 +444,7 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
         }
       } finally {
         _synchronizeNames = false
-
-        ec match {
-          case ecxs: ExecutionContextExecutorService =>
-            ecxs.shutdown()
-            assert(ecxs.awaitTermination(1, TimeUnit.MINUTES))
-          case _ =>
-        }
+        currentRun.threadFactory.afterPhase(this)
       }
     }
 
@@ -506,10 +500,7 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
 
           ExecutionContext.fromExecutor(SingleNewThreadExectuor)
         } else {
-          val parallelThreads = settings.YparallelThreads.value
-          val threadPoolFactory = ThreadPoolFactory(Global.this, this)
-          val javaExecutor = threadPoolFactory.newUnboundedQueueFixedThreadPool(parallelThreads, "worker")
-          ExecutionContext.fromExecutorService(javaExecutor, _ => ())
+          currentRun.threadFactory.unboundedQueueExecutorServiceforPhase(this)
         }
       } else ExecutionContext.fromExecutor((task: Runnable) => task.run())
     }
@@ -1187,6 +1178,7 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
     def currentUnit_=(unit: CompilationUnit): Unit = _currentUnit.set(unit)
 
     val profiler: Profiler = Profiler(settings)
+    val threadFactory = ThreadPoolFactory(Global.this)
     keepPhaseStack = settings.log.isSetByUser
 
     // used in sbt
@@ -1587,6 +1579,7 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
 
         advancePhase()
       }
+      threadFactory.afterRun()
       profiler.finished()
 
       reporting.summarizeErrors()
