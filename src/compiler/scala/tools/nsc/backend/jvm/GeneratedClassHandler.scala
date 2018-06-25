@@ -56,8 +56,7 @@ private[jvm] object GeneratedClassHandler {
         // The queue size is large enough to ensure that running a task on the main thread does
         // not take longer than to exhaust the queue for the backend workers.
         val queueSize = if (settings.YmaxQueue.isSetByUser) settings.YmaxQueue.value else maxThreads * 2
-        val threadPoolFactory = ThreadPoolFactory(global, currentRun.jvmPhase)
-        val javaExecutor = threadPoolFactory.newBoundedQueueFixedThreadPool(additionalThreads, queueSize, new CallerRunsPolicy, "non-ast")
+        val javaExecutor = global.currentRun.threadFactory.newBoundedQueueFixedThreadPool(currentRun.jvmPhase, additionalThreads, queueSize, new CallerRunsPolicy, "non-ast")
         new AsyncWritingClassHandler(postProcessor, javaExecutor)
     }
 
