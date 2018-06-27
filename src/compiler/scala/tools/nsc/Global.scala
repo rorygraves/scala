@@ -1178,6 +1178,8 @@ class Global(var currentSettings: Settings, reporter0: LegacyReporter)
     def currentUnit_=(unit: CompilationUnit): Unit = _currentUnit.set(unit)
 
     val profiler: Profiler = Profiler(settings)
+    profiler.install
+    //must be after the profier is installed
     val threadFactory = ThreadPoolFactory(Global.this)
     keepPhaseStack = settings.log.isSetByUser
 

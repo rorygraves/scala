@@ -1,6 +1,10 @@
 package scala.reflect.internal.util
 
-import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.{AtomicInteger, AtomicLong}
+import java.util.{HashSet => JHashSet}
+import java.util.{IdentityHashMap => IHashMap}
+import java.lang.{Long => JLong}
+import java.util.concurrent.locks.ReentrantLock
 
 object Parallel {
 
@@ -27,7 +31,77 @@ object Parallel {
   }
 
   object Counter {
-    @inline final def apply(initial: Int = 0): Counter = new Counter(initial)
+    def apply(initial: Int = 0): Counter = new Counter(initial)
+  }
+
+  private object lockManager extends ThreadLocal[LockManager] {
+    //assumes that we dont run parallel except with global
+    override def initialValue(): LockManager = new LockManager
+  }
+
+  def profileLocks(doProfiling: Boolean): Unit = {
+    assertOnMain()
+    if (doProfiling) lockManager.set(new ProfileLockManager)
+    else lockManager.set(new LockManager)
+  }
+
+  def getLockManager = lockManager.get
+
+  def installLockManager(lockMgr: LockManager): Unit = {
+    assertOnWorker()
+    lockManager.set(lockMgr)
+  }
+  def lockedWriteAccess[U](locked: AnyRef)(block: => U): U = {
+    lockManager.get().lockedWriteAccess(locked)(block)
+  }
+  def withWriteLock[U](lock: LockWithStats)(block: => U): U = {
+    lockManager.get().withWriteLock(lock)(block)
+  }
+  class LockManager {
+    val autoLocks = java.util.Collections.synchronizedMap(new IHashMap[AnyRef, LockWithStats])
+    def lockedWriteAccess[U](locked: AnyRef)(block: => U): U = {
+      val lock = autoLocks.computeIfAbsent(locked, l => new LockWithStats(l.toString))
+      withWriteLock(lock)(block)
+    }
+    def withWriteLock[U](lock: LockWithStats)(block: => U): U = {
+      lock.writeLock.lock
+      try block finally lock.writeLock.unlock
+    }
+  }
+  class ProfileLockManager extends LockManager{
+    override def withWriteLock[U](lock: LockWithStats)(block: => U): U = {
+      if (lock.writeLock.tryLock())
+        lock.uncontendedWrites.incrementAndGet()
+      else {
+        lock.contendedWrites.incrementAndGet()
+        val start = System.nanoTime()
+        lock.writeLock.lock
+        lock.contendedWriteNs.addAndGet(System.nanoTime() - start)
+      }
+      try block finally lock.writeLock.unlock
+    }
+  }
+  private val lockIdGen = new AtomicLong
+
+  case class LockStats(name: String, id: Long, contendedWrites: Int, uncontendedWrites: Int, contendedWriteNs: Long)
+  class LockWithStats(name: String) {
+    val writeLock = new ReentrantLock
+    val id: Long =  lockIdGen.incrementAndGet()
+
+//    val contendedReads = new AtomicInteger
+//    val uncontendedReads = new AtomicInteger
+
+    val contendedWrites = new AtomicInteger
+    val uncontendedWrites = new AtomicInteger
+
+    val contendedWriteNs = new AtomicLong
+//    val contendedReadNs = new AtomicLong
+
+    def snap = new LockStats(name, id, contendedWrites.get(), uncontendedWrites.get, contendedWriteNs.get)
+  }
+
+  val locks: ThreadLocal[JHashSet[JLong]] = new ThreadLocal[JHashSet[JLong]]() {
+    override def initialValue(): JHashSet[JLong] = new JHashSet[JLong]()
   }
 
   // Wrapper for `synchronized` method. In future could provide additional logging, safety checks, etc.

@@ -8,6 +8,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import javax.management.openmbean.CompositeData
 import javax.management.{Notification, NotificationEmitter, NotificationListener}
 
+import scala.reflect.internal.util.Parallel
 import scala.tools.nsc.{Phase, Settings}
 
 object Profiler {
@@ -62,6 +63,7 @@ case class ProfileRange(start: ProfileSnap, end:ProfileSnap, phase:Phase, purpos
 }
 
 sealed trait Profiler {
+  def install:Unit
 
   def finished(): Unit
 
@@ -70,6 +72,7 @@ sealed trait Profiler {
   def afterPhase(phase: Phase, profileBefore: ProfileSnap): Unit
 }
 private [profile] object NoOpProfiler extends Profiler {
+  override def install: Unit = Parallel.profileLocks(false)
 
   override def beforePhase(phase: Phase): ProfileSnap = Profiler.emptySnap
 
@@ -91,6 +94,8 @@ private [profile] object RealProfiler {
 }
 
 private [profile] class RealProfiler(reporter : ProfileReporter, val settings: Settings) extends Profiler with NotificationListener {
+  override def install: Unit = Parallel.profileLocks(true)
+
   def completeBackground(threadRange: ProfileRange): Unit = {
     reporter.reportBackground(this, threadRange)
   }
