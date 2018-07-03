@@ -184,6 +184,7 @@ private [profile] class RealProfiler(reporter : ProfileReporter, val settings: S
     } else initialSnap
 
     reporter.reportForeground(this, ProfileRange(snapBefore, finalSnap, phase, "", 0, Thread.currentThread))
+    reporter.reportLockStats(this, phase, snapBefore.snapTimeNanos, finalSnap.snapTimeNanos, Parallel.getLockManager.lockStats)
   }
 
   override def beforePhase(phase: Phase): ProfileSnap = {
@@ -206,6 +207,8 @@ object EventType extends Enumeration {
   val MAIN = Value("main")
   //other task ( background thread)
   val BACKGROUND = Value("background")
+  //phase lock stats
+  val LOCK = Value("lock")
   //total for compile
   val GC = Value("GC")
 }
@@ -213,6 +216,7 @@ object EventType extends Enumeration {
 sealed trait ProfileReporter {
   def reportBackground(profiler: RealProfiler, threadRange: ProfileRange): Unit
   def reportForeground(profiler: RealProfiler, threadRange: ProfileRange): Unit
+  def reportLockStats(profiler: RealProfiler, phase: Phase, phaseStartNs: Long, phaseEndNs: Long, lockStats: Seq[Parallel.LockStats]): Unit
 
   def reportGc(data: GcEventData): Unit
 
@@ -230,6 +234,11 @@ object ConsoleProfileReporter extends ProfileReporter {
   // TODO
     ???
 
+
+  override def reportLockStats(profiler: RealProfiler, phase: Phase, phaseStartNs: Long, phaseEndNs: Long, lockStats: Seq[Parallel.LockStats]): Unit =
+    //TODO
+  // ???
+
   override def close(profiler: RealProfiler): Unit = ()
 
   override def header(profiler: RealProfiler): Unit = {
@@ -245,6 +254,7 @@ class StreamProfileReporter(out:PrintWriter) extends ProfileReporter {
   override def header(profiler: RealProfiler): Unit = {
     out.println(s"info, ${profiler.id}, version, 2, output, ${profiler.outDir}")
     out.println(s"header(main/background),startNs,endNs,runId,phaseId,phaseName,purpose,task-count,threadId,threadName,runNs,idleNs,cpuTimeNs,userTimeNs,allocatedByte,heapSize")
+    out.println(s"header(lock),startNs,endNs,runId,phaseId,phaseName,lockName,lockId,accessCount,contentedWrite,cuncontendedWrites,contendedWriteNs")
     out.println(s"header(GC),startNs,endNs,startMs,endMs,name,action,cause,threads")
   }
 
@@ -256,6 +266,13 @@ class StreamProfileReporter(out:PrintWriter) extends ProfileReporter {
   }
   private def reportCommon(tpe:EventType.value, profiler: RealProfiler, threadRange: ProfileRange): Unit = {
     out.println(s"$tpe,${threadRange.start.snapTimeNanos},${threadRange.end.snapTimeNanos},${profiler.id},${threadRange.phase.id},${threadRange.phase.name},${threadRange.purpose},${threadRange.taskCount},${threadRange.thread.getId},${threadRange.thread.getName},${threadRange.runNs},${threadRange.idleNs},${threadRange.cpuNs},${threadRange.userNs},${threadRange.allocatedBytes},${threadRange.end.heapBytes} ")
+  }
+  override def reportLockStats(profiler: RealProfiler, phase: Phase, phaseStartNs: Long, phaseEndNs: Long, lockStats: Seq[Parallel.LockStats]): Unit = {
+    lockStats.filter(_.accessCount > 0).sortBy(_.name).foreach {
+      stats =>
+        out.println(s"${EventType.LOCK},$phaseStartNs,$phaseEndNs,${profiler.id},${phase.id},${phase.name},${stats.name},${stats.id},${stats.accessCount},${stats.contendedWrites},${stats.uncontendedWrites},${stats.contendedWriteNs}")
+    }
+
   }
 
   override def reportGc(data: GcEventData): Unit = {
