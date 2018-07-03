@@ -65,6 +65,8 @@ object Parallel {
       lock.writeLock.lock
       try block finally lock.writeLock.unlock
     }
+    import collection.JavaConverters._
+    def lockStats = autoLocks.values().asScala.toList.map {_.snapAndReset}
   }
   class ProfileLockManager extends LockManager{
     override def withWriteLock[U](lock: LockWithStats)(block: => U): U = {
@@ -81,7 +83,9 @@ object Parallel {
   }
   private val lockIdGen = new AtomicLong
 
-  case class LockStats(name: String, id: Long, contendedWrites: Int, uncontendedWrites: Int, contendedWriteNs: Long)
+  case class LockStats(name: String, id: Long, contendedWrites: Int, uncontendedWrites: Int, contendedWriteNs: Long) {
+    def accessCount = contendedWrites + uncontendedWrites
+  }
   class LockWithStats(name: String) {
     val writeLock = new ReentrantLock
     val id: Long =  lockIdGen.incrementAndGet()
@@ -95,7 +99,13 @@ object Parallel {
     val contendedWriteNs = new AtomicLong
 //    val contendedReadNs = new AtomicLong
 
-    def snap = new LockStats(name, id, contendedWrites.get(), uncontendedWrites.get, contendedWriteNs.get)
+    def snapAndReset = {
+      val snapped = new LockStats(name, id, contendedWrites.get(), uncontendedWrites.get, contendedWriteNs.get)
+      contendedWrites.addAndGet(-snapped.contendedWrites)
+      uncontendedWrites.addAndGet(-snapped.uncontendedWrites)
+      contendedWriteNs.addAndGet(-snapped.contendedWriteNs)
+      snapped
+    }
   }
 
   val locks: ThreadLocal[JHashSet[JLong]] = new ThreadLocal[JHashSet[JLong]]() {
