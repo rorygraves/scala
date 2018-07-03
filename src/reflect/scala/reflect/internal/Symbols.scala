@@ -223,8 +223,6 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     private def isSynchronized = this.isInstanceOf[scala.reflect.runtime.SynchronizedSymbols#SynchronizedSymbol]
     private def isAprioriThreadsafe = isThreadsafe(AllOps)
 
-    protected object SymbolLock
-
     if (!(isCompilerUniverse || isSynchronized || isAprioriThreadsafe))
       throw new AssertionError(s"unsafe symbol $initName (child of $initOwner) in runtime reflection universe") // Not an assert to avoid retention of `initOwner` as a field!
 
@@ -1514,7 +1512,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     /** Get type info associated with symbol at current phase, after
      *  ensuring that symbol is initialized (i.e. type is completed).
      */
-    def info: Type = Parallel.synchronizeAccess(SymbolLock) {
+    def info: Type = synchronizeSymbolsAccess {
       try {
         var cnt = 0
         while (validTo == NoPeriod) {
@@ -1605,7 +1603,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     }
 
     /** Return info without checking for initialization or completing */
-    def rawInfo: Type = Parallel.synchronizeAccess(SymbolLock) {
+    def rawInfo: Type = synchronizeSymbolsAccess {
       var infos = this.infos
       assert(infos != null)
       val curPeriod = currentPeriod
@@ -1651,7 +1649,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     }
 
     // adapt to new run in fsc.
-    private def adaptInfos(infos: TypeHistory): TypeHistory = {
+    private def adaptInfos(infos: TypeHistory): TypeHistory = synchronizeSymbolsAccess {
       assert(isCompilerUniverse)
       if (infos == null || runId(infos.validFrom) == currentRunId) {
         infos
@@ -2971,7 +2969,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     // are a case accessor (you can also be a field.)
     override def isCaseAccessorMethod = isCaseAccessor
 
-    def typeAsMemberOf(pre: Type): Type = {
+    def typeAsMemberOf(pre: Type): Type = synchronizeSymbolsAccess {
       // We used to cache member types more pervasively, but we can't get away with that
       // any more because of t8011.scala, which demonstrates a problem with the extension methods
       // phase. As it moves a method body to an extension method in the companion, it substitutes
@@ -3349,7 +3347,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     }
 
     /** the type this.type in this class */
-    override def thisType: Type = {
+    override def thisType: Type = synchronizeSymbolsAccess {
       val period = thisTypePeriod
       if (period != currentPeriod) {
         if (!isValid(period)) thisTypeCache = ThisType(this)
@@ -3363,7 +3361,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     }
 
     override def name: TypeName = {
-      if (needsFlatClasses) {
+      if (needsFlatClasses) synchronizeSymbolsAccess {
         if (flatname eq null)
           flatname = tpnme.flattenedName(rawowner.name, rawname)
 
@@ -3441,7 +3439,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
 
     /** the self type of an object foo is foo.type, not class<foo>.this.type
      */
-    override def typeOfThis = {
+    override def typeOfThis = synchronizeSymbolsAccess {
       val period = typeOfThisPeriod
       if (period != currentPeriod) {
         if (!isValid(period))

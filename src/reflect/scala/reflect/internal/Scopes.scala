@@ -73,6 +73,7 @@ trait Scopes extends api.Scopes { self: SymbolTable =>
     /** the hash table
      */
     private[Scopes] var hashtable: Array[ScopeEntry] = null
+    private[Scopes] val HashtableLock = new Parallel.Lock
 
     /** a cache for all elements, to be used by symbol iterator.
      */
@@ -118,7 +119,7 @@ trait Scopes extends api.Scopes { self: SymbolTable =>
 
     /** enter a scope entry
      */
-    protected def enterEntry(e: ScopeEntry) {
+    protected def enterEntry(e: ScopeEntry) = HashtableLock {
       flushElemsCache()
       if (hashtable ne null)
         enterInHash(e)
@@ -126,7 +127,7 @@ trait Scopes extends api.Scopes { self: SymbolTable =>
         createHash()
     }
 
-    private def enterInHash(e: ScopeEntry): Unit = {
+    private def enterInHash(e: ScopeEntry): Unit = HashtableLock {
       val i = e.sym.name.start & HASHMASK
       e.tail = hashtable(i)
       hashtable(i) = e
@@ -152,7 +153,7 @@ trait Scopes extends api.Scopes { self: SymbolTable =>
       else existing.sym.asInstanceOf[T]
     }
 
-    private def createHash() {
+    private def createHash() = HashtableLock {
       hashtable = new Array[ScopeEntry](HASHSIZE)
       enterAllInHash(elems)
     }
@@ -174,7 +175,7 @@ trait Scopes extends api.Scopes { self: SymbolTable =>
       }
     }
 
-    def rehash(sym: Symbol, newname: Name) {
+    def rehash(sym: Symbol, newname: Name): Unit = HashtableLock {
       if (hashtable ne null) {
         val index = sym.name.start & HASHMASK
         var e1 = hashtable(index)
@@ -201,7 +202,7 @@ trait Scopes extends api.Scopes { self: SymbolTable =>
 
     /** remove entry
      */
-    def unlink(e: ScopeEntry) {
+    def unlink(e: ScopeEntry) = HashtableLock {
       if (elems == e) {
         elems = e.next
       } else {
@@ -310,7 +311,7 @@ trait Scopes extends api.Scopes { self: SymbolTable =>
      *  in future versions of the type system. I have reverted the previous
      *  change to use iterators as too costly.
      */
-    def lookupEntry(name: Name): ScopeEntry = {
+    def lookupEntry(name: Name): ScopeEntry = HashtableLock {
       val startTime = if (StatisticsStatics.areSomeColdStatsEnabled) statistics.startTimer(statistics.scopeLookupTime) else null
       var e: ScopeEntry = null
       if (hashtable ne null) {
@@ -333,7 +334,7 @@ trait Scopes extends api.Scopes { self: SymbolTable =>
      *  in future versions of the type system. I have reverted the previous
      *  change to use iterators as too costly.
      */
-    def lookupNextEntry(entry: ScopeEntry): ScopeEntry = {
+    def lookupNextEntry(entry: ScopeEntry): ScopeEntry = HashtableLock {
       var e = entry
       if (hashtable ne null)
         do { e = e.tail } while ((e ne null) && e.sym.name != entry.sym.name)
@@ -467,13 +468,17 @@ trait Scopes extends api.Scopes { self: SymbolTable =>
   }
 
   /** Create a new scope nested in another one with which it shares its elements */
-  final def newNestedScope(outer: Scope): Scope = {
+  final def newNestedScope(outer: Scope): Scope =  {
     val startTime = if (StatisticsStatics.areSomeColdStatsEnabled) statistics.startTimer(statistics.scopePopulationTime) else null
     val nested = newScope // not `new Scope`, we must allow the runtime reflection universe to mixin SynchronizedScopes!
     nested.elems = outer.elems
     nested.nestinglevel = outer.nestinglevel + 1
-    if (outer.hashtable ne null)
-      nested.hashtable = java.util.Arrays.copyOf(outer.hashtable, outer.hashtable.length)
+    outer.HashtableLock {
+      nested.HashtableLock {
+        if (outer.hashtable ne null)
+          nested.hashtable = java.util.Arrays.copyOf(outer.hashtable, outer.hashtable.length)
+      }
+    }
     if (StatisticsStatics.areSomeColdStatsEnabled) statistics.stopTimer(statistics.scopePopulationTime, startTime)
     nested
   }

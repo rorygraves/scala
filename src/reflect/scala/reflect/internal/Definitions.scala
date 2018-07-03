@@ -774,7 +774,7 @@ trait Definitions extends api.StandardDefinitions {
       // because volatile checking is done before all cycles are detected.
       // the case to avoid is an abstract type directly or
       // indirectly upper-bounded by itself. See #2918
-      def isVolatileAbstractType: Boolean = {
+      def isVolatileAbstractType: Boolean = PendingVolatilesLock {
         def sym = tp.typeSymbol
         def volatileUpperBound = isVolatile(tp.bounds.hi)
         def safeIsVolatile = (
@@ -829,6 +829,8 @@ trait Definitions extends api.StandardDefinitions {
 
     private[this] var volatileRecursions: Int = 0
     private[this] val pendingVolatiles = mutable.HashSet[Symbol]()
+    object PendingVolatilesLock extends util.Parallel.Lock
+
     def functionNBaseType(tp: Type): Type = tp.baseClasses find isFunctionSymbol match {
       case Some(sym) => tp baseType unspecializedSymbol(sym)
       case _         => tp

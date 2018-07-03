@@ -99,13 +99,15 @@ trait Types
 
   /** Caching the most recent map has a 75-90% hit rate. */
   private object substTypeMapCache {
-    private[this] var cached: SubstTypeMap = new SubstTypeMap(Nil, Nil)
+    private[this] val cached = Parallel.WorkerThreadLocal(new SubstTypeMap(Nil, Nil))
 
     def apply(from: List[Symbol], to: List[Type]): SubstTypeMap = {
-      if ((cached.from ne from) || (cached.to ne to))
-        cached = new SubstTypeMap(from, to)
-
-      cached
+      val cachedValue = cached.get
+      if ((cachedValue.from ne from) || (cachedValue.to ne to)){
+        val newValue = new SubstTypeMap(from, to)
+        cached.set(newValue)
+        newValue
+      } else cachedValue
     }
   }
 
@@ -2023,18 +2025,14 @@ trait Types
     private var relativeInfoCacheValidForPeriod: Period = NoPeriod
     private var relativeInfoCacheValidForSymInfo: Type = _
 
-    object synchronizeRelativeInfoCacheAccess {
-      @inline final def apply[T](op: => T): T = Parallel.synchronizeAccess(this)(op)
-    }
-
-    override private[Types] def invalidateTypeRefCaches(): Unit = synchronizeRelativeInfoCacheAccess {
+    override private[Types] def invalidateTypeRefCaches(): Unit = synchronizeSymbolsAccess {
       super.invalidateTypeRefCaches()
       relativeInfoCache = NoType
       relativeInfoCacheValidForPeriod = NoPeriod
       relativeInfoCacheValidForSymInfo = null
     }
 
-    final override protected def relativeInfo = synchronizeRelativeInfoCacheAccess {
+    final override protected def relativeInfo = synchronizeSymbolsAccess {
       val symInfo = sym.info
       if ((relativeInfoCache eq null) || (relativeInfoCacheValidForSymInfo ne symInfo) || (relativeInfoCacheValidForPeriod != currentPeriod)) {
         relativeInfoCache = super.relativeInfo
@@ -2541,7 +2539,7 @@ trait Types
     })
   }
 
-  protected def defineParentsOfTypeRef(tpe: TypeRef) = {
+  protected def defineParentsOfTypeRef(tpe: TypeRef) = tpe.lockThisType {
     val period = tpe.parentsPeriod
     if (period != currentPeriod) {
       tpe.parentsPeriod = currentPeriod
@@ -2553,7 +2551,7 @@ trait Types
     }
   }
 
-  protected def defineBaseTypeSeqOfTypeRef(tpe: TypeRef) = {
+  protected def defineBaseTypeSeqOfTypeRef(tpe: TypeRef) = tpe.lockThisType {
     val period = tpe.baseTypeSeqPeriod
     if (period != currentPeriod) {
       tpe.baseTypeSeqPeriod = currentPeriod
@@ -3965,10 +3963,12 @@ trait Types
   private val initialUniquesCapacity = 4096
   private var uniques: util.WeakHashSet[Type] = _
   private var uniqueRunId = NoRunId
+  object synchronizeUniquesCacheAccess extends Parallel.Lock
 
-  final def howManyUniqueTypes: Int = if (uniques == null) 0 else uniques.size
+  final def howManyUniqueTypes: Int =
+    synchronizeUniquesCacheAccess { if (uniques == null) 0 else uniques.size }
 
-  protected def unique[T <: Type](tp: T): T =  {
+  protected def unique[T <: Type](tp: T): T =  synchronizeUniquesCacheAccess {
     if (StatisticsStatics.areSomeColdStatsEnabled) statistics.incCounter(rawTypeCount)
     if (uniqueRunId != currentRunId) {
       uniques = util.WeakHashSet[Type](initialUniquesCapacity)

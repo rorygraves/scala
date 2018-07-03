@@ -1256,9 +1256,12 @@ trait Contexts { self: Analyzer =>
    *
    *  To handle nested contexts, reporters share buffers. TODO: only buffer in BufferingReporter, emit immediately in ImmediateReporter
    */
-  abstract class ContextReporter(private[this] var _errorBuffer: mutable.LinkedHashSet[AbsTypeError] = null, private[this] var _warningBuffer: mutable.LinkedHashSet[(Position, String)] = null) extends Reporter {
+  abstract class ContextReporter(private[this] var _rawBuffer: mutable.LinkedHashSet[AbsTypeError] = null, private[this] var _warningBuffer: mutable.LinkedHashSet[(Position, String)] = null) extends Reporter {
     type Error = AbsTypeError
     type Warning = (Position, String)
+
+    protected def rawBuffer = _rawBuffer
+    protected def rawBuffer_=(v: mutable.LinkedHashSet[AbsTypeError]) = _rawBuffer = v
 
     def issue(err: AbsTypeError)(implicit context: Context): Unit = handleError(context.fixPosition(err.errPos), addDiagString(err.errMsg))
 
@@ -1281,10 +1284,10 @@ trait Contexts { self: Analyzer =>
       else handleSuppressedAmbiguous(err)
 
     @inline final def withFreshErrorBuffer[T](expr: => T): T = {
-      val previousBuffer = _errorBuffer
-      _errorBuffer = null
+      val previousBuffer = rawBuffer
+      rawBuffer = null
       val res = expr // expr will read _errorBuffer
-      _errorBuffer = previousBuffer
+      rawBuffer = previousBuffer
       res
     }
 
@@ -1314,7 +1317,7 @@ trait Contexts { self: Analyzer =>
         case INFO    => reporter.echo(pos, msg)
       }
 
-    final override def hasErrors = super.hasErrors || (_errorBuffer != null && errorBuffer.nonEmpty)
+    final override def hasErrors = super.hasErrors || (rawBuffer != null && rawBuffer.nonEmpty)
 
     // TODO: everything below should be pushed down to BufferingReporter (related to buffering)
     // Implicit relies on this most heavily, but there you know reporter.isInstanceOf[BufferingReporter]
@@ -1370,7 +1373,7 @@ trait Contexts { self: Analyzer =>
     // [JZ] Contexts, pre- the scala/bug#7345 refactor, avoided allocating the buffers until needed. This
     // is replicated here out of conservatism.
     private def newBuffer[A]    = mutable.LinkedHashSet.empty[A] // Important to use LinkedHS for stable results.
-    final protected def errorBuffer   = { if (_errorBuffer == null) _errorBuffer = newBuffer; _errorBuffer }
+    final protected def errorBuffer   = { if (rawBuffer == null) rawBuffer = newBuffer; rawBuffer }
     final protected def warningBuffer = { if (_warningBuffer == null) _warningBuffer = newBuffer; _warningBuffer }
 
     final def errors: immutable.Seq[Error]     = errorBuffer.toVector
@@ -1382,8 +1385,8 @@ trait Contexts { self: Analyzer =>
 
     // null references to buffers instead of clearing them,
     // as the buffers may be shared between different reporters
-    final def clearAll(): Unit       = { _errorBuffer = null; _warningBuffer = null }
-    final def clearAllErrors(): Unit = { _errorBuffer = null }
+    final def clearAll(): Unit       = { rawBuffer = null; _warningBuffer = null }
+    final def clearAllErrors(): Unit = { rawBuffer = null }
   }
 
   private[typechecker] class ImmediateReporter(_errorBuffer: mutable.LinkedHashSet[AbsTypeError] = null, _warningBuffer: mutable.LinkedHashSet[(Position, String)] = null) extends ContextReporter(_errorBuffer, _warningBuffer) {
@@ -1414,6 +1417,11 @@ trait Contexts { self: Analyzer =>
   private[typechecker] class ThrowingReporter extends ContextReporter {
     override def isThrowing = true
     protected def handleError(pos: Position, msg: String): Unit = throw new TypeError(pos, msg)
+
+    private[this] val localBuffer =  Parallel.WorkerThreadLocal[mutable.LinkedHashSet[AbsTypeError]](null)
+
+    override protected def rawBuffer = localBuffer.get
+    override protected def rawBuffer_=(v: mutable.LinkedHashSet[AbsTypeError]) = localBuffer.set(v)
   }
 
   /** Used during a run of [[scala.tools.nsc.typechecker.TreeCheckers]]? */
