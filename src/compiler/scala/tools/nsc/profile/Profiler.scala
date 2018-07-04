@@ -8,6 +8,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import javax.management.openmbean.CompositeData
 import javax.management.{Notification, NotificationEmitter, NotificationListener}
 
+import scala.reflect.internal.util.Parallel
 import scala.tools.nsc.{Phase, Settings}
 
 object Profiler {
@@ -62,6 +63,7 @@ case class ProfileRange(start: ProfileSnap, end:ProfileSnap, phase:Phase, purpos
 }
 
 sealed trait Profiler {
+  def install:Unit
 
   def finished(): Unit
 
@@ -70,6 +72,7 @@ sealed trait Profiler {
   def afterPhase(phase: Phase, profileBefore: ProfileSnap): Unit
 }
 private [profile] object NoOpProfiler extends Profiler {
+  override def install: Unit = Parallel.profileLocks(false)
 
   override def beforePhase(phase: Phase): ProfileSnap = Profiler.emptySnap
 
@@ -91,6 +94,8 @@ private [profile] object RealProfiler {
 }
 
 private [profile] class RealProfiler(reporter : ProfileReporter, val settings: Settings) extends Profiler with NotificationListener {
+  override def install: Unit = Parallel.profileLocks(true)
+
   def completeBackground(threadRange: ProfileRange): Unit = {
     reporter.reportBackground(this, threadRange)
   }
@@ -107,18 +112,18 @@ private [profile] class RealProfiler(reporter : ProfileReporter, val settings: S
 
   private val mainThread = Thread.currentThread()
 
-  private[profile] def snapThread(idleTimeNanos:Long, thread: Thread = Thread.currentThread()): ProfileSnap = {
+  private[profile] def snapThread( idleTimeNanos:Long): ProfileSnap = {
     import RealProfiler._
-    val threadId = thread.getId
+    val current = Thread.currentThread()
 
     ProfileSnap(
-      threadId = threadId,
-      threadName = thread.getName,
+      threadId = current.getId,
+      threadName = current.getName,
       snapTimeNanos = System.nanoTime(),
       idleTimeNanos = idleTimeNanos,
-      cpuTimeNanos = threadMx.getThreadCpuTime(threadId),
-      userTimeNanos = threadMx.getThreadUserTime(threadId),
-      allocatedBytes = threadMx.getThreadAllocatedBytes(threadId),
+      cpuTimeNanos = threadMx.getCurrentThreadCpuTime,
+      userTimeNanos = threadMx.getCurrentThreadUserTime,
+      allocatedBytes = threadMx.getThreadAllocatedBytes(Thread.currentThread().getId),
       heapBytes = readHeapUsage()
     )
   }
@@ -179,6 +184,7 @@ private [profile] class RealProfiler(reporter : ProfileReporter, val settings: S
     } else initialSnap
 
     reporter.reportForeground(this, ProfileRange(snapBefore, finalSnap, phase, "", 0, Thread.currentThread))
+    reporter.reportLockStats(this, phase, snapBefore.snapTimeNanos, finalSnap.snapTimeNanos, Parallel.getLockManager.lockStats)
   }
 
   override def beforePhase(phase: Phase): ProfileSnap = {
@@ -201,6 +207,8 @@ object EventType extends Enumeration {
   val MAIN = Value("main")
   //other task ( background thread)
   val BACKGROUND = Value("background")
+  //phase lock stats
+  val LOCK = Value("lock")
   //total for compile
   val GC = Value("GC")
 }
@@ -208,6 +216,7 @@ object EventType extends Enumeration {
 sealed trait ProfileReporter {
   def reportBackground(profiler: RealProfiler, threadRange: ProfileRange): Unit
   def reportForeground(profiler: RealProfiler, threadRange: ProfileRange): Unit
+  def reportLockStats(profiler: RealProfiler, phase: Phase, phaseStartNs: Long, phaseEndNs: Long, lockStats: Seq[Parallel.LockStats]): Unit
 
   def reportGc(data: GcEventData): Unit
 
@@ -225,6 +234,11 @@ object ConsoleProfileReporter extends ProfileReporter {
   // TODO
     ???
 
+
+  override def reportLockStats(profiler: RealProfiler, phase: Phase, phaseStartNs: Long, phaseEndNs: Long, lockStats: Seq[Parallel.LockStats]): Unit =
+    //TODO
+  // ???
+
   override def close(profiler: RealProfiler): Unit = ()
 
   override def header(profiler: RealProfiler): Unit = {
@@ -240,6 +254,7 @@ class StreamProfileReporter(out:PrintWriter) extends ProfileReporter {
   override def header(profiler: RealProfiler): Unit = {
     out.println(s"info, ${profiler.id}, version, 2, output, ${profiler.outDir}")
     out.println(s"header(main/background),startNs,endNs,runId,phaseId,phaseName,purpose,task-count,threadId,threadName,runNs,idleNs,cpuTimeNs,userTimeNs,allocatedByte,heapSize")
+    out.println(s"header(lock),startNs,endNs,runId,phaseId,phaseName,lockName,lockId,accessCount,contentedWrite,cuncontendedWrites,contendedWriteNs")
     out.println(s"header(GC),startNs,endNs,startMs,endMs,name,action,cause,threads")
   }
 
@@ -251,6 +266,13 @@ class StreamProfileReporter(out:PrintWriter) extends ProfileReporter {
   }
   private def reportCommon(tpe:EventType.value, profiler: RealProfiler, threadRange: ProfileRange): Unit = {
     out.println(s"$tpe,${threadRange.start.snapTimeNanos},${threadRange.end.snapTimeNanos},${profiler.id},${threadRange.phase.id},${threadRange.phase.name},${threadRange.purpose},${threadRange.taskCount},${threadRange.thread.getId},${threadRange.thread.getName},${threadRange.runNs},${threadRange.idleNs},${threadRange.cpuNs},${threadRange.userNs},${threadRange.allocatedBytes},${threadRange.end.heapBytes} ")
+  }
+  override def reportLockStats(profiler: RealProfiler, phase: Phase, phaseStartNs: Long, phaseEndNs: Long, lockStats: Seq[Parallel.LockStats]): Unit = {
+    lockStats.filter(_.accessCount > 0).sortBy(_.name).foreach {
+      stats =>
+        out.println(s"${EventType.LOCK},$phaseStartNs,$phaseEndNs,${profiler.id},${phase.id},${phase.name},${stats.name},${stats.id},${stats.accessCount},${stats.contendedWrites},${stats.uncontendedWrites},${stats.contendedWriteNs}")
+    }
+
   }
 
   override def reportGc(data: GcEventData): Unit = {
