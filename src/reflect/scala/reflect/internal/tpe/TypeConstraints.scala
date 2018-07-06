@@ -21,11 +21,7 @@ private[internal] trait TypeConstraints {
   class UndoLog extends Clearable {
     type UndoPairs = List[UndoPair[TypeVar, TypeConstraint]]
     //OPT this method is public so we can do `manual inlining`
-    private[this] var log: UndoPairs = List()
-
-    @inline final def withLog[T](op: UndoPairs => T): T = synchronizeSymbolsAccess {
-      op(log)
-    }
+    var log: UndoPairs = List()
 
     // register with the auto-clearing cache manager
     perRunCaches.recordCache(this)

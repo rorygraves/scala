@@ -99,14 +99,14 @@ trait TypeComparers {
     //    undoLog undoUnless {
     //      isSameType1(tp1, tp2)
     //    }
-    undoLog.withLog { before =>
-      var result = false
-      try {
-        result = isSameType1(tp1, tp2)
-      }
-      finally if (!result) undoLog.undoTo(before)
-      result
+
+    val before = undoLog.log
+    var result = false
+    try {
+      result = isSameType1(tp1, tp2)
     }
+    finally if (!result) undoLog.undoTo(before)
+    result
   }
   finally {
     subsametypeRecursions -= 1
@@ -272,28 +272,27 @@ trait TypeComparers {
     //      }
     //    }
 
-    undoLog.withLog { before =>
-      var result = false
+    val before = undoLog.log
+    var result = false
 
-      try result = { // if subtype test fails, it should not affect constraints on typevars
-        if (subsametypeRecursions >= LogPendingSubTypesThreshold) {
-          val p = new SubTypePair(tp1, tp2)
-          if (pendingSubTypes(p))
-            false // see neg/t8146-no-finitary*
-          else
-            try {
-              pendingSubTypes += p
-              isSubType1(tp1, tp2, depth)
-            } finally {
-              pendingSubTypes -= p
-            }
-        } else {
-          isSubType1(tp1, tp2, depth)
-        }
-      } finally if (!result) undoLog.undoTo(before)
+    try result = { // if subtype test fails, it should not affect constraints on typevars
+      if (subsametypeRecursions >= LogPendingSubTypesThreshold) {
+        val p = new SubTypePair(tp1, tp2)
+        if (pendingSubTypes(p))
+          false // see neg/t8146-no-finitary*
+        else
+          try {
+            pendingSubTypes += p
+            isSubType1(tp1, tp2, depth)
+          } finally {
+            pendingSubTypes -= p
+          }
+      } else {
+        isSubType1(tp1, tp2, depth)
+      }
+    } finally if (!result) undoLog.undoTo(before)
 
-      result
-    }
+    result
   } finally {
     subsametypeRecursions -= 1
     // XXX AM TODO: figure out when it is safe and needed to clear the log -- the commented approach below is too eager (it breaks #3281, #3866)
