@@ -63,19 +63,19 @@ trait Names extends api.Names {
   }
 
   /** Enter characters into chrs array. */
-  private def enterChars(cs: Array[Char], offset: Int, len: Int) {
-    var i = 0
-    while (i < len) {
-      if (nc + i == chrs.length) {
-        val newchrs = new Array[Char](chrs.length * 2)
-        java.lang.System.arraycopy(chrs, 0, newchrs, 0, chrs.length)
-        chrs = newchrs
+  private def enterChars(cs: Array[Char], offset: Int, len: Int) = {
+      var i = 0
+      while (i < len) {
+        if (nc + i == chrs.length) {
+          val newchrs = new Array[Char](chrs.length * 2)
+          java.lang.System.arraycopy(chrs, 0, newchrs, 0, chrs.length)
+          chrs = newchrs
+        }
+        chrs(nc + i) = cs(offset + i)
+        i += 1
       }
-      chrs(nc + i) = cs(offset + i)
-      i += 1
-    }
-    if (len == 0) nc += 1
-    else nc = nc + len
+      if (len == 0) nc += 1
+      else nc = nc + len
   }
 
   /** Create a term name from the characters in cs[offset..offset+len-1]. */

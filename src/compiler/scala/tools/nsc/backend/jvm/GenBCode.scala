@@ -7,6 +7,7 @@ package scala.tools.nsc
 package backend
 package jvm
 
+import scala.reflect.internal.util.Parallel.asWorkerThread
 import scala.tools.asm.Opcodes
 
 /**
@@ -69,9 +70,9 @@ abstract class GenBCode extends SubComponent {
     override def run(): Unit = {
       statistics.timed(bcodeTimer) {
         try {
-          initialize()
+          asWorkerThread { initialize() }
           super.run() // invokes `apply` for each compilation unit
-          generatedClassHandler.complete()
+          asWorkerThread { generatedClassHandler.complete() }
         } finally {
           this.close()
         }

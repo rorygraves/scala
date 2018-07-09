@@ -56,9 +56,7 @@ abstract class SymbolTable extends macros.Universe
 
   // Wrapper for `synchronized` method. In future could provide additional logging, safety checks, etc.
   // We are locking on `synchronizeSymbolsAccess` object which is created per `SymbolTable` instance
-  object synchronizeSymbolsAccess {
-    def apply[T](block: => T): T = synchronizeAccess(this)(block)
-  }
+  object synchronizeSymbolsAccess extends Parallel.Lock
 
   trait ReflectStats extends BaseTypeSeqsStats
                         with TypesStats

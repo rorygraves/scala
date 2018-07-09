@@ -31,17 +31,11 @@ object Parallel {
     def apply(initial: Int = 0): Counter = new Counter(initial)
   }
 
-  val locks: ThreadLocal[JHasjSet[JLong]] = new ThreadLocal[JHasjSet[JLong]]() {
-    override def initialValue(): JHasjSet[JLong] = new JHasjSet[JLong]()
-  }
-
   // Wrapper for `synchronized` method. In future could provide additional logging, safety checks, etc.
-  def synchronizeAccess[T <: Object, U](lock: T)(block: => U): U = {
-    val hash: java.lang.Long = System.identityHashCode(lock).toLong
-    try {
-      locks.get().add(hash)
-      lock.synchronized[U](block)
-    } finally locks.get().remove(hash)
+  def synchronizeAccess[T <: Object, U](lock: T)(block: => U): U = lock.synchronized[U](block)
+
+  class Lock {
+    @inline final def apply[T](op: => T) = synchronizeAccess(this)(op)
   }
 
   def WorkerThreadLocal[T](valueOnWorker: => T, valueOnMain: => T) = new WorkerOrMainThreadLocal[T](valueOnWorker, valueOnMain)

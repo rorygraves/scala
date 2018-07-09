@@ -61,13 +61,11 @@ trait BaseTypeSeqs {
     // (while NoType is in there to indicate a cycle in this BTS, during the execution of
     //  the mergePrefixAndArgs below, the elems get copied without the pending map,
     //  so that NoType's are seen instead of the original type --> spurious compile error)
-    private val _pending = Parallel.WorkerThreadLocal(mutable.BitSet(length))
-    def pending = _pending.get // TODO test codebase with cyclic reference
-    def pending_=(v: mutable.BitSet) = _pending.set(v)
+    private val pending = mutable.BitSet(length)
 
     /** The type at i'th position in this sequence; lazy types are returned evaluated. */
-    def apply(i: Int): Type =
-      if(pending contains i) {
+    def apply(i: Int): Type = synchronizeSymbolsAccess {
+      if (pending contains i) {
         pending.clear()
         throw CyclicInheritance
       } else {
@@ -103,11 +101,12 @@ trait BaseTypeSeqs {
             tp
         }
       }
+    }
 
     def rawElem(i: Int) = elems(i)
 
     /** The type symbol of the type at i'th position in this sequence */
-    def typeSymbol(i: Int): Symbol = elems(i).typeSymbol
+    def typeSymbol(i: Int): Symbol = synchronizeSymbolsAccess(elems(i).typeSymbol)
 
     final def baseTypeIndex(sym: Symbol): Int = {
       val symId = sym.id
@@ -121,11 +120,11 @@ trait BaseTypeSeqs {
     }
 
     /** Return all evaluated types in this sequence as a list */
-    def toList: List[Type] = elems.toList
+    def toList: List[Type] = synchronizeSymbolsAccess { elems.toList }
 
     def copy(head: Type, offset: Int): BaseTypeSeq = {
       val arr = new Array[Type](elems.length + offset)
-      java.lang.System.arraycopy(elems, 0, arr, offset, elems.length)
+      synchronizeSymbolsAccess ( java.lang.System.arraycopy(elems, 0, arr, offset, elems.length) )
       arr(0) = head
       newBaseTypeSeq(parents, arr)
     }
@@ -143,20 +142,22 @@ trait BaseTypeSeqs {
       val len = length
       val arr = new Array[Type](len)
       var i = 0
-      while (i < len) {
-        arr(i) = f(elems(i))
-        i += 1
+      synchronizeSymbolsAccess {
+        while (i < len) {
+          arr(i) = f(elems(i))
+          i += 1
+        }
       }
       newBaseTypeSeq(parents, arr)
     }
 
     def lateMap(f: Type => Type): BaseTypeSeq = newMappedBaseTypeSeq(this, f)
 
-    def exists(p: Type => Boolean): Boolean = elems exists p
+    def exists(p: Type => Boolean): Boolean = synchronizeSymbolsAccess (elems exists p)
 
     lazy val maxDepth = maxDepthOfElems
 
-    protected def maxDepthOfElems: Depth = {
+    protected def maxDepthOfElems: Depth = synchronizeSymbolsAccess {
       var d = Depth.Zero
       1 until length foreach (i => d = d max typeDepth(elems(i)))
       d
@@ -259,7 +260,7 @@ trait BaseTypeSeqs {
     override def copy(head: Type, offset: Int) = (orig map f).copy(head, offset)
     override def map(g: Type => Type) = lateMap(g)
     override def lateMap(g: Type => Type) = orig.lateMap(x => g(f(x)))
-    override def exists(p: Type => Boolean) = elems exists (x => p(f(x)))
+    override def exists(p: Type => Boolean) = synchronizeSymbolsAccess(elems exists (x => p(f(x))))
     override protected def maxDepthOfElems: Depth = elems.map(x => typeDepth(f(x))).max
     override def toString = elems.mkString("MBTS(", ",", ")")
   }
