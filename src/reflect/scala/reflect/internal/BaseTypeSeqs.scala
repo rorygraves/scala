@@ -70,7 +70,7 @@ trait BaseTypeSeqs {
       if(pending contains i) {
         pending.clear()
         throw CyclicInheritance
-      } else {
+      } else synchronizeSymbolsAccess {
         def computeLazyType(rtp: RefinedType): Type = {
           if (!isIntersectionTypeForLazyBaseType(rtp))
             devWarning("unexpected RefinedType in base type seq, lazy BTS elements should be created via intersectionTypeForLazyBaseType: " + rtp)

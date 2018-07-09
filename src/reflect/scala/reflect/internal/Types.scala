@@ -99,13 +99,15 @@ trait Types
 
   /** Caching the most recent map has a 75-90% hit rate. */
   private object substTypeMapCache {
-    private[this] var cached: SubstTypeMap = new SubstTypeMap(Nil, Nil)
+    private[this] val cached = Parallel.WorkerThreadLocal(new SubstTypeMap(Nil, Nil))
 
     def apply(from: List[Symbol], to: List[Type]): SubstTypeMap = {
-      if ((cached.from ne from) || (cached.to ne to))
-        cached = new SubstTypeMap(from, to)
-
-      cached
+      val cachedValue = cached.get
+      if ((cachedValue.from ne from) || (cachedValue.to ne to)){
+        val newValue = new SubstTypeMap(from, to)
+        cached.set(newValue)
+        newValue
+      } else cachedValue
     }
   }
 
