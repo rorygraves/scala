@@ -3965,10 +3965,12 @@ trait Types
   private val initialUniquesCapacity = 4096
   private var uniques: util.WeakHashSet[Type] = _
   private var uniqueRunId = NoRunId
+  object synchronizeUniquesCacheAccess extends Parallel.Lock
 
-  final def howManyUniqueTypes: Int = if (uniques == null) 0 else uniques.size
+  final def howManyUniqueTypes: Int =
+    synchronizeUniquesCacheAccess { if (uniques == null) 0 else uniques.size }
 
-  protected def unique[T <: Type](tp: T): T =  {
+  protected def unique[T <: Type](tp: T): T =  synchronizeUniquesCacheAccess {
     if (StatisticsStatics.areSomeColdStatsEnabled) statistics.incCounter(rawTypeCount)
     if (uniqueRunId != currentRunId) {
       uniques = util.WeakHashSet[Type](initialUniquesCapacity)

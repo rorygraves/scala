@@ -223,7 +223,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     private def isSynchronized = this.isInstanceOf[scala.reflect.runtime.SynchronizedSymbols#SynchronizedSymbol]
     private def isAprioriThreadsafe = isThreadsafe(AllOps)
 
-    protected object SymbolLock
+    protected object SymbolLock extends Parallel.Lock
 
     if (!(isCompilerUniverse || isSynchronized || isAprioriThreadsafe))
       throw new AssertionError(s"unsafe symbol $initName (child of $initOwner) in runtime reflection universe") // Not an assert to avoid retention of `initOwner` as a field!
@@ -1514,7 +1514,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     /** Get type info associated with symbol at current phase, after
      *  ensuring that symbol is initialized (i.e. type is completed).
      */
-    def info: Type = Parallel.synchronizeAccess(SymbolLock) {
+    def info: Type = SymbolLock {
       try {
         var cnt = 0
         while (validTo == NoPeriod) {
@@ -1533,15 +1533,11 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
             //          activeLocks += 1
             //         lockedSyms += this
           }
-          val current = phase
-          try {
+          withLocalPhase ( try {
             assertCorrectThread()
-            phase = phaseOf(infos.validFrom)
+            localPhase = phaseOf(infos.validFrom)
             tp.complete(this)
-          } finally {
-            unlock()
-            phase = current
-          }
+          } finally unlock())
           cnt += 1
           // allow for two completions:
           //   one: sourceCompleter to LazyType, two: LazyType to completed type
@@ -1605,7 +1601,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     }
 
     /** Return info without checking for initialization or completing */
-    def rawInfo: Type = Parallel.synchronizeAccess(SymbolLock) {
+    def rawInfo: Type = SymbolLock {
       var infos = this.infos
       assert(infos != null)
       val curPeriod = currentPeriod
@@ -1619,8 +1615,8 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
         if (validTo < curPeriod) {
           assertCorrectThread()
           // adapt any infos that come from previous runs
-          val current = phase
-          try {
+          withLocalPhase {
+            val current = phase
             infos = adaptInfos(infos)
 
             //assert(runId(validTo) == currentRunId, name)
@@ -1630,7 +1626,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
               var itr = infoTransformers.nextFrom(phaseId(validTo))
               infoTransformers = itr; // caching optimization
               while (itr.pid != NoPhase.id && itr.pid < current.id) {
-                phase = phaseWithId(itr.pid)
+                localPhase = phaseWithId(itr.pid)
                 val info1 = itr.transform(this, infos.info)
                 if (info1 ne infos.info) {
                   infos = TypeHistory(currentPeriod + 1, info1, infos)
@@ -1642,8 +1638,6 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
               _validTo = if (itr.pid == NoPhase.id) curPeriod
                          else period(currentRunId, itr.pid)
             }
-          } finally {
-            phase = current
           }
         }
       }
@@ -1667,7 +1661,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
           val pid = phaseId(infos.validFrom)
 
           _validTo = period(currentRunId, pid)
-          phase   = phaseWithId(pid)
+          localPhase   = phaseWithId(pid)
 
           val info1 = adaptToNewRunMap(infos.info)
           if (info1 eq infos.info) {
