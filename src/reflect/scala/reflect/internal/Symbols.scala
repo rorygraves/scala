@@ -3343,7 +3343,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     }
 
     /** the type this.type in this class */
-    override def thisType: Type = {
+    override def thisType: Type = SymbolLock{
       val period = thisTypePeriod
       if (period != currentPeriod) {
         if (!isValid(period)) thisTypeCache = ThisType(this)
@@ -3435,7 +3435,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
 
     /** the self type of an object foo is foo.type, not class<foo>.this.type
      */
-    override def typeOfThis = {
+    override def typeOfThis = SymbolLock {
       val period = typeOfThisPeriod
       if (period != currentPeriod) {
         if (!isValid(period))
