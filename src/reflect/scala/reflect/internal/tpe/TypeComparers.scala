@@ -30,10 +30,9 @@ trait TypeComparers {
     override def toString = tp1+" <:<? "+tp2
   }
 
-  // With Threadlocal it fails with NPE in GenBCode.scala:94
-  private var _subsametypeRecursions = 0
-  def subsametypeRecursions = _subsametypeRecursions
-  def subsametypeRecursions_=(value: Int): Unit = _subsametypeRecursions = value
+  private var _subsametypeRecursions = Parallel.WorkerThreadLocal(0)
+  def subsametypeRecursions = _subsametypeRecursions.get
+  def subsametypeRecursions_=(value: Int): Unit = _subsametypeRecursions.set(value)
 
   private def isUnifiable(pre1: Type, pre2: Type) = (
        (isEligibleForPrefixUnification(pre1) || isEligibleForPrefixUnification(pre2))
