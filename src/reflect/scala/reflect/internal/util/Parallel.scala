@@ -37,6 +37,10 @@ object Parallel {
 
   def WorkerThreadLocal[T](valueOnWorker: => T) = new WorkerThreadLocal[T](valueOnWorker)
 
+  class Lock {
+    @inline final def apply[T](op: => T) = synchronizeAccess(this)(op)
+  }
+
   abstract class AbstractThreadLocal[T](valueOnWorker: => T, valueOnMain: => T) {
     private var main: T = null.asInstanceOf[T]
 
