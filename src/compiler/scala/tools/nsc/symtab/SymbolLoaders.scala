@@ -216,7 +216,7 @@ abstract class SymbolLoaders {
     override def complete(root: Symbol): Unit = {
       try {
         val start = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime())
-        withLocalPhase { doComplete(root) }
+        withSavedPhase { doComplete(root) }
         informTime("loaded " + description, start)
         ok = true
         setSource(root)

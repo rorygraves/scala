@@ -2,9 +2,6 @@ package scala.reflect.internal.util
 
 import java.util.concurrent.atomic.AtomicInteger
 
-import java.util.{HashSet => JHasjSet}
-import java.lang.{Long => JLong}
-
 object Parallel {
 
   class Counter(initial: Int = 0) {
@@ -31,17 +28,9 @@ object Parallel {
     def apply(initial: Int = 0): Counter = new Counter(initial)
   }
 
-  val locks: ThreadLocal[JHasjSet[JLong]] = new ThreadLocal[JHasjSet[JLong]]() {
-    override def initialValue(): JHasjSet[JLong] = new JHasjSet[JLong]()
-  }
-
   // Wrapper for `synchronized` method. In future could provide additional logging, safety checks, etc.
-  def synchronizeAccess[T <: Object, U](lock: T)(block: => U): U = {
-    val hash: java.lang.Long = System.identityHashCode(lock).toLong
-    try {
-      locks.get().add(hash)
-      lock.synchronized[U](block)
-    } finally locks.get().remove(hash)
+  @inline def synchronizeAccess[T <: Object, U](obj: T)(block: => U): U = {
+    obj.synchronized[U](block)
   }
 
   def WorkerThreadLocal[T](valueOnWorker: => T, valueOnMain: => T) = new WorkerOrMainThreadLocal[T](valueOnWorker, valueOnMain)
@@ -117,7 +106,7 @@ object Parallel {
   // Because there is much more entry points to unit processing than to Global,
   // it's much easier to start with assuming everything is initially worker thread
   // and just mark main accordingly when needed.
-  private val isWorker: ThreadLocal[Boolean] = new ThreadLocal[Boolean] {
+  val isWorker: ThreadLocal[Boolean] = new ThreadLocal[Boolean] {
     override def initialValue(): Boolean = true
   }
 }

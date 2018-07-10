@@ -1260,8 +1260,8 @@ trait Contexts { self: Analyzer =>
     type Error = AbsTypeError
     type Warning = (Position, String)
 
-    protected def _errorBuffer = _rawBuffer
-    protected def _errorBuffer_=(v: mutable.LinkedHashSet[AbsTypeError]) = _rawBuffer = v
+    @inline protected def _errorBuffer = _rawBuffer
+    @inline protected def _errorBuffer_=(v: mutable.LinkedHashSet[AbsTypeError]) = _rawBuffer = v
 
     def issue(err: AbsTypeError)(implicit context: Context): Unit = handleError(context.fixPosition(err.errPos), addDiagString(err.errMsg))
 
@@ -1420,8 +1420,8 @@ trait Contexts { self: Analyzer =>
 
     private[this] val localBuffer =  Parallel.WorkerThreadLocal[mutable.LinkedHashSet[AbsTypeError]](null)
 
-    override protected def _errorBuffer = localBuffer.get
-    override protected def _errorBuffer_=(v: mutable.LinkedHashSet[AbsTypeError]) = localBuffer.set(v)
+    @inline override protected def _errorBuffer = localBuffer.get
+    @inline override protected def _errorBuffer_=(v: mutable.LinkedHashSet[AbsTypeError]) = localBuffer.set(v)
   }
 
   /** Used during a run of [[scala.tools.nsc.typechecker.TreeCheckers]]? */

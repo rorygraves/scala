@@ -223,60 +223,31 @@ abstract class SymbolTable extends macros.Universe
   final val NoRunId = 0
   // TODO add local for this as well
   private val phStack: collection.mutable.ArrayStack[Phase] = new collection.mutable.ArrayStack()
-  private[this] var ph: Phase = NoPhase
-  private[this] var per = NoPeriod
-
-  private[this] val localPh = new Parallel.WorkerOrMainThreadLocal[Phase](null, null)
-  private[this] val localPer = new Parallel.WorkerOrMainThreadLocal(NoPeriod, NoPeriod)
+  private[this] var ph: Parallel.WorkerOrMainThreadLocal[Phase] = Parallel.WorkerThreadLocal(NoPhase, NoPhase)
+  private[this] var per: Parallel.WorkerOrMainThreadLocal[Int] = Parallel.WorkerThreadLocal(NoPeriod, NoPeriod)
 
   final def atPhaseStack: List[Phase] = phStack.toList
-  final def phase: Phase = localPh.get match {
-    case null => ph
-    case local => local
-  }
+  final def phase: Phase = ph.get
 
   def atPhaseStackMessage = atPhaseStack match {
     case Nil    => ""
     case ps     => ps.reverseMap("->" + _).mkString("(", " ", ")")
   }
 
-  final def localPhase = phase
-
-  final def localPhase_=(p: Phase) {
-    localPh.set(p)
-    if (p == null) localPer.set(NoPeriod)
-    else localPer.set(period(currentRunId, p.id))
-  }
-
   final def phase_=(p: Phase) {
-    assert(localPh.get eq null)
-    //System.out.println("setting phase to " + p)
     assert((p ne null) && p != NoPhase, p)
-    ph = p
-    per = period(currentRunId, p.id)
-  }
-
-
-  @inline final def withLocalPhase[T](op: => T): T = {
-    val previous = localPh.get
-    try op finally localPhase = previous
-  }
-
-  final def pushPhase(ph: Phase): Phase = {
-    val current = phase
-    phase = ph
-    if (keepPhaseStack) {
-      phStack.push(ph)
+    val nextPeriod = period(currentRunId, p.id)
+    if (Parallel.isWorker.get()) {
+      ph.set(p)
+      per.set(nextPeriod)
+    } else {
+      ph = Parallel.WorkerThreadLocal(p, p)
+      per = Parallel.WorkerThreadLocal(nextPeriod, nextPeriod)
     }
-    current
   }
-  final def popPhase(ph: Phase) = {
-    if (keepPhaseStack) {
-      phStack.pop()
-    }
-    phase = ph
-  }
+
   var keepPhaseStack: Boolean = false
+
 
   /** The current compiler run identifier. */
   def currentRunId: RunId
@@ -290,10 +261,7 @@ abstract class SymbolTable extends macros.Universe
   /** The current period. */
   final def currentPeriod: Period = {
     //assert(per == (currentRunId << 8) + phase.id)
-    localPer.get match {
-      case NoPeriod => per
-      case local => local
-    }
+    per.get
   }
 
   /** The phase associated with given period. */
@@ -306,12 +274,20 @@ abstract class SymbolTable extends macros.Universe
   final def isAtPhaseAfter(p: Phase) =
     p != NoPhase && phase.id > p.id
 
+  @inline final def withSavedPhase[T](op: => T): T = {
+    val previous = phase
+    try op finally phase = previous
+  }
+
   /** Perform given operation at given phase. */
   @inline final def enteringPhase[T](ph: Phase)(op: => T): T = {
     if (ph eq phase) op // opt
-    else withLocalPhase {
-      localPhase = ph
-      op
+    else {
+      if (keepPhaseStack) phStack.push(ph)
+      try withSavedPhase {
+        phase = ph
+        op
+      } finally if (keepPhaseStack) phStack.pop()
     }
   }
 
