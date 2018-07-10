@@ -23,20 +23,17 @@ private[internal] trait TypeConstraints {
     //OPT this method is public so we can do `manual inlining`
     private[this] var log: UndoPairs = List()
 
-    @inline final def withLog[T](op: UndoPairs => T): T = synchUndoLogAccess {
+    @inline final def withLog[T](op: UndoPairs => T): T = synchronizeSymbolsAccess {
       op(log)
     }
 
-    object synchUndoLogAccess {
-      def apply[T](v: => T) = Parallel.synchronizeAccess(this)(v)
-    }
 
     // register with the auto-clearing cache manager
     perRunCaches.recordCache(this)
 
     /** Undo all changes to constraints to type variables up to `limit`. */
     //OPT this method is public so we can do `manual inlining`
-    def undoTo(limit: UndoPairs) = synchUndoLogAccess {
+    def undoTo(limit: UndoPairs) = synchronizeSymbolsAccess {
       assertCorrectThread()
       while ((log ne limit) && log.nonEmpty) {
         val UndoPair(tv, constr) = log.head
@@ -49,7 +46,7 @@ private[internal] trait TypeConstraints {
       *  be called from within an undo or undoUnless block,
       *  which is already synchronized.
       */
-    private[reflect] def record(tv: TypeVar) = synchUndoLogAccess {
+    private[reflect] def record(tv: TypeVar) = synchronizeSymbolsAccess {
       log ::= UndoPair(tv, tv.constr.cloneInternal)
     }
 
