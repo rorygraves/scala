@@ -418,6 +418,7 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
       implicit val ec: ExecutionContextExecutor = createExecutionContext()
 
       try {
+        Parallel.isParallel = isParallel
         _synchronizeNames = isParallel
 
         /* Every unit is now run in separate `Future`. If given phase is not ran as parallel one
@@ -444,7 +445,7 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
         }
       } finally {
         _synchronizeNames = false
-
+        Parallel.isParallel = false
         ec match {
           case ecxs: ExecutionContextExecutorService =>
             ecxs.shutdown()

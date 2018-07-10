@@ -4,6 +4,8 @@ import java.util.concurrent.atomic.AtomicInteger
 
 object Parallel {
 
+  var isParallel = false
+
   class Counter(initial: Int = 0) {
     private val count = new AtomicInteger
     count.set(initial)
@@ -30,7 +32,7 @@ object Parallel {
 
   // Wrapper for `synchronized` method. In future could provide additional logging, safety checks, etc.
   @inline def synchronizeAccess[T <: Object, U](obj: T)(block: => U): U = {
-    obj.synchronized[U](block)
+    if (isParallel) obj.synchronized[U](block) else block
   }
 
   def WorkerThreadLocal[T](valueOnWorker: => T, valueOnMain: => T) = new WorkerOrMainThreadLocal[T](valueOnWorker, valueOnMain)
@@ -49,14 +51,14 @@ object Parallel {
     }
 
     @inline final def get: T = {
-      if (isWorker.get()) worker.get()
+      if (isParallel && isWorker.get()) worker.get()
       else {
-        if (main == null) main = valueOnMain
+        if (main == null) main = if (isParallel) valueOnMain else valueOnWorker
         main
       }
     }
 
-    @inline final def set(value: T): Unit = if (isWorker.get()) worker.set(value) else main = value
+    @inline final def set(value: T): Unit = if (isParallel && isWorker.get()) worker.set(value) else main = value
 
     @inline final def reset(): Unit = {
       worker.remove()
@@ -74,12 +76,12 @@ object Parallel {
 
   // Asserts that current execution happens on the main thread
   @inline final def assertOnMain(): Unit = {
-    if (ParallelSettings.areAssertionsEnabled) assert(!isWorker.get())
+    if (ParallelSettings.areAssertionsEnabled && isParallel) assert(!isWorker.get())
   }
 
   // Asserts that current execution happens on the worker thread
   @inline final def assertOnWorker(): Unit = {
-    if (ParallelSettings.areAssertionsEnabled) assert(isWorker.get())
+    if (ParallelSettings.areAssertionsEnabled && isParallel) assert(isWorker.get())
   }
 
   // Runs block of the code in the 'worker thread' mode
