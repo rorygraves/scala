@@ -1533,9 +1533,9 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
             //          activeLocks += 1
             //         lockedSyms += this
           }
-          withLocalPhase ( try {
+          withSavedPhase ( try {
             assertCorrectThread()
-            localPhase = phaseOf(infos.validFrom)
+            phase = phaseOf(infos.validFrom)
             tp.complete(this)
           } finally unlock())
           cnt += 1
@@ -1615,7 +1615,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
         if (validTo < curPeriod) {
           assertCorrectThread()
           // adapt any infos that come from previous runs
-          withLocalPhase {
+          withSavedPhase {
             val current = phase
             infos = adaptInfos(infos)
 
@@ -1626,7 +1626,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
               var itr = infoTransformers.nextFrom(phaseId(validTo))
               infoTransformers = itr; // caching optimization
               while (itr.pid != NoPhase.id && itr.pid < current.id) {
-                localPhase = phaseWithId(itr.pid)
+                phase = phaseWithId(itr.pid)
                 val info1 = itr.transform(this, infos.info)
                 if (info1 ne infos.info) {
                   infos = TypeHistory(currentPeriod + 1, info1, infos)
@@ -1661,7 +1661,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
           val pid = phaseId(infos.validFrom)
 
           _validTo = period(currentRunId, pid)
-          localPhase   = phaseWithId(pid)
+          phase   = phaseWithId(pid)
 
           val info1 = adaptToNewRunMap(infos.info)
           if (info1 eq infos.info) {

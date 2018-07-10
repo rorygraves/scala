@@ -29,7 +29,7 @@ object Parallel {
   }
 
   // Wrapper for `synchronized` method. In future could provide additional logging, safety checks, etc.
-  def synchronizeAccess[T <: Object, U](obj: T)(block: => U): U = {
+  @inline def synchronizeAccess[T <: Object, U](obj: T)(block: => U): U = {
     obj.synchronized[U](block)
   }
 
@@ -106,7 +106,7 @@ object Parallel {
   // Because there is much more entry points to unit processing than to Global,
   // it's much easier to start with assuming everything is initially worker thread
   // and just mark main accordingly when needed.
-  private val isWorker: ThreadLocal[Boolean] = new ThreadLocal[Boolean] {
+  val isWorker: ThreadLocal[Boolean] = new ThreadLocal[Boolean] {
     override def initialValue(): Boolean = true
   }
 }
