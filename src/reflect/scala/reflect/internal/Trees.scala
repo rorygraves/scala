@@ -9,7 +9,7 @@ package internal
 
 import Flags._
 import scala.collection.mutable
-import scala.reflect.internal.util.Parallel.Counter
+import scala.reflect.internal.util.Parallel.{Counter, WorkerThreadLocal}
 import scala.reflect.macros.Attachments
 import util.{Parallel, Statistics, StatisticsStatics}
 
@@ -97,7 +97,7 @@ trait Trees extends api.Trees {
     override def equals(that: Any) = this eq that.asInstanceOf[AnyRef]
 
     override def duplicate: this.type =
-      (duplicator safeTransform this).asInstanceOf[this.type]
+      (duplicator transform this).asInstanceOf[this.type]
   }
 
   abstract class TreeContextApiImpl extends TreeApi { this: Tree =>
@@ -1774,6 +1774,11 @@ trait Trees extends api.Trees {
 
   private lazy val duplicator = new Duplicator(focusPositions = true)
   private class Duplicator(focusPositions: Boolean) extends InternalTransformer {
+
+    override protected[scala] def currentOwner: Symbol = _currentOwner.get
+    override protected[scala] def currentOwner_=(sym: Symbol): Unit = _currentOwner.set(sym)
+    private[this] final val _currentOwner: WorkerThreadLocal[Symbol] = WorkerThreadLocal(rootMirror.RootClass)
+
     override val treeCopy = newStrictTreeCopier
     override def transform(t: Tree) = {
       val t1 = t.transform(this)
@@ -1781,7 +1786,7 @@ trait Trees extends api.Trees {
       t1
     }
 
-    def safeTransform(tree: Tree) = Parallel.synchronizeAccess(this)(transform(tree))
+    //def safeTransform(tree: Tree) = Parallel.synchronizeAccess(this)(transform(tree))
   }
 
   final def focusInPlace(t: Tree): t.type =
