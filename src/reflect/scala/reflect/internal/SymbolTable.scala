@@ -224,7 +224,7 @@ abstract class SymbolTable extends macros.Universe
   // TODO add local for this as well
   private val phStack: collection.mutable.ArrayStack[Phase] = new collection.mutable.ArrayStack()
   private[this] var ph: Parallel.WorkerOrMainThreadLocal[Phase] = Parallel.WorkerOrMainThreadLocal(NoPhase)
-  private[this] var per: Parallel.WorkerOrMainThreadLocal[Int] = Parallel.WorkerOrMainThreadLocal(NoPeriod)
+  private[this] var per = Parallel.IntWorkerThreadLocal(NoPeriod)
 
   final def atPhaseStack: List[Phase] = phStack.toList
   final def phase: Phase = ph.get
@@ -242,7 +242,7 @@ abstract class SymbolTable extends macros.Universe
       per.set(nextPeriod)
     } else {
       ph = Parallel.WorkerOrMainThreadLocal(p)
-      per = Parallel.WorkerOrMainThreadLocal(nextPeriod)
+      per = Parallel.IntWorkerThreadLocal(nextPeriod)
     }
   }
 

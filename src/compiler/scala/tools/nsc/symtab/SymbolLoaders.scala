@@ -340,7 +340,7 @@ abstract class SymbolLoaders {
   }
 
   /** used from classfile parser to avoid cycles */
-  private[this] final val _parentsLevel = Parallel.WorkerThreadLocal(0)
+  private[this] final val _parentsLevel = Parallel.IntWorkerThreadLocal(0)
   def parentsLevel = _parentsLevel.get
   def parentsLevel_=(v: Int): Unit = _parentsLevel.set(v)
 

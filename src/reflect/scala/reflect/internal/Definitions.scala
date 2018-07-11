@@ -12,7 +12,7 @@ import scala.annotation.{meta, migration}
 import scala.collection.mutable
 import Flags._
 import scala.reflect.api.{Universe => ApiUniverse}
-import scala.reflect.internal.util.Parallel.WorkerThreadLocal
+import scala.reflect.internal.util.Parallel
 
 trait Definitions extends api.StandardDefinitions {
   self: SymbolTable =>
@@ -828,8 +828,8 @@ trait Definitions extends api.StandardDefinitions {
       }
     }
 
-    private[this] var volatileRecursions: WorkerThreadLocal[Int] = WorkerThreadLocal(0)
-    private[this] val pendingVolatiles = WorkerThreadLocal(mutable.HashSet[Symbol]())
+    private[this] var volatileRecursions = Parallel.IntWorkerThreadLocal(0)
+    private[this] val pendingVolatiles = Parallel.WorkerThreadLocal(mutable.HashSet[Symbol]())
     object PendingVolatilesLock extends util.Parallel.Lock
 
     def functionNBaseType(tp: Type): Type = tp.baseClasses find isFunctionSymbol match {
