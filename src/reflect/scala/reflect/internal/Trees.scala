@@ -11,7 +11,7 @@ import Flags._
 import scala.collection.mutable
 import scala.reflect.internal.util.Parallel.Counter
 import scala.reflect.macros.Attachments
-import util.{Statistics, StatisticsStatics}
+import util.{Parallel, Statistics, StatisticsStatics}
 
 trait Trees extends api.Trees {
   self: SymbolTable =>
@@ -97,7 +97,7 @@ trait Trees extends api.Trees {
     override def equals(that: Any) = this eq that.asInstanceOf[AnyRef]
 
     override def duplicate: this.type =
-      (duplicator transform this).asInstanceOf[this.type]
+      (duplicator safeTransform this).asInstanceOf[this.type]
   }
 
   abstract class TreeContextApiImpl extends TreeApi { this: Tree =>
@@ -1780,6 +1780,8 @@ trait Trees extends api.Trees {
       if ((t1 ne t) && t1.pos.isRange && focusPositions) t1 setPos t.pos.focus
       t1
     }
+
+    def safeTransform(tree: Tree) = Parallel.synchronizeAccess(this)(transform(tree))
   }
 
   final def focusInPlace(t: Tree): t.type =

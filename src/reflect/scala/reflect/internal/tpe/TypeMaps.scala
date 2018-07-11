@@ -9,6 +9,7 @@ import scala.annotation.tailrec
 import Variance._
 import scala.reflect.internal.util.Parallel.WorkerThreadLocal
 import scala.reflect.internal.util.{NoSourceFile, Parallel, SourceFile}
+import scala.util.control.NoStackTrace
 
 private[internal] trait TypeMaps {
   self: SymbolTable =>
@@ -210,10 +211,7 @@ private[internal] trait TypeMaps {
   }
 
   abstract class TypeCollector[T](initial: T) extends TypeTraverser {
-    private[this] final val _result: WorkerThreadLocal[T] = Parallel.WorkerThreadLocal[T](null.asInstanceOf[T])
-    def result: T = _result.get
-    def result_=(value: T) = _result.set(value)
-
+    var result: T = _
     def collect(tp: Type) = {
       result = initial
       traverse(tp)
@@ -1027,12 +1025,21 @@ private[internal] trait TypeMaps {
   }
 
   /** A map to implement the `contains` method. */
-  object ErroneousCollector extends TypeCollector(false) {
-    def traverse(tp: Type) {
-      if (!result) {
-        result = tp.isError
+  object ErroneousCollector {
+    object ErrornousException extends RuntimeException("Internal") with NoStackTrace
+    val traverser = new TypeTraverser {
+      override def traverse(tp: Type): Unit = {
+        if(tp.isError) throw ErrornousException
         tp.mapOver(this)
       }
+    }
+
+    def collect(tp: Type) = try {
+      traverser.traverse(tp)
+      false
+    } catch {
+      case ErrornousException =>
+        true
     }
   }
 
