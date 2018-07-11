@@ -35,44 +35,68 @@ object Parallel {
     if (isParallel) obj.synchronized[U](block) else block
   }
 
-  def WorkerThreadLocal[T](valueOnWorker: => T, valueOnMain: => T) = new WorkerOrMainThreadLocal[T](valueOnWorker, valueOnMain)
-
-  def WorkerThreadLocal[T](valueOnWorker: => T) = new WorkerThreadLocal[T](valueOnWorker)
-
   class Lock {
     @inline final def apply[T](op: => T) = synchronizeAccess(this)(op)
   }
 
-  abstract class AbstractThreadLocal[T](valueOnWorker: => T, valueOnMain: => T) {
+  class AbstractThreadLocal[T](initial: T, shouldFailOnMain: Boolean) {
+    private var main: T = initial
+
+     private[this] lazy val worker: ThreadLocal[T] = new ThreadLocal[T] {
+       override def initialValue(): T = initial
+     }
+
+    @inline final def get: T = {
+      if (isParallel && isWorker.get()) worker.get()
+      else {
+        if (isParallel && shouldFailOnMain) throw new IllegalStateException("not allowed on main thread")
+        main
+      }
+    }
+
+    @inline final def set(value: T): Unit =
+      if (isParallel && isWorker.get()) worker.set(value) else main = value
+
+    @inline final def reset(): Unit = {
+      worker.remove()
+      main = initial
+    }
+  }
+
+  class LazyThreadLocal[T](initial: => T, shouldFailOnMain: Boolean = false) {
     private var main: T = null.asInstanceOf[T]
 
-    private val worker: ThreadLocal[T] = new ThreadLocal[T] {
-      override def initialValue(): T = valueOnWorker
+    private[this] lazy val worker: ThreadLocal[T] = new ThreadLocal[T] {
+      override def initialValue(): T = initial
     }
 
     @inline final def get: T = {
       if (isParallel && isWorker.get()) worker.get()
       else {
-        if (main == null) main = if (isParallel) valueOnMain else valueOnWorker
+        if (isParallel && shouldFailOnMain) throw new IllegalStateException("not allowed on main thread")
+        if (main == null) main = initial
         main
       }
     }
 
-    @inline final def set(value: T): Unit = if (isParallel && isWorker.get()) worker.set(value) else main = value
+    @inline final def set(value: T): Unit =
+      if (isParallel && isWorker.get()) worker.set(value) else main = value
 
     @inline final def reset(): Unit = {
       worker.remove()
-      main = valueOnMain
+      main = initial
     }
   }
 
+  type WorkerThreadLocal[T] = AbstractThreadLocal[T]
   // `WorkerThreadLocal` detects reads/writes of given value on the main thread and
   // and report such violations by throwing exception.
-  class WorkerThreadLocal[T](valueOnWorker: => T) extends AbstractThreadLocal(valueOnWorker, throw new IllegalStateException("not allowed on main thread"))
-
+  def WorkerThreadLocal[T](valueOnWorker: T) = new AbstractThreadLocal(valueOnWorker, true)
   // `WorkerOrMainThreadLocal` allows us to have different type of values on main and worker threads.
   // It's useful in cases like reporter, when on workers we want to just store messages and on main we want to print them,
-  class WorkerOrMainThreadLocal[T](valueOnWorker: => T, valueOnMain: => T) extends AbstractThreadLocal(valueOnWorker, valueOnMain)
+
+  type WorkerOrMainThreadLocal[T] = AbstractThreadLocal[T]
+  def WorkerOrMainThreadLocal[T](valueOnWorker: T) = new AbstractThreadLocal(valueOnWorker, false)
 
   // Asserts that current execution happens on the main thread
   @inline final def assertOnMain(): Unit = {

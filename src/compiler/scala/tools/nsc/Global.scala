@@ -90,7 +90,7 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
    * which at the end of the unit processing is dumped to the main reporter.
    * We need to do it if we want to retain the same messages order as in case of single threaded execution.
    */
-  private[this] val currentReporter: WorkerOrMainThreadLocal[Reporter] = WorkerThreadLocal(reporter0, reporter0)
+  private[this] val currentReporter = WorkerOrMainThreadLocal(reporter0)
   def reporter: Reporter =  currentReporter.get
   def reporter_=(newReporter: Reporter): Unit =
     currentReporter.set(newReporter match {
