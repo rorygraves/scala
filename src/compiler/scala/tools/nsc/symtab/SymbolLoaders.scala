@@ -216,9 +216,7 @@ abstract class SymbolLoaders {
     override def complete(root: Symbol): Unit = {
       try {
         val start = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime())
-        val currentphase = phase
-        doComplete(root)
-        phase = currentphase
+        withSavedPhase { doComplete(root) }
         informTime("loaded " + description, start)
         ok = true
         setSource(root)
@@ -342,7 +340,7 @@ abstract class SymbolLoaders {
   }
 
   /** used from classfile parser to avoid cycles */
-  private[this] final val _parentsLevel = Parallel.WorkerThreadLocal(0)
+  private[this] final val _parentsLevel = Parallel.IntWorkerThreadLocal(0)
   def parentsLevel = _parentsLevel.get
   def parentsLevel_=(v: Int): Unit = _parentsLevel.set(v)
 

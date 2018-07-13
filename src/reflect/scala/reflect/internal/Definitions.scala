@@ -12,6 +12,7 @@ import scala.annotation.{meta, migration}
 import scala.collection.mutable
 import Flags._
 import scala.reflect.api.{Universe => ApiUniverse}
+import scala.reflect.internal.util.Parallel
 
 trait Definitions extends api.StandardDefinitions {
   self: SymbolTable =>
@@ -778,17 +779,17 @@ trait Definitions extends api.StandardDefinitions {
         def sym = tp.typeSymbol
         def volatileUpperBound = isVolatile(tp.bounds.hi)
         def safeIsVolatile = (
-          if (volatileRecursions < TypeConstants.LogVolatileThreshold)
+          if (volatileRecursions.get < TypeConstants.LogVolatileThreshold)
             volatileUpperBound
           // we can return true when pendingVolatiles contains sym, because
           // a cycle will be detected afterwards and an error will result anyway.
-          else pendingVolatiles(sym) || {
-            pendingVolatiles += sym
-            try volatileUpperBound finally pendingVolatiles -= sym
+          else pendingVolatiles.get(sym) || {
+            pendingVolatiles.get += sym
+            try volatileUpperBound finally pendingVolatiles.get -= sym
           }
         )
-        volatileRecursions += 1
-        try safeIsVolatile finally volatileRecursions -= 1
+        volatileRecursions.set(volatileRecursions.get + 1)
+        try safeIsVolatile finally volatileRecursions.set(volatileRecursions.get - 1)
       }
       /** A refined type P1 with ... with Pn { decls } is volatile if
        *  one of the parent types Pi is an abstract type, and
@@ -827,8 +828,10 @@ trait Definitions extends api.StandardDefinitions {
       }
     }
 
-    private[this] var volatileRecursions: Int = 0
-    private[this] val pendingVolatiles = mutable.HashSet[Symbol]()
+    private[this] var volatileRecursions = Parallel.IntWorkerThreadLocal(0)
+    private[this] val pendingVolatiles = Parallel.WorkerThreadLocal(mutable.HashSet[Symbol]())
+    object PendingVolatilesLock extends util.Parallel.Lock
+
     def functionNBaseType(tp: Type): Type = tp.baseClasses find isFunctionSymbol match {
       case Some(sym) => tp baseType unspecializedSymbol(sym)
       case _         => tp

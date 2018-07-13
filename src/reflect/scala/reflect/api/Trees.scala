@@ -2548,9 +2548,10 @@ trait Trees { self: Universe =>
       * That possibly could be solved by ensuring that every unit operates on it's own copy of the tree,
       * but it would require much bigger refactorings and would be more memory consuming.
       */
-    @inline protected[scala] final def currentOwner: Symbol = _currentOwner.get
-    @inline protected[scala] final def currentOwner_=(sym: Symbol): Unit = _currentOwner.set(sym)
-    private[this] final val _currentOwner: WorkerThreadLocal[Symbol] = WorkerThreadLocal(rootMirror.RootClass)
+    @inline protected[scala] def currentOwner: Symbol = _currentOwner
+    @inline protected[scala] def currentOwner_=(sym: Symbol): Unit = _currentOwner = sym
+    private[this] var _currentOwner: Symbol = rootMirror.RootClass
+
 
     /** The enclosing method of the currently transformed tree. */
     protected def currentMethod = {

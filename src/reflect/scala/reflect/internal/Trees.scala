@@ -9,9 +9,9 @@ package internal
 
 import Flags._
 import scala.collection.mutable
-import scala.reflect.internal.util.Parallel.Counter
+import scala.reflect.internal.util.Parallel.{Counter, WorkerThreadLocal}
 import scala.reflect.macros.Attachments
-import util.{Statistics, StatisticsStatics}
+import util.{Parallel, Statistics, StatisticsStatics}
 
 trait Trees extends api.Trees {
   self: SymbolTable =>
@@ -1774,12 +1774,19 @@ trait Trees extends api.Trees {
 
   private lazy val duplicator = new Duplicator(focusPositions = true)
   private class Duplicator(focusPositions: Boolean) extends InternalTransformer {
+
+    override protected[scala] def currentOwner: Symbol = _currentOwner.get
+    override protected[scala] def currentOwner_=(sym: Symbol): Unit = _currentOwner.set(sym)
+    private[this] final val _currentOwner: WorkerThreadLocal[Symbol] = WorkerThreadLocal(rootMirror.RootClass)
+
     override val treeCopy = newStrictTreeCopier
     override def transform(t: Tree) = {
       val t1 = t.transform(this)
       if ((t1 ne t) && t1.pos.isRange && focusPositions) t1 setPos t.pos.focus
       t1
     }
+
+    //def safeTransform(tree: Tree) = Parallel.synchronizeAccess(this)(transform(tree))
   }
 
   final def focusInPlace(t: Tree): t.type =

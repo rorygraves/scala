@@ -2,10 +2,9 @@ package scala.reflect.internal.util
 
 import java.util.concurrent.atomic.AtomicInteger
 
-import java.util.{HashSet => JHasjSet}
-import java.lang.{Long => JLong}
-
 object Parallel {
+
+  var isParallel = false
 
   class Counter(initial: Int = 0) {
     private val count = new AtomicInteger
@@ -31,62 +30,112 @@ object Parallel {
     def apply(initial: Int = 0): Counter = new Counter(initial)
   }
 
-  val locks: ThreadLocal[JHasjSet[JLong]] = new ThreadLocal[JHasjSet[JLong]]() {
-    override def initialValue(): JHasjSet[JLong] = new JHasjSet[JLong]()
-  }
-
   // Wrapper for `synchronized` method. In future could provide additional logging, safety checks, etc.
-  def synchronizeAccess[T <: Object, U](lock: T)(block: => U): U = {
-    val hash: java.lang.Long = System.identityHashCode(lock).toLong
-    try {
-      locks.get().add(hash)
-      lock.synchronized[U](block)
-    } finally locks.get().remove(hash)
+  @inline def synchronizeAccess[T <: Object, U](obj: T)(block: => U): U = {
+    if (isParallel) obj.synchronized[U](block) else block
   }
 
-  def WorkerThreadLocal[T](valueOnWorker: => T, valueOnMain: => T) = new WorkerOrMainThreadLocal[T](valueOnWorker, valueOnMain)
+  class Lock {
+    @inline final def apply[T](op: => T) = synchronizeAccess(this)(op)
+  }
 
-  def WorkerThreadLocal[T](valueOnWorker: => T) = new WorkerThreadLocal[T](valueOnWorker)
 
-  abstract class AbstractThreadLocal[T](valueOnWorker: => T, valueOnMain: => T) {
+  def IntWorkerThreadLocal(initial: Int = 0, shouldFailOnMain: Boolean = true) =
+    new AbstractIntThreadLocal(initial, shouldFailOnMain)
+
+  class AbstractIntThreadLocal(initial: Int, shouldFailOnMain: Boolean) {
+    private var main: Int = initial
+
+    private[this] lazy val worker: ThreadLocal[Int] = new ThreadLocal[Int] {
+      override def initialValue(): Int = initial
+    }
+
+    @inline final def get: Int = {
+      if (isParallel) {
+        if (isWorker.get()) worker.get()
+        else if(shouldFailOnMain) throw new IllegalStateException("not allowed on main thread")
+        else main
+      }
+      else main
+    }
+
+    @inline final def set(value: Int): Unit =
+      if (isParallel && isWorker.get()) worker.set(value) else main = value
+
+    @inline final def reset(): Unit = {
+      worker.remove()
+      main = initial
+    }
+  }
+
+  class AbstractThreadLocal[T](initial: T, shouldFailOnMain: Boolean) {
+    private var main: T = initial
+
+     private[this] lazy val worker: ThreadLocal[T] = new ThreadLocal[T] {
+       override def initialValue(): T = initial
+     }
+
+    @inline final def get: T = {
+      if (isParallel) {
+        if (isWorker.get()) worker.get()
+        else if(shouldFailOnMain) throw new IllegalStateException("not allowed on main thread")
+        else main
+      }
+      else main
+    }
+
+    @inline final def set(value: T): Unit =
+      if (isParallel && isWorker.get()) worker.set(value) else main = value
+
+    @inline final def reset(): Unit = {
+      worker.remove()
+      main = initial
+    }
+  }
+
+  class LazyThreadLocal[T](initial: => T, shouldFailOnMain: Boolean = false) {
     private var main: T = null.asInstanceOf[T]
 
-    private val worker: ThreadLocal[T] = new ThreadLocal[T] {
-      override def initialValue(): T = valueOnWorker
+    private[this] lazy val worker: ThreadLocal[T] = new ThreadLocal[T] {
+      override def initialValue(): T = initial
     }
 
     @inline final def get: T = {
-      if (isWorker.get()) worker.get()
+      if (isParallel && isWorker.get()) worker.get()
       else {
-        if (main == null) main = valueOnMain
+        if (isParallel && shouldFailOnMain) throw new IllegalStateException("not allowed on main thread")
+        if (main == null) main = initial
         main
       }
     }
 
-    @inline final def set(value: T): Unit = if (isWorker.get()) worker.set(value) else main = value
+    @inline final def set(value: T): Unit =
+      if (isParallel && isWorker.get()) worker.set(value) else main = value
 
     @inline final def reset(): Unit = {
       worker.remove()
-      main = valueOnMain
+      main = initial
     }
   }
 
+  type WorkerThreadLocal[T] = AbstractThreadLocal[T]
   // `WorkerThreadLocal` detects reads/writes of given value on the main thread and
   // and report such violations by throwing exception.
-  class WorkerThreadLocal[T](valueOnWorker: => T) extends AbstractThreadLocal(valueOnWorker, throw new IllegalStateException("not allowed on main thread"))
-
+  def WorkerThreadLocal[T](valueOnWorker: T) = new AbstractThreadLocal(valueOnWorker, true)
   // `WorkerOrMainThreadLocal` allows us to have different type of values on main and worker threads.
   // It's useful in cases like reporter, when on workers we want to just store messages and on main we want to print them,
-  class WorkerOrMainThreadLocal[T](valueOnWorker: => T, valueOnMain: => T) extends AbstractThreadLocal(valueOnWorker, valueOnMain)
+
+  type WorkerOrMainThreadLocal[T] = AbstractThreadLocal[T]
+  def WorkerOrMainThreadLocal[T](valueOnWorker: T) = new AbstractThreadLocal(valueOnWorker, false)
 
   // Asserts that current execution happens on the main thread
   @inline final def assertOnMain(): Unit = {
-    if (ParallelSettings.areAssertionsEnabled) assert(!isWorker.get())
+    if (ParallelSettings.areAssertionsEnabled && isParallel) assert(!isWorker.get())
   }
 
   // Asserts that current execution happens on the worker thread
   @inline final def assertOnWorker(): Unit = {
-    if (ParallelSettings.areAssertionsEnabled) assert(isWorker.get())
+    if (ParallelSettings.areAssertionsEnabled && isParallel) assert(isWorker.get())
   }
 
   // Runs block of the code in the 'worker thread' mode
@@ -113,7 +162,7 @@ object Parallel {
   // Because there is much more entry points to unit processing than to Global,
   // it's much easier to start with assuming everything is initially worker thread
   // and just mark main accordingly when needed.
-  private val isWorker: ThreadLocal[Boolean] = new ThreadLocal[Boolean] {
+  val isWorker: ThreadLocal[Boolean] = new ThreadLocal[Boolean] {
     override def initialValue(): Boolean = true
   }
 }

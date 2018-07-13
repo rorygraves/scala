@@ -90,7 +90,7 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
    * which at the end of the unit processing is dumped to the main reporter.
    * We need to do it if we want to retain the same messages order as in case of single threaded execution.
    */
-  private[this] val currentReporter: WorkerOrMainThreadLocal[Reporter] = WorkerThreadLocal(reporter0, reporter0)
+  private[this] val currentReporter = WorkerOrMainThreadLocal(reporter0)
   def reporter: Reporter =  currentReporter.get
   def reporter_=(newReporter: Reporter): Unit =
     currentReporter.set(newReporter match {
@@ -418,6 +418,7 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
       implicit val ec: ExecutionContextExecutor = createExecutionContext()
 
       try {
+        Parallel.isParallel = isParallel
         _synchronizeNames = isParallel
 
         /* Every unit is now run in separate `Future`. If given phase is not ran as parallel one
@@ -444,7 +445,7 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
         }
       } finally {
         _synchronizeNames = false
-
+        Parallel.isParallel = false
         ec match {
           case ecxs: ExecutionContextExecutorService =>
             ecxs.shutdown()

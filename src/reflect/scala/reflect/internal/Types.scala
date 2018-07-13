@@ -99,20 +99,22 @@ trait Types
 
   /** Caching the most recent map has a 75-90% hit rate. */
   private object substTypeMapCache {
-    private[this] var cached: SubstTypeMap = new SubstTypeMap(Nil, Nil)
+    private[this] val cached = Parallel.WorkerThreadLocal(new SubstTypeMap(Nil, Nil))
 
     def apply(from: List[Symbol], to: List[Type]): SubstTypeMap = {
-      if ((cached.from ne from) || (cached.to ne to))
-        cached = new SubstTypeMap(from, to)
-
-      cached
+      val cachedValue = cached.get
+      if ((cachedValue.from ne from) || (cachedValue.to ne to)){
+        val newValue = new SubstTypeMap(from, to)
+        cached.set(newValue)
+        newValue
+      } else cachedValue
     }
   }
 
   /** The current skolemization level, needed for the algorithms
    *  in isSameType, isSubType that do constraint solving under a prefix.
    */
-  private val _skolemizationLevel = Parallel.WorkerThreadLocal(0)
+  private val _skolemizationLevel = Parallel.IntWorkerThreadLocal(0)
   def skolemizationLevel = _skolemizationLevel.get
   def skolemizationLevel_=(value: Int): Unit = _skolemizationLevel.set(value)
 
@@ -3965,10 +3967,12 @@ trait Types
   private val initialUniquesCapacity = 4096
   private var uniques: util.WeakHashSet[Type] = _
   private var uniqueRunId = NoRunId
+  object synchronizeUniquesCacheAccess extends Parallel.Lock
 
-  final def howManyUniqueTypes: Int = if (uniques == null) 0 else uniques.size
+  final def howManyUniqueTypes: Int =
+    synchronizeUniquesCacheAccess { if (uniques == null) 0 else uniques.size }
 
-  protected def unique[T <: Type](tp: T): T =  {
+  protected def unique[T <: Type](tp: T): T =  synchronizeUniquesCacheAccess {
     if (StatisticsStatics.areSomeColdStatsEnabled) statistics.incCounter(rawTypeCount)
     if (uniqueRunId != currentRunId) {
       uniques = util.WeakHashSet[Type](initialUniquesCapacity)

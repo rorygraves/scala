@@ -221,15 +221,13 @@ abstract class SymbolTable extends macros.Universe
   /** An ordinal number for compiler runs. First run has number 1. */
   type RunId = Int
   final val NoRunId = 0
-
+  // TODO add local for this as well
   private val phStack: collection.mutable.ArrayStack[Phase] = new collection.mutable.ArrayStack()
-  private[this] var ph: Phase = NoPhase
-  private[this] var per = NoPeriod
+  private[this] var ph: Parallel.WorkerOrMainThreadLocal[Phase] = Parallel.WorkerOrMainThreadLocal(NoPhase)
+  private[this] var per = Parallel.IntWorkerThreadLocal(NoPeriod)
 
   final def atPhaseStack: List[Phase] = phStack.toList
-  final def phase: Phase = {
-    ph
-  }
+  final def phase: Phase = ph.get
 
   def atPhaseStackMessage = atPhaseStack match {
     case Nil    => ""
@@ -237,26 +235,19 @@ abstract class SymbolTable extends macros.Universe
   }
 
   final def phase_=(p: Phase) {
-    //System.out.println("setting phase to " + p)
     assert((p ne null) && p != NoPhase, p)
-    ph = p
-    per = period(currentRunId, p.id)
-  }
-  final def pushPhase(ph: Phase): Phase = synchronizeSymbolsAccess {
-    val current = phase
-    phase = ph
-    if (keepPhaseStack) {
-      phStack.push(ph)
+    val nextPeriod = period(currentRunId, p.id)
+    if (Parallel.isWorker.get()) {
+      ph.set(p)
+      per.set(nextPeriod)
+    } else {
+      ph = Parallel.WorkerOrMainThreadLocal(p)
+      per = Parallel.IntWorkerThreadLocal(nextPeriod)
     }
-    current
   }
-  final def popPhase(ph: Phase) = synchronizeSymbolsAccess {
-    if (keepPhaseStack) {
-      phStack.pop()
-    }
-    phase = ph
-  }
+
   var keepPhaseStack: Boolean = false
+
 
   /** The current compiler run identifier. */
   def currentRunId: RunId
@@ -270,7 +261,7 @@ abstract class SymbolTable extends macros.Universe
   /** The current period. */
   final def currentPeriod: Period = {
     //assert(per == (currentRunId << 8) + phase.id)
-    per
+    per.get
   }
 
   /** The phase associated with given period. */
@@ -283,13 +274,20 @@ abstract class SymbolTable extends macros.Universe
   final def isAtPhaseAfter(p: Phase) =
     p != NoPhase && phase.id > p.id
 
+  @inline final def withSavedPhase[T](op: => T): T = {
+    val previous = phase
+    try op finally phase = previous
+  }
+
   /** Perform given operation at given phase. */
   @inline final def enteringPhase[T](ph: Phase)(op: => T): T = {
     if (ph eq phase) op // opt
     else {
-      val saved = pushPhase(ph)
-      try op
-      finally popPhase(saved)
+      if (keepPhaseStack) phStack.push(ph)
+      try withSavedPhase {
+        phase = ph
+        op
+      } finally if (keepPhaseStack) phStack.pop()
     }
   }
 
