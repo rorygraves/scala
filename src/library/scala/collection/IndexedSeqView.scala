@@ -8,6 +8,7 @@ trait IndexedSeqView[+A] extends IndexedSeqOps[A, View, View[A]] with SeqView[A]
   override def view: IndexedSeqView[A] = this
 
   override def iterator: Iterator[A] = new IndexedSeqView.IndexedSeqViewIterator(this)
+  override def reverseIterator: Iterator[A] = new IndexedSeqView.IndexedSeqViewReverseIterator(this)
 
   override def prepended[B >: A](elem: B): IndexedSeqView[B] = new IndexedSeqView.Prepended(elem, this)
   override def take(n: Int): IndexedSeqView[A] = new IndexedSeqView.Take(this, n)
@@ -30,6 +31,27 @@ object IndexedSeqView {
       val r = self.apply(current)
       current += 1
       r
+    }
+
+    override def drop(n: Int): Iterator[A] = {
+      if (n > 0) current = Math.min(self.size, current + n)
+      this
+    }
+  }
+  @SerialVersionUID(3L)
+  private final class IndexedSeqViewReverseIterator[A](self: IndexedSeqView[A]) extends AbstractIterator[A] with Serializable {
+    private[this] var current = self.size
+    override def knownSize: Int = current
+    def hasNext = current > 0
+    def next(): A = {
+      val r = self.apply(current - 1)
+      current -= 1
+      r
+    }
+
+    override def drop(n: Int): Iterator[A] = {
+      if (n > 0) current = Math.min(0, current - n)
+      this
     }
   }
 
@@ -80,6 +102,11 @@ object IndexedSeqView {
     def length = underlying.size
     @throws[IndexOutOfBoundsException]
     def apply(i: Int) = underlying.apply(size - 1 - i)
+
+    override def reverse: IndexedSeqView[A] = underlying match {
+      case x: IndexedSeqView[A] => x
+      case _ => super.reverse
+    }
   }
 
   @SerialVersionUID(3L)

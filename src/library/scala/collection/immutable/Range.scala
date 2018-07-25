@@ -518,4 +518,11 @@ private class RangeIterator(
     _next = value + step
     value
   }
+
+  override def drop(n: Int): Iterator[Int] = {
+    if (step > 0) _next = Math.min(lastElement, _next + step * n)
+    else if (step < 0) _next = Math.max(lastElement, _next + step * n)
+    _hasNext = _next != lastElement
+    this
+  }
 }

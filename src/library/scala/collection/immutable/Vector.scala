@@ -530,6 +530,24 @@ final class Vector[+A] private[immutable] (private[collection] val startIndex: I
     s
   }
 
+  override def equals(o: Any): Boolean = o match {
+    case that: Vector[_] =>
+      if (this eq that) true
+      else if (this.length != that.length) false
+      else if ( //
+        this.startIndex == that.startIndex && //
+          this.endIndex == that.endIndex && //
+          (this.display0 eq that.display0) && //
+          (this.display1 eq that.display1) && //
+          (this.display2 eq that.display2) && //
+          (this.display3 eq that.display3) && //
+          (this.display4 eq that.display4) && //
+          (this.display5 eq that.display5) //
+      ) true
+      else super.equals(o)
+    case _ => super.equals(o)
+  }
+
   override def toVector: Vector[A] = this
 
   override protected[this] def className = "Vector"
@@ -547,6 +565,24 @@ class VectorIterator[+A](_startIndex: Int, endIndex: Int)
   def hasNext = _hasNext
 
   private[this] var _hasNext = blockIndex + lo < endIndex
+
+  override def drop(n: Int): Iterator[A] = {
+    if (n > 0) {
+      if (!_hasNext) throw new NoSuchElementException("reached iterator end")
+      lo = lo + n
+      if (blockIndex + lo < endIndex) {
+        val newBlockIndex = (blockIndex + n) & ~31
+        gotoNextBlockStart(newBlockIndex, blockIndex ^ newBlockIndex)
+
+        blockIndex = newBlockIndex
+        endLo = math.min(endIndex - blockIndex, 32)
+        lo = lo & 32
+      } else {
+        _hasNext = false
+      }
+    }
+    this
+  }
 
   def next(): A = {
     if (!_hasNext) throw new NoSuchElementException("reached iterator end")
