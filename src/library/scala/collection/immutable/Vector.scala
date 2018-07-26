@@ -110,6 +110,45 @@ final class Vector[+A] private[immutable] (private[collection] val startIndex: I
     else
       throw new IndexOutOfBoundsException(index.toString)
   }
+  // requires structure is at pos oldIndex = xor ^ index
+  private final def getElem(index: Int, xor: Int): A = {
+    if (xor < (1 << 5)) { // level = 0
+      (display0
+      (index & 31).asInstanceOf[A])
+    } else if (xor < (1 << 10)) { // level = 1
+      (display1
+      ((index >>> 5) & 31).asInstanceOf[Array[AnyRef]]
+        (index & 31).asInstanceOf[A])
+    } else if (xor < (1 << 15)) { // level = 2
+      (display2
+      ((index >>> 10) & 31).asInstanceOf[Array[AnyRef]]
+        ((index >>> 5) & 31).asInstanceOf[Array[AnyRef]]
+        (index & 31).asInstanceOf[A])
+    } else if (xor < (1 << 20)) { // level = 3
+      (display3
+      ((index >>> 15) & 31).asInstanceOf[Array[AnyRef]]
+        ((index >>> 10) & 31).asInstanceOf[Array[AnyRef]]
+        ((index >>> 5) & 31).asInstanceOf[Array[AnyRef]]
+        (index & 31).asInstanceOf[A])
+    } else if (xor < (1 << 25)) { // level = 4
+      (display4
+      ((index >>> 20) & 31).asInstanceOf[Array[AnyRef]]
+        ((index >>> 15) & 31).asInstanceOf[Array[AnyRef]]
+        ((index >>> 10) & 31).asInstanceOf[Array[AnyRef]]
+        ((index >>> 5) & 31).asInstanceOf[Array[AnyRef]]
+        (index & 31).asInstanceOf[A])
+    } else if (xor < (1 << 30)) { // level = 5
+      (display5
+      ((index >>> 25) & 31).asInstanceOf[Array[AnyRef]]
+        ((index >>> 20) & 31).asInstanceOf[Array[AnyRef]]
+        ((index >>> 15) & 31).asInstanceOf[Array[AnyRef]]
+        ((index >>> 10) & 31).asInstanceOf[Array[AnyRef]]
+        ((index >>> 5) & 31).asInstanceOf[Array[AnyRef]]
+        (index & 31).asInstanceOf[A])
+    } else { // level = 6
+      throw new IllegalArgumentException()
+    }
+  }
 
   override def updated[B >: A](index: Int, elem: B): Vector[B] = updateAt(index, elem)
 
@@ -737,46 +776,6 @@ private[immutable] trait VectorPointer[T] {
           display2 = that.display2
           display1 = that.display1
           display0 = that.display0
-      }
-    }
-
-    // requires structure is at pos oldIndex = xor ^ index
-    private[immutable] final def getElem(index: Int, xor: Int): T = {
-      if        (xor < (1 <<  5)) { // level = 0
-        (display0
-          (index           & 31).asInstanceOf[T])
-      } else if (xor < (1 << 10)) { // level = 1
-        (display1
-          ((index >>>  5)  & 31).asInstanceOf[Array[AnyRef]]
-          (index & 31).asInstanceOf[T])
-      } else if (xor < (1 << 15)) { // level = 2
-        (display2
-          ((index >>> 10)  & 31).asInstanceOf[Array[AnyRef]]
-          ((index >>>  5)  & 31).asInstanceOf[Array[AnyRef]]
-          (index           & 31).asInstanceOf[T])
-      } else if (xor < (1 << 20)) { // level = 3
-        (display3
-          ((index >>> 15)  & 31).asInstanceOf[Array[AnyRef]]
-          ((index >>> 10)  & 31).asInstanceOf[Array[AnyRef]]
-          ((index >>>  5)  & 31).asInstanceOf[Array[AnyRef]]
-           (index          & 31).asInstanceOf[T])
-      } else if (xor < (1 << 25)) { // level = 4
-        (display4
-          ((index >>> 20)  & 31).asInstanceOf[Array[AnyRef]]
-          ((index >>> 15)  & 31).asInstanceOf[Array[AnyRef]]
-          ((index >>> 10)  & 31).asInstanceOf[Array[AnyRef]]
-          ((index >>>  5)  & 31).asInstanceOf[Array[AnyRef]]
-           (index          & 31).asInstanceOf[T])
-      } else if (xor < (1 << 30)) { // level = 5
-        (display5
-          ((index >>> 25)  & 31).asInstanceOf[Array[AnyRef]]
-          ((index >>> 20)  & 31).asInstanceOf[Array[AnyRef]]
-          ((index >>> 15)  & 31).asInstanceOf[Array[AnyRef]]
-          ((index >>> 10)  & 31).asInstanceOf[Array[AnyRef]]
-          ((index >>>  5)  & 31).asInstanceOf[Array[AnyRef]]
-           (index          & 31).asInstanceOf[T])
-      } else {                      // level = 6
-        throw new IllegalArgumentException()
       }
     }
 
