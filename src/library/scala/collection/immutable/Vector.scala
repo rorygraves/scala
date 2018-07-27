@@ -607,15 +607,17 @@ class VectorIterator[+A](_startIndex: Int, endIndex: Int)
 
   override def drop(n: Int): Iterator[A] = {
     if (n > 0) {
-      if (!_hasNext) throw new NoSuchElementException("reached iterator end")
       lo = lo + n
       if (blockIndex + lo < endIndex) {
-        val newBlockIndex = (blockIndex + n) & ~31
-        gotoNextBlockStart(newBlockIndex, blockIndex ^ newBlockIndex)
+        // We only need to adjust the block if we are outside the current block
+        // We know that we are within the collection as < endIndex
+        if (lo >= 32) {
+          blockIndex = (blockIndex + lo) & ~31
+          gotoNewBlockStart(blockIndex, depth)
 
-        blockIndex = newBlockIndex
-        endLo = math.min(endIndex - blockIndex, 32)
-        lo = lo & 32
+          endLo = Math.min(endIndex - blockIndex, 32)
+          lo = lo & 31
+        }
       } else {
         _hasNext = false
       }
@@ -838,6 +840,13 @@ private[immutable] trait VectorPointer[T] {
         throw new IllegalArgumentException()
       }
     }
+  private[immutable] final def gotoNewBlockStart(index: Int, depth: Int): Unit = {
+    if (depth > 5) display4 = display5((index >>> 25) & 31)
+    if (depth > 4) display3 = display4((index >>> 20) & 31)
+    if (depth > 3) display2 = display3((index >>> 15) & 31)
+    if (depth > 2) display1 = display2((index >>> 10) & 31)
+    if (depth > 1) display0 = display1((index >>> 5) & 31)
+  }
 
     // USED BY BUILDER
 
