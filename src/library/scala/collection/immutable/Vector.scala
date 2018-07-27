@@ -121,28 +121,28 @@ final class Vector[+A] private[immutable] (private[collection] val startIndex: I
         (index & 31).asInstanceOf[A])
     } else if (xor < (1 << 15)) { // level = 2
       (display2
-      ((index >>> 10) & 31).asInstanceOf[Array[AnyRef]]
+      ((index >>> 10) & 31).asInstanceOf[Array[Array[AnyRef]]]
         ((index >>> 5) & 31).asInstanceOf[Array[AnyRef]]
         (index & 31).asInstanceOf[A])
     } else if (xor < (1 << 20)) { // level = 3
       (display3
-      ((index >>> 15) & 31).asInstanceOf[Array[AnyRef]]
-        ((index >>> 10) & 31).asInstanceOf[Array[AnyRef]]
+      ((index >>> 15) & 31).asInstanceOf[Array[Array[Array[AnyRef]]]]
+        ((index >>> 10) & 31).asInstanceOf[Array[Array[AnyRef]]]
         ((index >>> 5) & 31).asInstanceOf[Array[AnyRef]]
         (index & 31).asInstanceOf[A])
     } else if (xor < (1 << 25)) { // level = 4
       (display4
-      ((index >>> 20) & 31).asInstanceOf[Array[AnyRef]]
-        ((index >>> 15) & 31).asInstanceOf[Array[AnyRef]]
-        ((index >>> 10) & 31).asInstanceOf[Array[AnyRef]]
+      ((index >>> 20) & 31).asInstanceOf[Array[Array[Array[Array[AnyRef]]]]]
+        ((index >>> 15) & 31).asInstanceOf[Array[Array[Array[AnyRef]]]]
+        ((index >>> 10) & 31).asInstanceOf[Array[Array[AnyRef]]]
         ((index >>> 5) & 31).asInstanceOf[Array[AnyRef]]
         (index & 31).asInstanceOf[A])
     } else if (xor < (1 << 30)) { // level = 5
       (display5
-      ((index >>> 25) & 31).asInstanceOf[Array[AnyRef]]
-        ((index >>> 20) & 31).asInstanceOf[Array[AnyRef]]
-        ((index >>> 15) & 31).asInstanceOf[Array[AnyRef]]
-        ((index >>> 10) & 31).asInstanceOf[Array[AnyRef]]
+      ((index >>> 25) & 31).asInstanceOf[Array[Array[Array[Array[Array[AnyRef]]]]]]
+        ((index >>> 20) & 31).asInstanceOf[Array[Array[Array[Array[AnyRef]]]]]
+        ((index >>> 15) & 31).asInstanceOf[Array[Array[Array[AnyRef]]]]
+        ((index >>> 10) & 31).asInstanceOf[Array[Array[AnyRef]]]
         ((index >>> 5) & 31).asInstanceOf[Array[AnyRef]]
         (index & 31).asInstanceOf[A])
     } else { // level = 6
@@ -445,14 +445,14 @@ final class Vector[+A] private[immutable] (private[collection] val startIndex: I
     }
   }
 
-  private def copyLeft(array: Array[AnyRef], right: Int): Array[AnyRef] = {
-    val copy = new Array[AnyRef](array.length)
-    java.lang.System.arraycopy(array, 0, copy, 0, right)
+  private def copyLeft[T <: AnyRef](array: Array[T], right: Int): Array[T] = {
+    val copy = array.clone().asInstanceOf[Array[T]]
+    java.util.Arrays.fill(copy.asInstanceOf[Array[AnyRef]], right, array.length, null)
     copy
   }
-  private def copyRight(array: Array[AnyRef], left: Int): Array[AnyRef] = {
-    val copy = new Array[AnyRef](array.length)
-    java.lang.System.arraycopy(array, left, copy, left, copy.length - left)
+  private def copyRight[T <: AnyRef](array: Array[T], left: Int): Array[T] = {
+    val copy = array.clone()
+    java.util.Arrays.fill(copy.asInstanceOf[Array[AnyRef]], 0, left, null)
     copy
   }
 
@@ -708,11 +708,11 @@ final class VectorBuilder[A]() extends ReusableBuilder[A, Vector[A]] with Vector
 private[immutable] trait VectorPointer[T] {
     private[immutable] var depth:    Int = _
     private[immutable] var display0: Array[AnyRef] = _
-    private[immutable] var display1: Array[AnyRef] = _
-    private[immutable] var display2: Array[AnyRef] = _
-    private[immutable] var display3: Array[AnyRef] = _
-    private[immutable] var display4: Array[AnyRef] = _
-    private[immutable] var display5: Array[AnyRef] = _
+    private[immutable] var display1: Array[Array[AnyRef]] = _
+    private[immutable] var display2: Array[Array[Array[AnyRef]]] = _
+    private[immutable] var display3: Array[Array[Array[Array[AnyRef]]]] = _
+    private[immutable] var display4: Array[Array[Array[Array[Array[AnyRef]]]]] = _
+    private[immutable] var display5: Array[Array[Array[Array[Array[Array[AnyRef]]]]]] = _
 
     protected def preClean(depth: Int): Unit = {
       this.depth = depth
@@ -788,22 +788,22 @@ private[immutable] trait VectorPointer[T] {
       } else if (xor < (1 << 10)) { // level = 1
         display0 = display1((index >>>  5) & 31).asInstanceOf[Array[AnyRef]]
       } else if (xor < (1 << 15)) { // level = 2
-        display1 = display2((index >>> 10) & 31).asInstanceOf[Array[AnyRef]]
+        display1 = display2((index >>> 10) & 31).asInstanceOf[Array[Array[AnyRef]]]
         display0 = display1((index >>>  5) & 31).asInstanceOf[Array[AnyRef]]
       } else if (xor < (1 << 20)) { // level = 3
-        display2 = display3((index >>> 15) & 31).asInstanceOf[Array[AnyRef]]
-        display1 = display2((index >>> 10) & 31).asInstanceOf[Array[AnyRef]]
+        display2 = display3((index >>> 15) & 31).asInstanceOf[Array[Array[Array[AnyRef]]]]
+        display1 = display2((index >>> 10) & 31).asInstanceOf[Array[Array[AnyRef]]]
         display0 = display1((index >>>  5) & 31).asInstanceOf[Array[AnyRef]]
       } else if (xor < (1 << 25)) { // level = 4
-        display3 = display4((index >>> 20) & 31).asInstanceOf[Array[AnyRef]]
-        display2 = display3((index >>> 15) & 31).asInstanceOf[Array[AnyRef]]
-        display1 = display2((index >>> 10) & 31).asInstanceOf[Array[AnyRef]]
+        display3 = display4((index >>> 20) & 31).asInstanceOf[Array[Array[Array[Array[AnyRef]]]]]
+        display2 = display3((index >>> 15) & 31).asInstanceOf[Array[Array[Array[AnyRef]]]]
+        display1 = display2((index >>> 10) & 31).asInstanceOf[Array[Array[AnyRef]]]
         display0 = display1((index >>>  5) & 31).asInstanceOf[Array[AnyRef]]
       } else if (xor < (1 << 30)) { // level = 5
-        display4 = display5((index >>> 25) & 31).asInstanceOf[Array[AnyRef]]
-        display3 = display4((index >>> 20) & 31).asInstanceOf[Array[AnyRef]]
-        display2 = display3((index >>> 15) & 31).asInstanceOf[Array[AnyRef]]
-        display1 = display2((index >>> 10) & 31).asInstanceOf[Array[AnyRef]]
+        display4 = display5((index >>> 25) & 31).asInstanceOf[Array[Array[Array[Array[Array[AnyRef]]]]]]
+        display3 = display4((index >>> 20) & 31).asInstanceOf[Array[Array[Array[Array[AnyRef]]]]]
+        display2 = display3((index >>> 15) & 31).asInstanceOf[Array[Array[Array[AnyRef]]]]
+        display1 = display2((index >>> 10) & 31).asInstanceOf[Array[Array[AnyRef]]]
         display0 = display1((index >>>  5) & 31).asInstanceOf[Array[AnyRef]]
       } else {                      // level = 6
         throw new IllegalArgumentException()
@@ -817,22 +817,22 @@ private[immutable] trait VectorPointer[T] {
       if        (xor < (1 << 10)) { // level = 1
         display0 = display1((index >>>  5) & 31).asInstanceOf[Array[AnyRef]]
       } else if (xor < (1 << 15)) { // level = 2
-        display1 = display2((index >>> 10) & 31).asInstanceOf[Array[AnyRef]]
+        display1 = display2((index >>> 10) & 31).asInstanceOf[Array[Array[AnyRef]]]
         display0 = display1(0).asInstanceOf[Array[AnyRef]]
       } else if (xor < (1 << 20)) { // level = 3
-        display2 = display3((index >>> 15) & 31).asInstanceOf[Array[AnyRef]]
-        display1 = display2(0).asInstanceOf[Array[AnyRef]]
+        display2 = display3((index >>> 15) & 31).asInstanceOf[Array[Array[Array[AnyRef]]]]
+        display1 = display2(0).asInstanceOf[Array[Array[AnyRef]]]
         display0 = display1(0).asInstanceOf[Array[AnyRef]]
       } else if (xor < (1 << 25)) { // level = 4
-        display3 = display4((index >>> 20) & 31).asInstanceOf[Array[AnyRef]]
-        display2 = display3(0).asInstanceOf[Array[AnyRef]]
-        display1 = display2(0).asInstanceOf[Array[AnyRef]]
+        display3 = display4((index >>> 20) & 31).asInstanceOf[Array[Array[Array[Array[AnyRef]]]]]
+        display2 = display3(0).asInstanceOf[Array[Array[Array[AnyRef]]]]
+        display1 = display2(0).asInstanceOf[Array[Array[AnyRef]]]
         display0 = display1(0).asInstanceOf[Array[AnyRef]]
       } else if (xor < (1 << 30)) { // level = 5
-        display4 = display5((index >>> 25) & 31).asInstanceOf[Array[AnyRef]]
-        display3 = display4(0).asInstanceOf[Array[AnyRef]]
-        display2 = display3(0).asInstanceOf[Array[AnyRef]]
-        display1 = display2(0).asInstanceOf[Array[AnyRef]]
+        display4 = display5((index >>> 25) & 31).asInstanceOf[Array[Array[Array[Array[Array[AnyRef]]]]]]
+        display3 = display4(0).asInstanceOf[Array[Array[Array[Array[AnyRef]]]]]
+        display2 = display3(0).asInstanceOf[Array[Array[Array[AnyRef]]]]
+        display1 = display2(0).asInstanceOf[Array[Array[AnyRef]]]
         display0 = display1(0).asInstanceOf[Array[AnyRef]]
       } else {                      // level = 6
         throw new IllegalArgumentException()
@@ -890,16 +890,14 @@ private[immutable] trait VectorPointer[T] {
 
     // STUFF BELOW USED BY APPEND / UPDATE
 
-    private[immutable] final def copyOf(a: Array[AnyRef]): Array[AnyRef] = {
-      val copy = new Array[AnyRef](a.length)
-      java.lang.System.arraycopy(a, 0, copy, 0, a.length)
-      copy
+    @`inline` private[immutable] final def copyOf[T <: AnyRef](a: Array[T]): Array[T] = {
+      a.clone()
     }
 
-    private[immutable] final def nullSlotAndCopy(array: Array[AnyRef], index: Int): Array[AnyRef] = {
+    private[immutable] final def nullSlotAndCopy[T <: AnyRef](array: Array[Array[T]], index: Int): Array[T] = {
       val x = array(index)
       array(index) = null
-      copyOf(x.asInstanceOf[Array[AnyRef]])
+      copyOf(x)
     }
 
     // make sure there is no aliasing
@@ -1046,9 +1044,9 @@ private[immutable] trait VectorPointer[T] {
 
     // USED IN DROP
 
-    private[immutable] final def copyRange(array: Array[AnyRef], oldLeft: Int, newLeft: Int) = {
-      val elems = new Array[AnyRef](32)
-      java.lang.System.arraycopy(array, oldLeft, elems, newLeft, 32 - math.max(newLeft, oldLeft))
+    private[immutable] final def copyRange[T <: AnyRef](array: Array[T], oldLeft: Int, newLeft: Int) = {
+      val elems = java.lang.reflect.Array.newInstance(array.getClass.getComponentType, 32).asInstanceOf[Array[T]]
+      java.lang.System.arraycopy(array, oldLeft, elems, newLeft, 32 - Math.max(newLeft, oldLeft))
       elems
     }
 
@@ -1074,7 +1072,7 @@ private[immutable] trait VectorPointer[T] {
           display2((oldIndex >>> 10) & 31) = display1
           depth += 1
         }
-        display1 = display2((newIndex >>> 10) & 31).asInstanceOf[Array[AnyRef]]
+        display1 = display2((newIndex >>> 10) & 31).asInstanceOf[Array[Array[AnyRef]]]
         if (display1 == null) display1 = new Array(32)
         display0 = new Array(32)
       } else if (xor < (1 << 20)) { // level = 3
@@ -1083,9 +1081,9 @@ private[immutable] trait VectorPointer[T] {
           display3((oldIndex >>> 15) & 31) = display2
           depth += 1
         }
-        display2 = display3((newIndex >>> 15) & 31).asInstanceOf[Array[AnyRef]]
+        display2 = display3((newIndex >>> 15) & 31).asInstanceOf[Array[Array[Array[AnyRef]]]]
         if (display2 == null) display2 = new Array(32)
-        display1 = display2((newIndex >>> 10) & 31).asInstanceOf[Array[AnyRef]]
+        display1 = display2((newIndex >>> 10) & 31).asInstanceOf[Array[Array[AnyRef]]]
         if (display1 == null) display1 = new Array(32)
         display0 = new Array(32)
       } else if (xor < (1 << 25)) { // level = 4
@@ -1094,11 +1092,11 @@ private[immutable] trait VectorPointer[T] {
           display4((oldIndex >>> 20) & 31) = display3
           depth += 1
         }
-        display3 = display4((newIndex >>> 20) & 31).asInstanceOf[Array[AnyRef]]
+        display3 = display4((newIndex >>> 20) & 31).asInstanceOf[Array[Array[Array[Array[AnyRef]]]]]
         if (display3 == null) display3 = new Array(32)
-        display2 = display3((newIndex >>> 15) & 31).asInstanceOf[Array[AnyRef]]
+        display2 = display3((newIndex >>> 15) & 31).asInstanceOf[Array[Array[Array[AnyRef]]]]
         if (display2 == null) display2 = new Array(32)
-        display1 = display2((newIndex >>> 10) & 31).asInstanceOf[Array[AnyRef]]
+        display1 = display2((newIndex >>> 10) & 31).asInstanceOf[Array[Array[AnyRef]]]
         if (display1 == null) display1 = new Array(32)
         display0 = new Array(32)
       } else if (xor < (1 << 30)) { // level = 5
@@ -1107,13 +1105,13 @@ private[immutable] trait VectorPointer[T] {
           display5((oldIndex >>> 25) & 31) = display4
           depth += 1
         }
-        display4 = display5((newIndex >>> 25) & 31).asInstanceOf[Array[AnyRef]]
+        display4 = display5((newIndex >>> 25) & 31).asInstanceOf[Array[Array[Array[Array[Array[AnyRef]]]]]]
         if (display4 == null) display4 = new Array(32)
-        display3 = display4((newIndex >>> 20) & 31).asInstanceOf[Array[AnyRef]]
+        display3 = display4((newIndex >>> 20) & 31).asInstanceOf[Array[Array[Array[Array[AnyRef]]]]]
         if (display3 == null) display3 = new Array(32)
-        display2 = display3((newIndex >>> 15) & 31).asInstanceOf[Array[AnyRef]]
+        display2 = display3((newIndex >>> 15) & 31).asInstanceOf[Array[Array[Array[AnyRef]]]]
         if (display2 == null) display2 = new Array(32)
-        display1 = display2((newIndex >>> 10) & 31).asInstanceOf[Array[AnyRef]]
+        display1 = display2((newIndex >>> 10) & 31).asInstanceOf[Array[Array[AnyRef]]]
         if (display1 == null) display1 = new Array(32)
         display0 = new Array(32)
       } else {                      // level = 6
