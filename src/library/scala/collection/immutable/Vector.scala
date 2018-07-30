@@ -113,38 +113,38 @@ final class Vector[+A] private[immutable] (private[collection] val startIndex: I
   // requires structure is at pos oldIndex = xor ^ index
   private final def getElem(index: Int, xor: Int): A = {
     if (xor < (1 << 5)) { // level = 0
-      (display0
-      (index & 31).asInstanceOf[A])
+      display0
+        (index & 31).asInstanceOf[A]
     } else if (xor < (1 << 10)) { // level = 1
-      (display1
-      ((index >>> 5) & 31)
-        (index & 31).asInstanceOf[A])
+      display1
+        ((index >>> 5) & 31)
+        (index & 31).asInstanceOf[A]
     } else if (xor < (1 << 15)) { // level = 2
-      (display2
-      ((index >>> 10) & 31)
+      display2(
+        (index >>> 10) & 31)
         ((index >>> 5) & 31)
-        (index & 31).asInstanceOf[A])
+        (index & 31).asInstanceOf[A]
     } else if (xor < (1 << 20)) { // level = 3
-      (display3
-      ((index >>> 15) & 31)
-        ((index >>> 10) & 31)
-        ((index >>> 5) & 31)
-        (index & 31).asInstanceOf[A])
-    } else if (xor < (1 << 25)) { // level = 4
-      (display4
-      ((index >>> 20) & 31)
+      display3
         ((index >>> 15) & 31)
         ((index >>> 10) & 31)
         ((index >>> 5) & 31)
-        (index & 31).asInstanceOf[A])
-    } else if (xor < (1 << 30)) { // level = 5
-      (display5
-      ((index >>> 25) & 31)
+        (index & 31).asInstanceOf[A]
+    } else if (xor < (1 << 25)) { // level = 4
+      display4
         ((index >>> 20) & 31)
         ((index >>> 15) & 31)
         ((index >>> 10) & 31)
         ((index >>> 5) & 31)
-        (index & 31).asInstanceOf[A])
+        (index & 31).asInstanceOf[A]
+    } else if (xor < (1 << 30)) { // level = 5
+      display5
+        ((index >>> 25) & 31)
+        ((index >>> 20) & 31)
+        ((index >>> 15) & 31)
+        ((index >>> 10) & 31)
+        ((index >>> 5) & 31)
+        (index & 31).asInstanceOf[A]
     } else { // level = 6
       throw new IllegalArgumentException()
     }
