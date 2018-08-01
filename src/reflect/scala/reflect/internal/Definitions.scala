@@ -11,6 +11,7 @@ import scala.language.postfixOps
 import scala.annotation.{meta, migration}
 import scala.collection.mutable
 import Flags._
+import scala.collection.immutable.ArraySeq
 import scala.reflect.api.{Universe => ApiUniverse}
 
 trait Definitions extends api.StandardDefinitions {
@@ -574,12 +575,22 @@ trait Definitions extends api.StandardDefinitions {
     class VarArityClass(name: String, maxArity: Int, countFrom: Int = 0, init: Option[ClassSymbol] = None) extends VarArityClassApi {
       private val offset = countFrom - init.size
       private def isDefinedAt(i: Int) = i < seq.length + offset && i >= offset
-      val seq: IndexedSeq[ClassSymbol] = (init ++: countFrom.to(maxArity).map { i => getRequiredClass("scala." + name + i) }).toVector
+      val seq: IndexedSeq[ClassSymbol] = (init ++: countFrom.to(maxArity).map { i => getRequiredClass("scala." + name + i) }).to(ArraySeq)
       def apply(i: Int) = if (isDefinedAt(i)) seq(i - offset) else NoSymbol
+      def specificType(args: List[Type]): Type = {
+        val arity = args.length
+        if (!isDefinedAt(arity)) NoType
+        else appliedType(apply(arity), args)
+      }
+      def specificType(args: List[Type], other: Type): Type = {
+        val arity = args.length
+        if (!isDefinedAt(arity)) NoType
+        else appliedType(apply(arity), args ::: other :: Nil)
+      }
       def specificType(args: List[Type], others: Type*): Type = {
         val arity = args.length
         if (!isDefinedAt(arity)) NoType
-        else appliedType(apply(arity), args ++ others: _*)
+        else appliedType(apply(arity), args ++ others)
       }
     }
     // would be created synthetically for the default args. We call all objects in this method from the generated code

@@ -3916,6 +3916,12 @@ trait Types
   def appliedType(tyconSym: Symbol, args: Type*): Type =
     appliedType(tyconSym.typeConstructor, args.toList)
 
+  def appliedType(tyconSym: Symbol, arg1: Type): Type =
+    appliedType(tyconSym.typeConstructor, arg1 :: Nil)
+
+  def appliedType(tyconSym: Symbol, arg1: Type, arg2: Type): Type =
+    appliedType(tyconSym.typeConstructor, arg1 :: arg2 :: Nil)
+
   /** A creator and extractor for type parameterizations that strips empty type parameter lists.
    *  Use this factory method to indicate the type has kind * (it's a polymorphic value)
    *  until we start tracking explicit kinds equivalent to typeFun (except that the latter requires tparams nonEmpty).
