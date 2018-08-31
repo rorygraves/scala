@@ -5,9 +5,9 @@
 
 package scala.tools.nsc
 
-import scala.reflect.internal.util.{ SourceFile, NoSourceFile, FreshNameCreator }
+import scala.reflect.internal.util.{FreshNameCreator, NoSourceFile, Parallel, SourceFile}
 import scala.collection.mutable
-import scala.collection.mutable.{ LinkedHashSet, ListBuffer }
+import scala.collection.mutable.{LinkedHashSet, ListBuffer}
 
 trait CompilationUnits { global: Global =>
 
@@ -23,6 +23,8 @@ trait CompilationUnits { global: Global =>
     * It typically corresponds to a single file of source code.  It includes
     * error-reporting hooks.  */
   class CompilationUnit(val source: SourceFile) extends CompilationUnitContextApi { self =>
+
+    val compilationUnitLock = Parallel.lock(Parallel.LockGroup.symbol, 1, s"CU for $source")
 
     /** the fresh name creator */
     implicit val fresh: FreshNameCreator                           = new FreshNameCreator
