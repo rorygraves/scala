@@ -51,7 +51,17 @@ class Global(var currentSettings: Settings, reporter0: LegacyReporter)
 
   // the mirror --------------------------------------------------
 
-  override def isCompilerUniverse = true
+  override val lockManager = new Parallel.RealLockManager()
+
+  override def new_synchronizeSymbolsAccess[T](fn: => T): T =
+    try {
+      symbolTableLock.unorderedLock()
+      fn
+    } finally {
+      symbolTableLock.unlock
+    }
+
+override def isCompilerUniverse = true
   override val useOffsetPositions = !currentSettings.Yrangepos
 
   type RuntimeClass = java.lang.Class[_]

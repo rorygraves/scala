@@ -7,6 +7,8 @@ package scala
 package reflect
 package internal
 
+import java.util.concurrent.locks.ReentrantLock
+
 import scala.annotation.elidable
 import scala.collection.mutable
 import util._
@@ -59,6 +61,11 @@ abstract class SymbolTable extends macros.Universe
   object synchronizeSymbolsAccess {
     def apply[T](block: => T): T = synchronizeAccess(this)(block)
   }
+  val lockManager: Parallel.LockManager = Parallel.noopLockManager
+
+  final val symbolTableLock = lockManager.rootLock("symbolTableLock")
+
+  def new_synchronizeSymbolsAccess[T](fn: => T):T = fn
 
   trait ReflectStats extends BaseTypeSeqsStats
                         with TypesStats

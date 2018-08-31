@@ -5,9 +5,9 @@
 
 package scala.tools.nsc
 
-import scala.reflect.internal.util.{ SourceFile, NoSourceFile, FreshNameCreator }
+import scala.reflect.internal.util.{FreshNameCreator, NoSourceFile, Parallel, SourceFile}
 import scala.collection.mutable
-import scala.collection.mutable.{ LinkedHashSet, ListBuffer }
+import scala.collection.mutable.{LinkedHashSet, ListBuffer}
 
 trait CompilationUnits { global: Global =>
 
@@ -34,6 +34,9 @@ trait CompilationUnits { global: Global =>
     * error-reporting hooks.  */
   class CompilationUnit(val source: SourceFile, freshNameCreator: FreshNameCreator) extends CompilationUnitContextApi { self =>
     def this(source: SourceFile) = this(source, new FreshNameCreator)
+
+    val compilationUnitLock = Parallel.lock(Parallel.LockGroup.symbol, 1, s"CU for $source")
+
     /** the fresh name creator */
     implicit val fresh: FreshNameCreator = freshNameCreator
     def freshTermName(prefix: String = nme.FRESH_TERM_NAME_PREFIX) = global.freshTermName(prefix)
