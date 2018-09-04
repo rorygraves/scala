@@ -11,7 +11,7 @@ import java.io.IOException
 import scala.reflect.internal.MissingRequirementError
 import scala.reflect.io.{AbstractFile, NoAbstractFile}
 import scala.tools.nsc.util.{ClassPath, ClassRepresentation}
-import scala.reflect.internal.util.StatisticsStatics
+import scala.reflect.internal.util.{Parallel, StatisticsStatics}
 
 /** This class ...
  *
@@ -215,9 +215,7 @@ abstract class SymbolLoaders {
     override def complete(root: Symbol): Unit = {
       try {
         val start = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime())
-        val currentphase = phase
-        doComplete(root)
-        phase = currentphase
+        withSavedPhase { doComplete(root) }
         informTime("loaded " + description, start)
         ok = true
         setSource(root)
@@ -327,6 +325,11 @@ abstract class SymbolLoaders {
   }
 
   /** used from classfile parser to avoid cycles */
-  var parentsLevel = 0
-  var pendingLoadActions: List[() => Unit] = Nil
+  private[this] final val _parentsLevel = Parallel.IntWorkerThreadLocal(0)
+  def parentsLevel = _parentsLevel.get
+  def parentsLevel_=(v: Int): Unit = _parentsLevel.set(v)
+
+  private[this] final val _pendingLoadActions = Parallel.WorkerThreadLocal[List[() => Unit]](Nil)
+  def pendingLoadActions: List[() => Unit] = _pendingLoadActions.get
+  def pendingLoadActions_=(v: List[() => Unit]) = _pendingLoadActions.set(v)
 }

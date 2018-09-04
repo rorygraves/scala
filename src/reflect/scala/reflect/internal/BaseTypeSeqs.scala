@@ -8,7 +8,7 @@ package internal
 
 // todo implement in terms of BitSet
 import scala.collection.mutable
-import util.{Statistics, StatisticsStatics}
+import util.{Parallel, Statistics, StatisticsStatics}
 
 /** A base type sequence (BaseTypeSeq) is an ordered sequence spanning all the base types
  *  of a type. It characterized by the following two laws:
@@ -61,14 +61,16 @@ trait BaseTypeSeqs {
     // (while NoType is in there to indicate a cycle in this BTS, during the execution of
     //  the mergePrefixAndArgs below, the elems get copied without the pending map,
     //  so that NoType's are seen instead of the original type --> spurious compile error)
-    private val pending = new mutable.BitSet(length)
+    private val _pending = Parallel.WorkerThreadLocal(mutable.BitSet(length))
+    def pending = _pending.get // TODO test codebase with cyclic reference
+    def pending_=(v: mutable.BitSet) = _pending.set(v)
 
     /** The type at i'th position in this sequence; lazy types are returned evaluated. */
     def apply(i: Int): Type =
       if(pending contains i) {
         pending.clear()
         throw CyclicInheritance
-      } else {
+      } else synchronizeSymbolsAccess {
         def computeLazyType(rtp: RefinedType): Type = {
           if (!isIntersectionTypeForLazyBaseType(rtp))
             devWarning("unexpected RefinedType in base type seq, lazy BTS elements should be created via intersectionTypeForLazyBaseType: " + rtp)

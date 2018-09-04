@@ -3,10 +3,11 @@ package reflect
 package internal
 package tpe
 
-import scala.collection.{ mutable, immutable }
+import scala.collection.{immutable, mutable}
 import Flags._
 import scala.annotation.tailrec
 import Variance._
+import scala.util.control.NoStackTrace
 
 private[internal] trait TypeMaps {
   self: SymbolTable =>
@@ -214,11 +215,6 @@ private[internal] trait TypeMaps {
   abstract class TypeTraverser extends TypeMap {
     def traverse(tp: Type): Unit
     def apply(tp: Type): Type = { traverse(tp); tp }
-  }
-
-  abstract class TypeTraverserWithResult[T] extends TypeTraverser {
-    def result: T
-    def clear(): Unit
   }
 
   abstract class TypeCollector[T](initial: T) extends TypeTraverser {
@@ -1052,12 +1048,21 @@ private[internal] trait TypeMaps {
   }
 
   /** A map to implement the `contains` method. */
-  object ErroneousCollector extends TypeCollector(false) {
-    def traverse(tp: Type): Unit = {
-      if (!result) {
-        result = tp.isError
+  object ErroneousCollector {
+    object ErrornousException extends RuntimeException("Internal") with NoStackTrace
+    val traverser: TypeTraverser = new TypeTraverser {
+      override def traverse(tp: Type): Unit = {
+        if(tp.isError) throw ErrornousException
         tp.mapOver(this)
       }
+    }
+
+    def collect(tp: Type): Boolean = try {
+      traverser.traverse(tp)
+      false
+    } catch {
+      case ErrornousException =>
+        true
     }
   }
 

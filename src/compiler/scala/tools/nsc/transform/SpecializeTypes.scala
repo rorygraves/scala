@@ -8,6 +8,8 @@ package tools.nsc
 package transform
 
 import scala.tools.nsc.symtab.Flags
+import scala.annotation.tailrec
+import scala.reflect.internal.util.Parallel
 import scala.collection.{immutable, mutable}
 
 /** Specialize code on types.
@@ -199,9 +201,11 @@ abstract class SpecializeTypes extends InfoTransform with TypingTransformers {
     override def checkable = false
     override def run(): Unit = {
       super.run()
-      exitingSpecialize {
-        FunctionClass.seq.take(MaxFunctionAritySpecialized + 1).foreach(_.info)
-        TupleClass.seq.take(MaxTupleAritySpecialized).foreach(_.info)
+      Parallel.asWorkerThread {
+        exitingSpecialize {
+          FunctionClass.seq.take(MaxFunctionAritySpecialized + 1).foreach(_.info)
+          TupleClass.seq.take(MaxTupleAritySpecialized).foreach(_.info)
+        }
       }
 
       // Remove the final modifier and @inline annotation from anything in the

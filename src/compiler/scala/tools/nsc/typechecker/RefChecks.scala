@@ -95,7 +95,7 @@ abstract class RefChecks extends Transform {
       )
   }
 
-  private val separatelyCompiledScalaSuperclass = perRunCaches.newAnyRefMap[Symbol, Unit]()
+  private val separatelyCompiledScalaSuperclass = perRunCaches.newSafeAnyRefMap[Symbol, Unit]() // This should be Set...
   final def isSeparatelyCompiledScalaSuperclass(sym: Symbol) = if (globalPhase.refChecked){
     separatelyCompiledScalaSuperclass.contains(sym)
   } else {
@@ -854,13 +854,15 @@ abstract class RefChecks extends Transform {
         seenTypes(i) = Nil
 
       /* validate all base types of a class in reverse linear order. */
-      def register(tp: Type): Unit = {
+      def register(tp: Type): Unit = tp.lockThisType {
 //        if (clazz.fullName.endsWith("Collection.Projection"))
 //            println("validate base type "+tp)
         val baseClass = tp.typeSymbol
         if (baseClass.isClass) {
-          if (!baseClass.isTrait && !baseClass.isJavaDefined && !currentRun.compiles(baseClass) && !separatelyCompiledScalaSuperclass.contains(baseClass))
-            separatelyCompiledScalaSuperclass.update(baseClass, ())
+          if (!baseClass.isTrait &&
+            !baseClass.isJavaDefined && !currentRun.compiles(baseClass) &&
+            !separatelyCompiledScalaSuperclass.contains(baseClass))
+            separatelyCompiledScalaSuperclass.put(baseClass, ())
           val index = clazz.info.baseTypeIndex(baseClass)
           if (index >= 0) {
             if (seenTypes(index) forall (tp1 => !(tp1 <:< tp)))

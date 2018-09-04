@@ -8,8 +8,8 @@ package reflect
 package internal
 
 import scala.language.implicitConversions
-
 import scala.io.Codec
+import scala.reflect.internal.util.Parallel
 
 trait Names extends api.Names {
   private final val HASH_SIZE  = 0x8000
@@ -32,7 +32,7 @@ trait Names extends api.Names {
 
   /** Memory to store all names sequentially. */
   var chrs: Array[Char] = new Array[Char](NAME_SIZE)
-  private var nc = 0
+  private var nc: Int = 0
 
   /** Hashtable for finding term names quickly. */
   private val termHashtable = new Array[TermName](HASH_SIZE)
@@ -124,7 +124,7 @@ trait Names extends api.Names {
         termName
       }
     }
-    if (synchronizeNames) nameLock.synchronized(body) else body
+    if (synchronizeNames) Parallel.synchronizeAccess(nameLock)(body) else body
   }
 
   final def newTypeName(cs: Array[Char], offset: Int, len: Int, cachedString: String): TypeName =

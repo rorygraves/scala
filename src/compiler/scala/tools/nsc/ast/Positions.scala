@@ -1,6 +1,9 @@
 package scala.tools.nsc
 package ast
 
+import scala.reflect.internal.util.Parallel
+import scala.reflect.internal.util.Parallel.WorkerThreadLocal
+
 trait Positions extends scala.reflect.internal.Positions {
   self: Global =>
 
@@ -24,7 +27,8 @@ trait Positions extends scala.reflect.internal.Positions {
     }
   }
 
-  override protected[this] lazy val posAssigner: PosAssigner =
+  override protected[this] final val _posAssigner = new Parallel.LazyThreadLocal[PosAssigner](
     if (settings.Yrangepos && settings.debug || settings.Yposdebug) new ValidatingPosAssigner
     else new DefaultPosAssigner
+  )
 }

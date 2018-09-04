@@ -9,20 +9,23 @@ package internal
 
 import scala.collection.immutable
 import scala.collection.mutable.ListBuffer
-import util.{ Statistics, shortClassOfInstance, StatisticsStatics }
+import util.{Parallel, Statistics, StatisticsStatics, shortClassOfInstance}
 import Flags._
 import scala.annotation.tailrec
-import scala.reflect.io.{ AbstractFile, NoAbstractFile }
+import scala.reflect.io.{AbstractFile, NoAbstractFile}
 import Variance._
 
 trait Symbols extends api.Symbols { self: SymbolTable =>
   import definitions._
   import statistics._
 
-  protected var ids = 0
-  def getCurrentSymbolIdCount: Int = ids
+  // `ids` is used to generate unique ids so we don't need lock anything else
+  // The only problem is that with this we may break RT of scala compiler
+  private[this] var ids = Parallel.Counter()
+  def getCurrentSymbolIdCount: Int = ids.get
+  private[this] object IdsLock
 
-  protected def nextId() = { ids += 1; ids }
+  protected def nextId() = ids.incrementAndGet()
 
   /** Used for deciding in the IDE whether we can interrupt the compiler */
   //protected var activeLocks = 0
@@ -70,7 +73,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
    * The original owner of a symbol is needed in some places in the backend. Ideally, owners should
    * be versioned like the type history.
    */
-  private val originalOwnerMap = perRunCaches.newAnyRefMap[Symbol, Symbol]()
+  private val originalOwnerMap = perRunCaches.newSafeAnyRefMap[Symbol, Symbol]()
 
   // TODO - don't allow the owner to be changed without checking invariants, at least
   // when under some flag. Define per-phase invariants for owner/owned relationships,
@@ -86,7 +89,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
   }
 
   def defineOriginalOwner(sym: Symbol, owner: Symbol): Unit = {
-    originalOwnerMap(sym) = owner
+    originalOwnerMap.put(sym, owner)
   }
 
   def symbolOf[T: WeakTypeTag]: TypeSymbol = weakTypeOf[T].typeSymbolDirect.asType
@@ -221,6 +224,9 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     // makes sure that all symbols that runtime reflection deals with are synchronized
     private def isSynchronized = this.isInstanceOf[scala.reflect.runtime.SynchronizedSymbols#SynchronizedSymbol]
     private def isAprioriThreadsafe = isThreadsafe(AllOps)
+
+    @inline final def SymbolLock[T](op: => T): T =
+      Parallel.synchronizeAccess(this)(op)
 
     if (!(isCompilerUniverse || isSynchronized || isAprioriThreadsafe))
       throw new AssertionError(s"unsafe symbol $initName (child of $initOwner) in runtime reflection universe") // Not an assert to avoid retention of `initOwner` as a field!
@@ -1204,7 +1210,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     /**
      * The initial owner of this symbol.
      */
-    def originalOwner: Symbol = originalOwnerMap.getOrElse(this, rawowner)
+    def originalOwner: Symbol = originalOwnerMap.computeIfAbsent(this, _ => rawowner)
 
     // TODO - don't allow the owner to be changed without checking invariants, at least
     // when under some flag. Define per-phase invariants for owner/owned relationships,
@@ -1504,44 +1510,42 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     /** Get type info associated with symbol at current phase, after
      *  ensuring that symbol is initialized (i.e. type is completed).
      */
-    def info: Type = try {
-      var cnt = 0
-      while (validTo == NoPeriod) {
-        assert(infos ne null, this.name)
-        assert(infos.prev eq null, this.name)
-        val tp = infos.info
+    def info: Type = SymbolLock {
+      try {
+        var cnt = 0
+        while (validTo == NoPeriod) {
+          assert(infos ne null, this.name)
+          assert(infos.prev eq null, this.name)
+          val tp = infos.info
 
-        if ((_rawflags & LOCKED) != 0L) { // rolled out once for performance
-          lock {
-            setInfo(ErrorType)
-            throw CyclicReference(this, tp)
+          if ((_rawflags & LOCKED) != 0L) { // rolled out once for performance
+            lock {
+              setInfo(ErrorType)
+              throw CyclicReference(this, tp)
+            }
+          } else {
+            _rawflags |= LOCKED
+            // TODO another commented out lines - this should be solved in one way or another
+            //          activeLocks += 1
+            //         lockedSyms += this
           }
-        } else {
-          _rawflags |= LOCKED
-          // TODO another commented out lines - this should be solved in one way or another
-//          activeLocks += 1
- //         lockedSyms += this
+          withSavedPhase ( try {
+            assertCorrectThread()
+            phase = phaseOf(infos.validFrom)
+            tp.complete(this)
+          } finally unlock())
+          cnt += 1
+          // allow for two completions:
+          //   one: sourceCompleter to LazyType, two: LazyType to completed type
+          if (cnt == 3) abort(s"no progress in completing $this: $tp")
         }
-        val current = phase
-        try {
-          assertCorrectThread()
-          phase = phaseOf(infos.validFrom)
-          tp.complete(this)
-        } finally {
-          unlock()
-          phase = current
-        }
-        cnt += 1
-        // allow for two completions:
-        //   one: sourceCompleter to LazyType, two: LazyType to completed type
-        if (cnt == 3) abort(s"no progress in completing $this: $tp")
+        rawInfo
       }
-      rawInfo
-    }
-    catch {
-      case ex: CyclicReference =>
-        devWarning("... hit cycle trying to complete " + this.fullLocationString)
-        throw ex
+      catch {
+        case ex: CyclicReference =>
+          devWarning("... hit cycle trying to complete " + this.fullLocationString)
+          throw ex
+      }
     }
 
     def info_=(info: Type): Unit = {
@@ -1593,7 +1597,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     }
 
     /** Return info without checking for initialization or completing */
-    def rawInfo: Type = {
+    def rawInfo: Type = SymbolLock {
       var infos = this.infos
       assert(infos != null)
       val curPeriod = currentPeriod
@@ -1607,8 +1611,8 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
         if (validTo < curPeriod) {
           assertCorrectThread()
           // adapt any infos that come from previous runs
-          val current = phase
-          try {
+          withSavedPhase {
+            val current = phase
             infos = adaptInfos(infos)
 
             //assert(runId(validTo) == currentRunId, name)
@@ -1630,8 +1634,6 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
               _validTo = if (itr.pid == NoPhase.id) curPeriod
                          else period(currentRunId, itr.pid)
             }
-          } finally {
-            phase = current
           }
         }
       }
@@ -1846,7 +1848,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
       _annotations
     }
 
-    def setAnnotations(annots: List[AnnotationInfo]): this.type = {
+    def setAnnotations(annots: List[AnnotationInfo]): this.type = SymbolLock {
       _annotations = annots
       this
     }
@@ -1876,7 +1878,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     final def addAnnotation(sym: Symbol, args: Tree*): this.type = {
       addAnnotation(sym, args.toList)
     }
-    final def addAnnotation(sym: Symbol, args: List[Tree]): this.type = {
+    final def addAnnotation(sym: Symbol, args: List[Tree]): this.type = SymbolLock {
       // The assertion below is meant to prevent from issues like scala/bug#7009 but it's disabled
       // due to problems with cycles while compiling Scala library. It's rather shocking that
       // just checking if sym is monomorphic type introduces nasty cycles. We are definitively
@@ -3136,13 +3138,19 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
      * type arguments.
      */
     override def tpe_* : Type = {
-      maybeUpdateTypeCache()
-      tpeCache
+      // We are simply locking all completers on current `SymbolTable` for now.
+      // Should we see if that will be efficient enough.
+      synchronizeSymbolsAccess {
+        maybeUpdateTypeCache()
+        tpeCache
+      }
     }
     override def typeConstructor: Type = {
-      if (tyconCacheNeedsUpdate)
-        setTyconCache(newTypeRef(Nil))
-      tyconCache
+      synchronizeSymbolsAccess {
+        if (tyconCacheNeedsUpdate)
+          setTyconCache(newTypeRef(Nil))
+        tyconCache
+      }
     }
     override def tpeHK: Type = typeConstructor
 
@@ -3351,7 +3359,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     }
 
     /** the type this.type in this class */
-    override def thisType: Type = {
+    override def thisType: Type = SymbolLock {
       val period = thisTypePeriod
       if (period != currentPeriod) {
         if (!isValid(period)) thisTypeCache = ThisType(this)
@@ -3451,7 +3459,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
 
     /** the self type of an object foo is foo.type, not class<foo>.this.type
      */
-    override def typeOfThis = {
+    override def typeOfThis = SymbolLock {
       val period = typeOfThisPeriod
       if (period != currentPeriod) {
         if (!isValid(period))

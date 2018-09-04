@@ -10,8 +10,10 @@ package internal
 import scala.annotation.elidable
 import scala.collection.mutable
 import util._
-import java.util.concurrent.TimeUnit
+import java.util.concurrent.{ConcurrentHashMap, TimeUnit}
 
+import scala.collection.mutable.ArrayBuffer
+import scala.reflect.internal.util.Parallel.synchronizeAccess
 import scala.reflect.internal.{TreeGen => InternalTreeGen}
 
 abstract class SymbolTable extends macros.Universe
@@ -51,6 +53,12 @@ abstract class SymbolTable extends macros.Universe
 {
 
   val gen = new InternalTreeGen { val global: SymbolTable.this.type = SymbolTable.this }
+
+  // Wrapper for `synchronized` method. In future could provide additional logging, safety checks, etc.
+  // We are locking on `synchronizeSymbolsAccess` object which is created per `SymbolTable` instance
+  object synchronizeSymbolsAccess {
+    def apply[T](block: => T): T = synchronizeAccess(this)(block)
+  }
 
   trait ReflectStats extends BaseTypeSeqsStats
                         with TypesStats
@@ -213,39 +221,31 @@ abstract class SymbolTable extends macros.Universe
   /** An ordinal number for compiler runs. First run has number 1. */
   type RunId = Int
   final val NoRunId = 0
-
+  // TODO add local for this as well
   private val phStack: collection.mutable.Stack[Phase] = new collection.mutable.Stack()
-  private[this] var ph: Phase = NoPhase
-  private[this] var per = NoPeriod
+  private[this] var ph: Parallel.WorkerOrMainThreadLocal[Phase] = Parallel.WorkerOrMainThreadLocal(NoPhase)
+  private[this] var per = Parallel.IntWorkerThreadLocal(NoPeriod)
 
   final def atPhaseStack: List[Phase] = phStack.toList
-  final def phase: Phase = {
-    ph
-  }
+  final def phase: Phase = ph.get
 
   def atPhaseStackMessage = atPhaseStack match {
     case Nil    => ""
     case ps     => ps.reverseIterator.map("->" + _).mkString("(", " ", ")")
   }
 
-  final def phase_=(p: Phase): Unit = {
-    ph = p
-    per = period(currentRunId, p.id)
-  }
-  final def pushPhase(ph: Phase): Phase = {
-    val current = phase
-    phase = ph
-    if (keepPhaseStack) {
-      phStack.push(ph)
+  final def phase_=(p: Phase) {
+    assert((p ne null) && p != NoPhase, p)
+    val nextPeriod = period(currentRunId, p.id)
+    if (Parallel.isWorker.get()) {
+      ph.set(p)
+      per.set(nextPeriod)
+    } else {
+      ph = Parallel.WorkerOrMainThreadLocal(p)
+      per = Parallel.IntWorkerThreadLocal(nextPeriod)
     }
-    current
   }
-  final def popPhase(ph: Phase): Unit = {
-    if (keepPhaseStack) {
-      phStack.pop()
-    }
-    phase = ph
-  }
+
   var keepPhaseStack: Boolean = false
 
   /** The current compiler run identifier. */
@@ -260,7 +260,7 @@ abstract class SymbolTable extends macros.Universe
   /** The current period. */
   final def currentPeriod: Period = {
     //assert(per == (currentRunId << 8) + phase.id)
-    per
+    per.get
   }
 
   /** The phase associated with given period. */
@@ -273,13 +273,20 @@ abstract class SymbolTable extends macros.Universe
   final def isAtPhaseAfter(p: Phase) =
     p != NoPhase && phase.id > p.id
 
+  @inline final def withSavedPhase[T](op: => T): T = {
+    val previous = phase
+    try op finally phase = previous
+  }
+
   /** Perform given operation at given phase. */
   @inline final def enteringPhase[T](ph: Phase)(op: => T): T = {
     if (ph eq phase) op // opt
     else {
-      val saved = pushPhase(ph)
-      try op
-      finally popPhase(saved)
+      if (keepPhaseStack) phStack.push(ph)
+      try withSavedPhase {
+        phase = ph
+        op
+      } finally if (keepPhaseStack) phStack.pop()
     }
   }
 
@@ -290,7 +297,7 @@ abstract class SymbolTable extends macros.Universe
     }
     if (ph eq NoPhase) phase else ph
   }
-  final def enteringPhaseWithName[T](phaseName: String)(body: => T): T = {
+  final def enteringPhaseWithName[T](phaseName: String)(body: => T): T = synchronizeSymbolsAccess {
     val phase = findPhaseWithName(phaseName)
     enteringPhase(phase)(body)
   }
@@ -398,7 +405,7 @@ abstract class SymbolTable extends macros.Universe
     private var caches = List[WeakReference[Clearable]]()
     private var javaCaches = List[JavaClearable[_]]()
 
-    def recordCache[T <: Clearable](cache: T): T = {
+    def recordCache[T <: Clearable](cache: T): T = Parallel.synchronizeAccess(perRunCaches) {
       cache match {
         case jc: JavaClearable[_] =>
           javaCaches ::= jc
@@ -412,7 +419,7 @@ abstract class SymbolTable extends macros.Universe
      * Removes a cache from the per-run caches. This is useful for testing: it allows running the
      * compiler and then inspect the state of a cache.
      */
-    def unrecordCache[T <: Clearable](cache: T): Unit = {
+    def unrecordCache[T <: Clearable](cache: T): Unit = Parallel.synchronizeAccess(perRunCaches) {
       cache match {
         case jc: JavaClearable[_] =>
           javaCaches = javaCaches.filterNot(cache == _)
@@ -421,7 +428,8 @@ abstract class SymbolTable extends macros.Universe
       }
     }
 
-    def clearAll() = {
+    def clearAll() = Parallel.synchronizeAccess(perRunCaches) {
+       // Non needed anymore since caches are now local to thread and cleaned up after every phase
       debuglog("Clearing " + (caches.size + javaCaches.size) + " caches.")
       caches foreach (ref => Option(ref.get).foreach(_.clear))
       caches = caches.filterNot(_.get == null)
@@ -436,6 +444,8 @@ abstract class SymbolTable extends macros.Universe
     def newWeakSet[K <: AnyRef]() = recordCache(new WeakHashSet[K]())
 
     def newAnyRefMap[K <: AnyRef, V]() = recordCache(mutable.AnyRefMap[K, V]())
+    def newSafeAnyRefMap[K <: AnyRef, V]() = recordCache(new ConcurrentHashMap[K, V]() with Clearable)
+
     /**
       * Register a cache specified by a factory function and (optionally) a cleanup function.
       *
@@ -463,12 +473,14 @@ abstract class SymbolTable extends macros.Universe
     }
   }
 
-  /** The set of all installed infotransformers. */
-  var infoTransformers = new InfoTransformer {
+  private var _infoTransformers = new InfoTransformer {
     val pid = NoPhase.id
     val changesBaseClasses = true
     def transform(sym: Symbol, tpe: Type): Type = tpe
   }
+  /** The set of all installed infotransformers. */
+  def infoTransformers = Parallel.synchronizeAccess(this){_infoTransformers}
+  def infoTransformers_=(v: InfoTransformer) = Parallel.synchronizeAccess(this){_infoTransformers = v}
 
   /** The phase which has given index as identifier. */
   val phaseWithId: Array[Phase]

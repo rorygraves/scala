@@ -10,13 +10,14 @@ package internal
 import Flags._
 import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
+import scala.reflect.internal.util.Parallel.{Counter, WorkerThreadLocal}
 import scala.reflect.macros.Attachments
-import util.{Statistics, StatisticsStatics}
+import util.{Parallel, Statistics, StatisticsStatics}
 
 trait Trees extends api.Trees {
   self: SymbolTable =>
 
-  private[scala] var nodeCount = 0
+  private[scala] final val nodeCount: Counter = new Counter
 
   protected def treeLine(t: Tree): String =
     if (t.pos.isDefined && t.pos.isRange) t.pos.lineContent.drop(t.pos.column - 1).take(t.pos.end - t.pos.start + 1)
@@ -36,8 +37,7 @@ trait Trees extends api.Trees {
   }
 
   abstract class Tree extends TreeContextApiImpl with Attachable with Product {
-    val id = nodeCount // TODO: add to attachment?
-    nodeCount += 1
+    val id = nodeCount.getAndIncrement() // TODO: add to attachment?
 
     if (StatisticsStatics.areSomeHotStatsEnabled())
       statistics.incCounter(statistics.nodeByType, getClass)
@@ -1768,6 +1768,11 @@ trait Trees extends api.Trees {
 
   private lazy val duplicator = new Duplicator(focusPositions = true)
   private class Duplicator(focusPositions: Boolean) extends InternalTransformer {
+
+    override protected[scala] def currentOwner: Symbol = _currentOwner.get
+    override protected[scala] def currentOwner_=(sym: Symbol): Unit = _currentOwner.set(sym)
+    private[this] final val _currentOwner: WorkerThreadLocal[Symbol] = WorkerThreadLocal(rootMirror.RootClass)
+
     override val treeCopy = newStrictTreeCopier
     override def transform(t: Tree) = {
       val t1 = t.transform(this)

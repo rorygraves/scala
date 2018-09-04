@@ -15,7 +15,7 @@ import mutable.ListBuffer
 import Flags._
 import scala.util.control.ControlThrowable
 import scala.annotation.tailrec
-import util.{Statistics, StatisticsStatics}
+import util.{Parallel, Statistics, StatisticsStatics}
 import util.ThreeValues._
 import Variance._
 import Depth._
@@ -101,22 +101,24 @@ trait Types
 
   /** Caching the most recent map has a 75-90% hit rate. */
   private object substTypeMapCache {
-    private[this] var cached: SubstTypeMap = new SubstTypeMap(Nil, Nil)
+    private[this] val cached = Parallel.WorkerThreadLocal(new SubstTypeMap(Nil, Nil))
 
     def apply(from: List[Symbol], to: List[Type]): SubstTypeMap = {
-      if ((cached.from ne from) || (cached.to ne to))
-        cached = new SubstTypeMap(from, to)
-
-      cached
+      val cachedValue = cached.get
+      if ((cachedValue.from ne from) || (cachedValue.to ne to)) {
+        val newValue = new SubstTypeMap(from, to)
+        cached.set(newValue)
+        newValue
+      } else cachedValue
     }
   }
 
   /** The current skolemization level, needed for the algorithms
    *  in isSameType, isSubType that do constraint solving under a prefix.
    */
-  private var _skolemizationLevel = 0
-  def skolemizationLevel = _skolemizationLevel
-  def skolemizationLevel_=(value: Int) = _skolemizationLevel = value
+  private val _skolemizationLevel = Parallel.IntWorkerThreadLocal(0)
+  def skolemizationLevel = _skolemizationLevel.get
+  def skolemizationLevel_=(value: Int): Unit = _skolemizationLevel.set(value)
 
   /** A map from lists to compound types that have the given list as parents.
    *  This is used to avoid duplication in the computation of base type sequences and baseClasses.
@@ -264,6 +266,10 @@ trait Types
 
   /** The base class for all types */
   abstract class Type extends TypeApiImpl with Annotatable[Type] {
+
+    @inline final def lockThisType[T](op: => T): T =
+      Parallel.synchronizeAccess(this)(op)
+
     /** Types for which asSeenFrom always is the identity, no matter what
      *  prefix or owner.
      */
@@ -1447,7 +1453,7 @@ trait Types
     }
   }
 
-  protected def defineUnderlyingOfSingleType(tpe: SingleType) = {
+  protected def defineUnderlyingOfSingleType(tpe: SingleType) = tpe.lockThisType {
     val period = tpe.underlyingPeriod
     if (period != currentPeriod) {
       tpe.underlyingPeriod = currentPeriod
@@ -1557,14 +1563,16 @@ trait Types
     private[reflect] var baseTypeSeqPeriod = NoPeriod
     private[reflect] var baseClassesCache: List[Symbol] = _
     private[reflect] var baseClassesPeriod = NoPeriod
-    private[Types] def invalidatedCompoundTypeCaches(): Unit = {
+    private[reflect] object Lock
+
+    private[Types] def invalidatedCompoundTypeCaches() = Parallel.synchronizeAccess(Lock) {
       baseTypeSeqCache = null
       baseTypeSeqPeriod = NoPeriod
       baseClassesCache = null
       baseClassesPeriod = NoPeriod
     }
 
-    override def baseTypeSeq: BaseTypeSeq = {
+    override def baseTypeSeq: BaseTypeSeq = Parallel.synchronizeAccess(Lock) {
       val cached = baseTypeSeqCache
       if (baseTypeSeqPeriod == currentPeriod && cached != null && cached != undetBaseTypeSeq)
         cached
@@ -1579,7 +1587,7 @@ trait Types
 
     override def baseTypeSeqDepth: Depth = baseTypeSeq.maxDepth
 
-    override def baseClasses: List[Symbol] = {
+    override def baseClasses: List[Symbol] = Parallel.synchronizeAccess(Lock) {
       val cached = baseClassesCache
       if (baseClassesPeriod == currentPeriod && cached != null) cached
       else {
@@ -1661,7 +1669,7 @@ trait Types
     tpe.typeSymbol :: baseTail
   }
 
-  protected def defineBaseTypeSeqOfCompoundType(tpe: CompoundType) = {
+  protected def defineBaseTypeSeqOfCompoundType(tpe: CompoundType) = Parallel.synchronizeAccess(tpe.Lock) {
     val period = tpe.baseTypeSeqPeriod
     if (period != currentPeriod) {
       tpe.baseTypeSeqPeriod = currentPeriod
@@ -1757,7 +1765,7 @@ trait Types
         define()
     }
   }
-  private def defineBaseClassesOfCompoundType(tpe: CompoundType, force: Boolean): Unit = {
+  private def defineBaseClassesOfCompoundType(tpe: CompoundType, force: Boolean): Unit = Parallel.synchronizeAccess(tpe.Lock) {
     val period = tpe.baseClassesPeriod
     if (period == currentPeriod) {
       if (force && breakCycles) {
@@ -2178,14 +2186,18 @@ trait Types
     private var relativeInfoCacheValidForPeriod: Period = NoPeriod
     private var relativeInfoCacheValidForSymInfo: Type = _
 
-    override private[Types] def invalidateTypeRefCaches(): Unit = {
+    object synchronizeRelativeInfoCacheAccess {
+      @inline final def apply[T](op: => T): T = Parallel.synchronizeAccess(this)(op)
+    }
+
+    override private[Types] def invalidateTypeRefCaches(): Unit = synchronizeRelativeInfoCacheAccess {
       super.invalidateTypeRefCaches()
       relativeInfoCache = NoType
       relativeInfoCacheValidForPeriod = NoPeriod
       relativeInfoCacheValidForSymInfo = null
     }
 
-    final override protected def relativeInfo = {
+    final override protected def relativeInfo = synchronizeRelativeInfoCacheAccess {
       val symInfo = sym.info
       if ((relativeInfoCache eq null) || (relativeInfoCacheValidForSymInfo ne symInfo) || (relativeInfoCacheValidForPeriod != currentPeriod)) {
         relativeInfoCache = super.relativeInfo
@@ -4145,10 +4157,12 @@ trait Types
   private val initialUniquesCapacity = 4096
   private var uniques: util.WeakHashSet[Type] = _
   private var uniqueRunId = NoRunId
+  object synchronizeUniquesCacheAccess extends Parallel.Lock
 
-  final def howManyUniqueTypes: Int = if (uniques == null) 0 else uniques.size
+  final def howManyUniqueTypes: Int =
+    synchronizeUniquesCacheAccess { if (uniques == null) 0 else uniques.size }
 
-  protected def unique[T <: Type](tp: T): T =  {
+  protected def unique[T <: Type](tp: T): T =  synchronizeUniquesCacheAccess {
     if (StatisticsStatics.areSomeColdStatsEnabled) statistics.incCounter(rawTypeCount)
     if (uniqueRunId != currentRunId) {
       uniques = util.WeakHashSet[Type](initialUniquesCapacity)
@@ -4409,9 +4423,10 @@ trait Types
   /** Are `tps1` and `tps2` lists of pairwise equivalent types? */
   def isSameTypes(tps1: List[Type], tps2: List[Type]): Boolean = (tps1 corresponds tps2)(_ =:= _)
 
-  private var _basetypeRecursions: Int = 0
-  def basetypeRecursions = _basetypeRecursions
-  def basetypeRecursions_=(value: Int) = _basetypeRecursions = value
+  // TODO deeply anaylze that usage
+  private var _basetypeRecursions = new Parallel.Counter()
+  def basetypeRecursions = _basetypeRecursions.get
+  def basetypeRecursions_=(value: Int): Unit = _basetypeRecursions.set(value)
 
   private val _pendingBaseTypes = new mutable.HashSet[Type]
   def pendingBaseTypes = _pendingBaseTypes

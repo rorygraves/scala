@@ -4,6 +4,7 @@ package internal
 package tpe
 
 import scala.collection.mutable.Clearable
+import scala.reflect.internal.util.Parallel
 
 private[internal] trait TypeConstraints {
   self: SymbolTable =>
@@ -19,14 +20,19 @@ private[internal] trait TypeConstraints {
   class UndoLog extends Clearable {
     type UndoPairs = List[UndoPair[TypeVar, TypeConstraint]]
     //OPT this method is public so we can do `manual inlining`
-    var log: UndoPairs = List()
+    private[this] var log: UndoPairs = List()
+
+    @inline final def withLog[T](op: UndoPairs => T): T = synchronizeSymbolsAccess {
+      op(log)
+    }
+
 
     // register with the auto-clearing cache manager
     perRunCaches.recordCache(this)
 
     /** Undo all changes to constraints to type variables up to `limit`. */
     //OPT this method is public so we can do `manual inlining`
-    def undoTo(limit: UndoPairs): Unit = {
+    def undoTo(limit: UndoPairs): Unit = synchronizeSymbolsAccess {
       assertCorrectThread()
       while ((log ne limit) && log.nonEmpty) {
         val UndoPair(tv, constr) = log.head
@@ -39,7 +45,7 @@ private[internal] trait TypeConstraints {
       *  be called from within an undo or undoUnless block,
       *  which is already synchronized.
       */
-    private[reflect] def record(tv: TypeVar) = {
+    private[reflect] def record(tv: TypeVar) = synchronizeSymbolsAccess {
       log ::= UndoPair(tv, tv.constr.cloneInternal)
     }
 

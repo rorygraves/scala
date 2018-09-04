@@ -22,6 +22,12 @@ abstract class Reporter extends InternalReporter {
   @deprecated("Use echo, as internal.Reporter does not support unforced info", since="2.13.0")
   final def info(pos: Position, msg: String, force: Boolean): Unit = info0(pos, msg, INFO, force)
 
+  /* Ugly hack as we need access to internal info0 method from other reporter.
+   * Unluckily base `Reporter` class is in different package: `scala.reflect.internal`.
+   */
+  protected[reporters] def info(pos: Position, msg: String, severity: Severity, force: Boolean): Unit =
+    info0(pos, msg, severity, force)
+
   // overridden by sbt, IDE -- should not be in the reporting interface
   // (IDE receives comments from ScaladocAnalyzer using this hook method)
   // TODO: IDE should override a hook method in the parser instead

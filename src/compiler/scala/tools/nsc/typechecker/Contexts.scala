@@ -9,6 +9,7 @@ package typechecker
 import scala.collection.{immutable, mutable}
 import scala.annotation.tailrec
 import scala.reflect.internal.util.shortClassOfInstance
+import scala.reflect.internal.util.Parallel
 import scala.reflect.internal.Reporter
 
 /**
@@ -77,7 +78,9 @@ trait Contexts { self: Analyzer =>
   def isIndividualImport(s: ImportSelector): Boolean = s.name != nme.WILDCARD && s.rename != nme.WILDCARD
   def isWildcardImport(s: ImportSelector): Boolean = s.name == nme.WILDCARD
 
-  var lastAccessCheckDetails: String = ""
+  private[this] final val _lastAccessCheckDetails = Parallel.WorkerThreadLocal("")
+  def lastAccessCheckDetails = _lastAccessCheckDetails.get
+  def lastAccessCheckDetails_=(v: String): Unit = _lastAccessCheckDetails.set(v)
 
   val rootImportsCached = perRunCaches.newMap[CompilationUnit, List[Symbol]]
 
@@ -1449,9 +1452,12 @@ trait Contexts { self: Analyzer =>
    *
    *  To handle nested contexts, reporters share buffers. TODO: only buffer in BufferingReporter, emit immediately in ImmediateReporter
    */
-  abstract class ContextReporter(private[this] var _errorBuffer: mutable.LinkedHashSet[AbsTypeError] = null, private[this] var _warningBuffer: mutable.LinkedHashSet[(Position, String)] = null) extends Reporter {
+  abstract class ContextReporter(private[this] var _rawBuffer: mutable.LinkedHashSet[AbsTypeError] = null, private[this] var _warningBuffer: mutable.LinkedHashSet[(Position, String)] = null) extends Reporter {
     type Error = AbsTypeError
     type Warning = (Position, String)
+
+    @inline protected def _errorBuffer = _rawBuffer
+    @inline protected def _errorBuffer_=(v: mutable.LinkedHashSet[AbsTypeError]) = _rawBuffer = v
 
     def issue(err: AbsTypeError)(implicit context: Context): Unit = handleError(context.fixPosition(err.errPos), addDiagString(err.errMsg))
 
@@ -1507,7 +1513,7 @@ trait Contexts { self: Analyzer =>
         case INFO    => reporter.echo(pos, msg)
       }
 
-    final override def hasErrors = super.hasErrors || (_errorBuffer != null && errorBuffer.nonEmpty)
+    final override def hasErrors = super.hasErrors || (_errorBuffer != null && _errorBuffer.nonEmpty)
 
     // TODO: everything below should be pushed down to BufferingReporter (related to buffering)
     // Implicit relies on this most heavily, but there you know reporter.isInstanceOf[BufferingReporter]
@@ -1607,6 +1613,11 @@ trait Contexts { self: Analyzer =>
   private[typechecker] class ThrowingReporter extends ContextReporter {
     override def isThrowing = true
     protected def handleError(pos: Position, msg: String): Unit = throw new TypeError(pos, msg)
+
+    private[this] val localBuffer =  Parallel.WorkerThreadLocal[mutable.LinkedHashSet[AbsTypeError]](null)
+
+    @inline override protected def _errorBuffer = localBuffer.get
+    @inline override protected def _errorBuffer_=(v: mutable.LinkedHashSet[AbsTypeError]) = localBuffer.set(v)
   }
 
   /** Used during a run of [[scala.tools.nsc.typechecker.TreeCheckers]]? */

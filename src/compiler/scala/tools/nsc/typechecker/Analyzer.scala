@@ -89,19 +89,19 @@ trait Analyzer extends AnyRef
       // Lacking a better fix, we clear it here (before the phase is created, meaning for each
       // compiler run). This is good enough for the resident compiler, which was the most affected.
       undoLog.clear()
+
+      override def afterUnit(unit: CompilationUnit): Unit = undoLog.clear()
+
       override def run(): Unit = {
         val start = if (StatisticsStatics.areSomeColdStatsEnabled) statistics.startTimer(statistics.typerNanos) else null
-        global.echoPhaseSummary(this)
-        val units = currentRun.units
-        while (units.hasNext) {
-          applyPhase(units.next())
-          undoLog.clear()
-        }
-        finishComputeParamAlias()
+        // We never want to completely override `run` without calling `super.run()` inside.
+        // `run` is now more complicated that for over the units and there is no point in duplicating that logic
+        super.run()
         // defensive measure in case the bookkeeping in deferred macro expansion is buggy
         clearDelayed()
         if (StatisticsStatics.areSomeColdStatsEnabled) statistics.stopTimer(statistics.typerNanos, start)
       }
+
       def apply(unit: CompilationUnit): Unit = {
         try {
           val typer = newTyper(rootContext(unit))
