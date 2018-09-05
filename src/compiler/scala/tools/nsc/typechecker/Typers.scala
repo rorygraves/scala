@@ -14,7 +14,7 @@ package tools.nsc
 package typechecker
 
 import scala.collection.mutable
-import scala.reflect.internal.util.{FreshNameCreator, ListOfNil, Statistics, StatisticsStatics}
+import scala.reflect.internal.util.{FreshNameCreator, ListOfNil, Parallel, Statistics, StatisticsStatics}
 import scala.reflect.internal.TypesStats
 import mutable.ListBuffer
 import symtab.Flags._
@@ -117,10 +117,14 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
   private final val InterpolatorCodeRegex  = """\$\{\s*(.*?)\s*\}""".r
   private final val InterpolatorIdentRegex = """\$[$\w]+""".r // note that \w doesn't include $
 
+
   /** Check that type of given tree does not contain local or private
    *  components.
    */
-  object checkNoEscaping extends TypeMap {
+  val _checkNoEscaping = Parallel.WorkerThreadLocal(new NoEscapingChecker)
+  def checkNoEscaping: NoEscapingChecker = _checkNoEscaping.get
+
+  class NoEscapingChecker extends TypeMap {
     private var owner: Symbol = _
     private var scope: Scope = _
     private var hiddenSymbols: List[Symbol] = _

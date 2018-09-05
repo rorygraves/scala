@@ -5,7 +5,7 @@ package tpe
 
 import scala.collection.mutable
 import scala.annotation.tailrec
-import scala.reflect.internal.util.StatisticsStatics
+import scala.reflect.internal.util.{Parallel, StatisticsStatics}
 import Variance._
 
 private[internal] trait GlbLubs {
@@ -230,11 +230,11 @@ private[internal] trait GlbLubs {
       else if (isNumericSubType(t2, t1)) t1.dealiasWiden
       else IntTpe)
 
-  private val _lubResults = new mutable.HashMap[(Depth, List[Type]), Type]
-  def lubResults = _lubResults
+  private val _lubResults = Parallel.WorkerThreadLocal(new mutable.HashMap[(Depth, List[Type]), Type])
+  def lubResults = _lubResults.get
 
-  private val _glbResults = new mutable.HashMap[(Depth, List[Type]), Type]
-  def glbResults = _glbResults
+  private val _glbResults = Parallel.WorkerThreadLocal(new mutable.HashMap[(Depth, List[Type]), Type])
+  def glbResults = _glbResults.get
 
   def lub(ts: List[Type]): Type = ts match {
     case Nil      => NothingTpe
@@ -506,7 +506,7 @@ private[internal] trait GlbLubs {
                   result
                 })
             }
-            if (globalGlbDepth < globalGlbLimit)
+            if (globalGlbDepth < globalGlbLimit) {
               try {
                 globalGlbDepth = globalGlbDepth.incr
                 val dss = ts flatMap refinedToDecls
@@ -520,6 +520,7 @@ private[internal] trait GlbLubs {
               } finally {
                 globalGlbDepth = globalGlbDepth.decr
               }
+            }
             if (glbRefined.decls.isEmpty) glbBase else glbRefined
           }
         existentialAbstraction(tparams, glbType)

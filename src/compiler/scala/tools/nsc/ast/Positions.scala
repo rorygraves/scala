@@ -27,7 +27,7 @@ trait Positions extends scala.reflect.internal.Positions {
     }
   }
 
-  override protected[this] final val _posAssigner = new Parallel.LazyThreadLocal[PosAssigner](
+  override protected[this] final val _posAssigner = new Parallel.WorkerThreadLocal[PosAssigner](
     if (settings.Yrangepos && settings.debug || settings.Yposdebug) new ValidatingPosAssigner
     else new DefaultPosAssigner
   )
