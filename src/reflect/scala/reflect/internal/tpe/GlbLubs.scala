@@ -401,7 +401,7 @@ private[internal] trait GlbLubs {
     *  The counter breaks this recursion after two calls.
     *  If the recursion is broken, no member is added to the glb.
     */
-  private var globalGlbDepth = Depth.Zero
+  private var globalGlbDepth = Parallel.WorkerThreadLocal(Depth.Zero)
   private final val globalGlbLimit = Depth(2)
 
   /** The greatest lower bound of a list of types (as determined by `<:<`). */
@@ -506,19 +506,19 @@ private[internal] trait GlbLubs {
                   result
                 })
             }
-            if (globalGlbDepth < globalGlbLimit) {
+            if (globalGlbDepth.get < globalGlbLimit) {
               try {
-                globalGlbDepth = globalGlbDepth.incr
+                globalGlbDepth.set(globalGlbDepth.get.incr)
                 val dss = ts flatMap refinedToDecls
                 for (ds <- dss; sym <- ds.iterator)
-                  if (globalGlbDepth < globalGlbLimit && !specializesSym(glbThisType, sym, depth))
+                  if (globalGlbDepth.get < globalGlbLimit && !specializesSym(glbThisType, sym, depth))
                     try {
                       addMember(glbThisType, glbRefined, glbsym(sym), depth)
                     } catch {
                       case ex: NoCommonType =>
                     }
               } finally {
-                globalGlbDepth = globalGlbDepth.decr
+                globalGlbDepth.set(globalGlbDepth.get.decr)
               }
             }
             if (glbRefined.decls.isEmpty) glbBase else glbRefined

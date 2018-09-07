@@ -1044,14 +1044,14 @@ class Global(var currentSettings: Settings, reporter0: LegacyReporter)
     * Othervise in case of failure we would be reporting last unit/file which started to be processing
     * which may or may not be the same as the one which failed.
    */
-  private[this] final val _lastSeenSourceFile: WorkerThreadLocal[SourceFile] = WorkerThreadLocal(NoSourceFile)
+  private[this] final val _lastSeenSourceFile: EagerWorkerThreadLocal[SourceFile] = EagerWorkerThreadLocal(NoSourceFile)
   @inline protected def lastSeenSourceFile: SourceFile = _lastSeenSourceFile.get
   @inline protected def lastSeenSourceFile_=(source: SourceFile): Unit = _lastSeenSourceFile.set(source)
 
   /** Let's share a lot more about why we crash all over the place.
    *  People will be very grateful.
    */
-  private[this] final val _lastSeenContext: WorkerThreadLocal[analyzer.Context] = Parallel.WorkerThreadLocal(analyzer.NoContext)
+  private[this] final val _lastSeenContext: EagerWorkerThreadLocal[analyzer.Context] = Parallel.EagerWorkerThreadLocal(analyzer.NoContext)
   protected def lastSeenContext: analyzer.Context = _lastSeenContext.get
   protected def lastSeenContext_=(v: analyzer.Context): Unit = _lastSeenContext.set(v)
 
@@ -1181,7 +1181,7 @@ class Global(var currentSettings: Settings, reporter0: LegacyReporter)
      */
     var isDefined = false
     /** The currently compiled unit; set from GlobalPhase */
-    private[this] final val _currentUnit: WorkerThreadLocal[CompilationUnit] = WorkerThreadLocal(NoCompilationUnit)
+    private[this] final val _currentUnit: EagerWorkerThreadLocal[CompilationUnit] = EagerWorkerThreadLocal(NoCompilationUnit)
     def currentUnit: CompilationUnit = _currentUnit.get
     def currentUnit_=(unit: CompilationUnit): Unit = _currentUnit.set(unit)
 

@@ -19,7 +19,7 @@ trait TypersTracking {
   // TODO - this only catches trees which go through def typed,
   // but there are all kinds of back ways - typedClassDef, etc. etc.
   // Funnel everything through one doorway.
-  private[this] final val _lastTreeToTyper = Parallel.WorkerThreadLocal[Tree](EmptyTree)
+  private[this] final val _lastTreeToTyper = Parallel.EagerWorkerThreadLocal[Tree](EmptyTree)
   def lastTreeToTyper: Tree = _lastTreeToTyper.get
   def lastTreeToTyper_=(v: Tree): Unit = _lastTreeToTyper.set(v)
 

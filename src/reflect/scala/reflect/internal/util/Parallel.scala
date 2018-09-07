@@ -39,26 +39,26 @@ object Parallel {
     @inline final def apply[T](op: => T): T = synchronizeAccess(this)(op)
   }
 
-  @inline def IntWorkerThreadLocal(initial: Int = 0, shouldFailOnMain: Boolean = true) =
-    new AbstractIntThreadLocal(initial, shouldFailOnMain)
+  @inline final def EagerWorkerThreadLocal[T](initial: T, shouldFailOnMain: Boolean = true) =
+    new EagerWorkerThreadLocal(initial, shouldFailOnMain)
 
-  class AbstractIntThreadLocal(initial: Int, shouldFailOnMain: Boolean) {
-    private var main: Int = initial
+  class EagerWorkerThreadLocal[T](@specialized initial: T, shouldFailOnMain: Boolean) {
+    private var main: T = null.asInstanceOf[T]
 
-    private[this] lazy val worker: ThreadLocal[Int] = new ThreadLocal[Int] {
-      override def initialValue(): Int = initial
+    private[this] lazy val worker: ThreadLocal[T] = new ThreadLocal[T] {
+      override def initialValue(): T = initial
     }
 
-    @inline final def get: Int = {
-      if (isParallel) {
-        if (isWorker.get()) worker.get()
-        else if(shouldFailOnMain) throw new IllegalStateException("not allowed on main thread")
-        else main
+    @inline final def get: T = {
+      if (isParallel && isWorker.get()) worker.get()
+      else {
+        if (isParallel && shouldFailOnMain) throw new IllegalStateException("not allowed on main thread")
+        if (main == null) main = initial
+        main
       }
-      else main
     }
 
-    @inline final def set(value: Int): Unit =
+    @inline final def set(value: T): Unit =
       if (isParallel && isWorker.get()) worker.set(value) else main = value
 
     @inline final def reset(): Unit = {

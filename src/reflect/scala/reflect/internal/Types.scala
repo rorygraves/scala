@@ -116,7 +116,7 @@ trait Types
   /** The current skolemization level, needed for the algorithms
    *  in isSameType, isSubType that do constraint solving under a prefix.
    */
-  private val _skolemizationLevel = Parallel.IntWorkerThreadLocal(0)
+  private val _skolemizationLevel = Parallel.EagerWorkerThreadLocal(0)
   def skolemizationLevel = _skolemizationLevel.get
   def skolemizationLevel_=(value: Int): Unit = _skolemizationLevel.set(value)
 

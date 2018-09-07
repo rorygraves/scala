@@ -562,6 +562,14 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
          case None => true }))
     }
 
+    private[scala] def withLock[T](handler: => Unit)(code: Boolean => T): T = SymbolLock {
+      try {
+        code(lock(handler))
+      } finally {
+        unlock()
+      }
+    }
+
     // Lock a symbol, using the handler if the recursion depth becomes too great.
     private[scala] def lock(handler: => Unit): Boolean = {
       if ((_rawflags & LOCKED) != 0L) {
@@ -1518,22 +1526,17 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
           assert(infos.prev eq null, this.name)
           val tp = infos.info
 
-          if ((_rawflags & LOCKED) != 0L) { // rolled out once for performance
-            lock {
-              setInfo(ErrorType)
-              throw CyclicReference(this, tp)
+          withLock {
+            setInfo(ErrorType)
+            throw CyclicReference(this, tp)
+          } { _ =>
+            withSavedPhase {
+              assertCorrectThread()
+              phase = phaseOf(infos.validFrom)
+              tp.complete(this)
             }
-          } else {
-            _rawflags |= LOCKED
-            // TODO another commented out lines - this should be solved in one way or another
-            //          activeLocks += 1
-            //         lockedSyms += this
           }
-          withSavedPhase ( try {
-            assertCorrectThread()
-            phase = phaseOf(infos.validFrom)
-            tp.complete(this)
-          } finally unlock())
+
           cnt += 1
           // allow for two completions:
           //   one: sourceCompleter to LazyType, two: LazyType to completed type
@@ -1697,7 +1700,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
      * This is done in checkAccessible and overriding checks in refchecks
      * We can't do this on class loading because it would result in infinite cycles.
      */
-    def cookJavaRawInfo(): this.type = {
+    def cookJavaRawInfo(): this.type = SymbolLock {
       // only try once...
       if (phase.erasedTypes || (this hasFlag TRIEDCOOKING))
         return this

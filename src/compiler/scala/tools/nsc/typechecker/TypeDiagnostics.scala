@@ -8,6 +8,7 @@ package typechecker
 
 import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
+import scala.reflect.internal.util.Parallel
 import scala.util.control.Exception.ultimately
 import symtab.Flags._
 import PartialFunction.{condOpt => whenever}
@@ -50,7 +51,7 @@ trait TypeDiagnostics {
    *  the map, the addendum should also be printed.
    */
   private val addendums = perRunCaches.newMap[Position, () => String]()
-  private var isTyperInPattern = false
+  private val isTyperInPattern = Parallel.EagerWorkerThreadLocal(false)
 
   /** Devising new ways of communicating error info out of
    *  desperation to work on error messages.  This is used
@@ -58,10 +59,10 @@ trait TypeDiagnostics {
    *  a sensible error message when things go south.
    */
   def typingInPattern[T](body: => T): T = {
-    val saved = isTyperInPattern
-    isTyperInPattern = true
+    val saved = isTyperInPattern.get
+    isTyperInPattern.set(true)
     try body
-    finally isTyperInPattern = saved
+    finally isTyperInPattern.set(saved)
   }
 
   def setAddendum(pos: Position, msg: () => String) =
@@ -169,7 +170,7 @@ trait TypeDiagnostics {
     def applyMessage      = defaultMessage + tree.symbol.locationString
 
     if (!tree.hasExistingSymbol) {
-      if (isTyperInPattern) patternMessage
+      if (isTyperInPattern.get) patternMessage
       else exprMessage
     }
     else if (sym.isOverloaded) overloadedMessage
