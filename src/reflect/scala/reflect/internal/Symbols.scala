@@ -225,8 +225,8 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     private def isSynchronized = this.isInstanceOf[scala.reflect.runtime.SynchronizedSymbols#SynchronizedSymbol]
     private def isAprioriThreadsafe = isThreadsafe(AllOps)
 
-    @inline final def SymbolLock[T](op: => T): T =
-      Parallel.synchronizeAccess(this)(op)
+    val readLock = readLockFor(this)
+    final def writeLock = symbolTableLock
 
     if (!(isCompilerUniverse || isSynchronized || isAprioriThreadsafe))
       throw new AssertionError(s"unsafe symbol $initName (child of $initOwner) in runtime reflection universe") // Not an assert to avoid retention of `initOwner` as a field!
@@ -560,14 +560,6 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
        (recursionTable get this match {
          case Some(n) => (n <= settings.Yrecursion.value)
          case None => true }))
-    }
-
-    private[scala] def withLock[T](handler: => Unit)(code: Boolean => T): T = SymbolLock {
-      try {
-        code(lock(handler))
-      } finally {
-        unlock()
-      }
     }
 
     // Lock a symbol, using the handler if the recursion depth becomes too great.
@@ -1518,7 +1510,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     /** Get type info associated with symbol at current phase, after
      *  ensuring that symbol is initialized (i.e. type is completed).
      */
-    def info: Type = SymbolLock {
+    def info: Type = readLock.withLock {
       try {
         var cnt = 0
         while (validTo == NoPeriod) {
@@ -1526,17 +1518,26 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
           assert(infos.prev eq null, this.name)
           val tp = infos.info
 
-          withLock {
-            setInfo(ErrorType)
-            throw CyclicReference(this, tp)
-          } { _ =>
-            withSavedPhase {
-              assertCorrectThread()
-              phase = phaseOf(infos.validFrom)
-              tp.complete(this)
+          if ((_rawflags & LOCKED) != 0L) { // rolled out once for performance
+            lock {
+              setInfo(ErrorType)
+              throw CyclicReference(this, tp)
             }
+          } else {
+            _rawflags |= LOCKED
+            // TODO another commented out lines - this should be solved in one way or another
+  //          activeLocks += 1
+   //         lockedSyms += this
           }
-
+          val current = phase
+          try {
+            assertCorrectThread()
+            phase = phaseOf(infos.validFrom)
+            tp.complete(this)
+          } finally {
+            unlock()
+            phase = current
+          }
           cnt += 1
           // allow for two completions:
           //   one: sourceCompleter to LazyType, two: LazyType to completed type
@@ -1553,6 +1554,8 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
 
     def info_=(info: Type): Unit = {
       assert(info ne null)
+      assert(readLock.isHeldByCurrentThread)
+      assert(writeLock.isHeldByCurrentThread)
       infos = TypeHistory(currentPeriod, info, null)
       unlock()
       _validTo = if (info.isComplete) currentPeriod else NoPeriod
@@ -1600,7 +1603,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     }
 
     /** Return info without checking for initialization or completing */
-    def rawInfo: Type = SymbolLock {
+    def rawInfo: Type = readLock.withLock {
       var infos = this.infos
       assert(infos != null)
       val curPeriod = currentPeriod
@@ -1614,29 +1617,42 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
         if (validTo < curPeriod) {
           assertCorrectThread()
           // adapt any infos that come from previous runs
-          withSavedPhase {
-            val current = phase
-            infos = adaptInfos(infos)
+          val current = phase
+          try {
+            // If we can get the symbol table lock immediately (which could be becase we own it)
+            // we can proceed, otherwise we should recheck  the conditions that got us here
+            if (!writeLock.tryLock()) {
+              writeLock.unorderedLock()
+              //someone else may have completed this, so reenter and retry
+              return rawInfo
+            } else {
+              infos = adaptInfos(infos)
 
-            //assert(runId(validTo) == currentRunId, name)
-            //assert(runId(infos.validFrom) == currentRunId, name)
+              //assert(runId(validTo) == currentRunId, name)
+              //assert(runId(infos.validFrom) == currentRunId, name)
 
-            if (validTo < curPeriod) {
-              var itr = infoTransformers.nextFrom(phaseId(validTo))
-              infoTransformers = itr; // caching optimization
-              while (itr.pid != NoPhase.id && itr.pid < current.id) {
-                phase = phaseWithId(itr.pid)
-                val info1 = itr.transform(this, infos.info)
-                if (info1 ne infos.info) {
-                  infos = TypeHistory(currentPeriod + 1, info1, infos)
-                  this.infos = infos
+              if (validTo < curPeriod) {
+                var itr = infoTransformers.nextFrom(phaseId(validTo))
+                infoTransformers = itr; // caching optimization
+                while (itr.pid != NoPhase.id && itr.pid < current.id) {
+                  phase = phaseWithId(itr.pid)
+                  writeLock.withUnorderedLock {
+                    val info1 = itr.transform(this, infos.info)
+                    if (info1 ne infos.info) {
+                      infos = TypeHistory(currentPeriod + 1, info1, infos)
+                      this.infos = infos
+                    }
+                  }
+                  _validTo = currentPeriod + 1 // to enable reads from same symbol during info-transform
+                  itr = itr.next
                 }
-                _validTo = currentPeriod + 1 // to enable reads from same symbol during info-transform
-                itr = itr.next
+                _validTo = if (itr.pid == NoPhase.id) curPeriod
+                else period(currentRunId, itr.pid)
               }
-              _validTo = if (itr.pid == NoPhase.id) curPeriod
-                         else period(currentRunId, itr.pid)
             }
+          } finally {
+            phase = current
+            writeLock.unlock()
           }
         }
       }
@@ -1700,7 +1716,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
      * This is done in checkAccessible and overriding checks in refchecks
      * We can't do this on class loading because it would result in infinite cycles.
      */
-    def cookJavaRawInfo(): this.type = SymbolLock {
+    def cookJavaRawInfo(): this.type = readLock.withLock {
       // only try once...
       if (phase.erasedTypes || (this hasFlag TRIEDCOOKING))
         return this
@@ -1851,7 +1867,8 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
       _annotations
     }
 
-    def setAnnotations(annots: List[AnnotationInfo]): this.type = SymbolLock {
+    //TODO review this lock - either read and write or neither
+    def setAnnotations(annots: List[AnnotationInfo]): this.type = readLock.withLock {
       _annotations = annots
       this
     }
@@ -1865,8 +1882,9 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     def filterAnnotations(p: AnnotationInfo => Boolean): this.type =
       setAnnotations(annotations filter p)
 
-    def addAnnotation(annot: AnnotationInfo): this.type =
+    def addAnnotation(annot: AnnotationInfo): this.type = readLock.withLock {
       setAnnotations(annot :: annotations)
+    }
 
     // Convenience for the overwhelmingly common cases, and avoid varags and listbuilders
     final def addAnnotation(sym: Symbol): this.type = {
@@ -1881,7 +1899,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     final def addAnnotation(sym: Symbol, args: Tree*): this.type = {
       addAnnotation(sym, args.toList)
     }
-    final def addAnnotation(sym: Symbol, args: List[Tree]): this.type = SymbolLock {
+    final def addAnnotation(sym: Symbol, args: List[Tree]): this.type = {
       // The assertion below is meant to prevent from issues like scala/bug#7009 but it's disabled
       // due to problems with cycles while compiling Scala library. It's rather shocking that
       // just checking if sym is monomorphic type introduces nasty cycles. We are definitively
@@ -3362,7 +3380,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     }
 
     /** the type this.type in this class */
-    override def thisType: Type = SymbolLock {
+    override def thisType: Type = readLock.withLock {
       val period = thisTypePeriod
       if (period != currentPeriod) {
         if (!isValid(period)) thisTypeCache = ThisType(this)
@@ -3462,7 +3480,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
 
     /** the self type of an object foo is foo.type, not class<foo>.this.type
      */
-    override def typeOfThis = SymbolLock {
+    override def typeOfThis = readLock.withLock {
       val period = typeOfThisPeriod
       if (period != currentPeriod) {
         if (!isValid(period))

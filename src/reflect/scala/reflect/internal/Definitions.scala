@@ -919,9 +919,8 @@ trait Definitions extends api.StandardDefinitions {
       }
     }
 
-    private[this] var volatileRecursions = Parallel.EagerWorkerThreadLocal(0)
+    private[this] val volatileRecursions = Parallel.EagerWorkerThreadLocal(0)
     private[this] val pendingVolatiles = Parallel.WorkerThreadLocal(mutable.HashSet[Symbol]())
-    object PendingVolatilesLock extends util.Parallel.Lock
 
     def functionNBaseType(tp: Type): Type = tp.baseClasses find isFunctionSymbol match {
       case Some(sym) => tp baseType unspecializedSymbol(sym)

@@ -416,10 +416,11 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
       }
     }
 
-    def checkNonCyclic(pos: Position, tp: Type, lockedSym: Symbol): Boolean = {
-      lockedSym.withLock(CyclicReferenceError(pos, tp, lockedSym)) {
-        canLock => if (canLock) checkNonCyclic(pos, tp) else false
-      }
+    def checkNonCyclic(pos: Position, tp: Type, lockedSym: Symbol): Boolean = try {
+      if (!lockedSym.lock(CyclicReferenceError(pos, tp, lockedSym))) false
+      else checkNonCyclic(pos, tp)
+    } finally {
+      lockedSym.unlock()
     }
 
     def checkNonCyclic(sym: Symbol): Unit = {

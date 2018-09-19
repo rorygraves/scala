@@ -7,7 +7,7 @@ package scala
 package reflect
 package internal
 
-import java.util.concurrent.locks.ReentrantLock
+import java.util.concurrent.atomic.AtomicReference
 
 import scala.annotation.elidable
 import scala.collection.mutable
@@ -15,7 +15,6 @@ import util._
 import java.util.concurrent.{ConcurrentHashMap, TimeUnit}
 
 import scala.collection.mutable.ArrayBuffer
-import scala.reflect.internal.util.Parallel.synchronizeAccess
 import scala.reflect.internal.{TreeGen => InternalTreeGen}
 
 abstract class SymbolTable extends macros.Universe
@@ -52,20 +51,13 @@ abstract class SymbolTable extends macros.Universe
                               with FreshNames
                               with Internals
                               with Reporting
+                              with LockManagement
 {
 
   val gen = new InternalTreeGen { val global: SymbolTable.this.type = SymbolTable.this }
 
-  // Wrapper for `synchronized` method. In future could provide additional logging, safety checks, etc.
-  // We are locking on `synchronizeSymbolsAccess` object which is created per `SymbolTable` instance
-  object synchronizeSymbolsAccess {
-    def apply[T](block: => T): T = synchronizeAccess(this)(block)
-  }
-  val lockManager: Parallel.LockManager = Parallel.noopLockManager
-
-  final val symbolTableLock = lockManager.rootLock("symbolTableLock")
-
-  def new_synchronizeSymbolsAccess[T](fn: => T):T = fn
+  final val symbolTableLock = lockManager.rootLock("symbolTableLock", false)
+  @inline final def synchronizeSymbolsAccess[T](fn: => T):T = symbolTableLock.withUnorderedLock(fn)
 
   trait ReflectStats extends BaseTypeSeqsStats
                         with TypesStats
@@ -411,8 +403,9 @@ abstract class SymbolTable extends macros.Universe
     import java.lang.ref.WeakReference
     private var caches = List[WeakReference[Clearable]]()
     private var javaCaches = List[JavaClearable[_]]()
+    private val lock = lockManager.rootLock("perRunCaches", true)
 
-    def recordCache[T <: Clearable](cache: T): T = Parallel.synchronizeAccess(perRunCaches) {
+    def recordCache[T <: Clearable](cache: T): T = lock.withLock {
       cache match {
         case jc: JavaClearable[_] =>
           javaCaches ::= jc
@@ -426,7 +419,7 @@ abstract class SymbolTable extends macros.Universe
      * Removes a cache from the per-run caches. This is useful for testing: it allows running the
      * compiler and then inspect the state of a cache.
      */
-    def unrecordCache[T <: Clearable](cache: T): Unit = Parallel.synchronizeAccess(perRunCaches) {
+    def unrecordCache[T <: Clearable](cache: T): Unit = lock.withLock {
       cache match {
         case jc: JavaClearable[_] =>
           javaCaches = javaCaches.filterNot(cache == _)
@@ -435,7 +428,7 @@ abstract class SymbolTable extends macros.Universe
       }
     }
 
-    def clearAll() = Parallel.synchronizeAccess(perRunCaches) {
+    def clearAll() = lock.withLock {
        // Non needed anymore since caches are now local to thread and cleaned up after every phase
       debuglog("Clearing " + (caches.size + javaCaches.size) + " caches.")
       caches foreach (ref => Option(ref.get).foreach(_.clear))
@@ -480,14 +473,14 @@ abstract class SymbolTable extends macros.Universe
     }
   }
 
-  private var _infoTransformers = new InfoTransformer {
+  private val _infoTransformers = new AtomicReference(new InfoTransformer {
     val pid = NoPhase.id
     val changesBaseClasses = true
     def transform(sym: Symbol, tpe: Type): Type = tpe
-  }
+  })
   /** The set of all installed infotransformers. */
-  def infoTransformers = Parallel.synchronizeAccess(this){_infoTransformers}
-  def infoTransformers_=(v: InfoTransformer) = Parallel.synchronizeAccess(this){_infoTransformers = v}
+  def infoTransformers = _infoTransformers.get
+  def infoTransformers_=(v: InfoTransformer) = _infoTransformers.set (v)
 
   /** The phase which has given index as identifier. */
   val phaseWithId: Array[Phase]

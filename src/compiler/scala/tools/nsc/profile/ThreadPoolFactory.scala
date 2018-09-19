@@ -33,7 +33,7 @@ object ThreadPoolFactory {
   private abstract class BaseThreadPoolFactory(val global: Global) extends ThreadPoolFactory {
     val defaultThreads = global.settings.YparallelThreads.value
     val runId = global.currentRunId
-    val lockManager = Parallel.getLockManager
+    val lockManager = global.lockManager
 
     val baseGroup = new ThreadGroup(s"scalac-run-$runId")
 
@@ -48,9 +48,7 @@ object ThreadPoolFactory {
       private val namePrefix = s"${baseGroup.getName}-$shortId-"
 
       // Invoked when a new `Worker` is created, see `newThread`
-      protected def wrapWorker(worker: Runnable, shortId: String): Runnable =  () => {
-        Parallel.installLockManager(lockManager)
-      }
+      protected def wrapWorker(worker: Runnable, shortId: String): Runnable =  worker
       // Invoked by the `ThreadPoolExecutor` when creating a new worker thread. The argument
       // runnable is the `Worker` (which extends `Runnable`). Its `run` method gets tasks from
       // the thread pool and executes them (on the thread created here).
@@ -152,7 +150,6 @@ object ThreadPoolFactory {
                                    priority: Int,
                                    phase: Phase) extends CommonThreadFactory(shortId, daemon, priority) {
       override protected def wrapWorker(worker: Runnable, shortId: String): Runnable = () => {
-        Parallel.installLockManager(lockManager)
         val data = new ThreadProfileData
         localData.set(data)
 

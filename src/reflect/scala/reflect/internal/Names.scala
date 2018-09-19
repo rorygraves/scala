@@ -28,7 +28,7 @@ trait Names extends api.Names {
   //
   // Discussion: https://groups.google.com/forum/#!search/biased$20scala-internals/scala-internals/0cYB7SkJ-nM/47MLhsgw8jwJ
   protected def synchronizeNames: Boolean = false
-  private val nameLock: Object = new Object
+  private val nameLock = Parallel.simpleLock("Names")
 
   /** Memory to store all names sequentially. */
   var chrs: Array[Char] = new Array[Char](NAME_SIZE)
@@ -124,7 +124,7 @@ trait Names extends api.Names {
         termName
       }
     }
-    if (synchronizeNames) Parallel.synchronizeAccess(nameLock)(body) else body
+    if (synchronizeNames) nameLock.withLock(body) else body
   }
 
   final def newTypeName(cs: Array[Char], offset: Int, len: Int, cachedString: String): TypeName =
@@ -554,7 +554,7 @@ trait Names extends api.Names {
           typeName
         }
       }
-      if (synchronizeNames) nameLock.synchronized(body) else body
+      if (synchronizeNames) nameLock.withLock(body) else body
     }
     def newName(str: String): TermName = newTermName(str)
     def companionName: TypeName = toTypeName
@@ -590,7 +590,7 @@ trait Names extends api.Names {
         assert (n ne null, s"TypeName $this is missing its correspondent")
         n
       }
-      if (synchronizeNames) nameLock.synchronized(body) else body
+      if (synchronizeNames) nameLock.withLock(body) else body
     }
     def toTypeName: TypeName = this
     def newName(str: String): TypeName = newTypeName(str)

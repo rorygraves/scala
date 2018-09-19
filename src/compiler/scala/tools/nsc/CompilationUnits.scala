@@ -35,7 +35,8 @@ trait CompilationUnits { global: Global =>
   class CompilationUnit(val source: SourceFile, freshNameCreator: FreshNameCreator) extends CompilationUnitContextApi { self =>
     def this(source: SourceFile) = this(source, new FreshNameCreator)
 
-    val compilationUnitLock = Parallel.lock(Parallel.LockGroup.symbol, 1, s"CU for $source")
+    val compilationUnitWriteLock = global.writeLockFor(if (source eq null) null else source.file)
+    val compilationUnitReadLock = global.readLockFor(if (source eq null) null else source.file)
 
     /** the fresh name creator */
     implicit val fresh: FreshNameCreator = freshNameCreator

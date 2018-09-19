@@ -47,21 +47,12 @@ class Global(var currentSettings: Settings, reporter0: LegacyReporter)
     with DocComments
     with Positions
     with Reporting
+    with RealLockManagement
     with Parsing { self =>
 
   // the mirror --------------------------------------------------
 
-  override val lockManager = new Parallel.RealLockManager()
-
-  override def new_synchronizeSymbolsAccess[T](fn: => T): T =
-    try {
-      symbolTableLock.unorderedLock()
-      fn
-    } finally {
-      symbolTableLock.unlock
-    }
-
-override def isCompilerUniverse = true
+  override def isCompilerUniverse = true
   override val useOffsetPositions = !currentSettings.Yrangepos
 
   type RuntimeClass = java.lang.Class[_]
@@ -1188,7 +1179,6 @@ override def isCompilerUniverse = true
     def currentUnit_=(unit: CompilationUnit): Unit = _currentUnit.set(unit)
 
     val profiler: Profiler = Profiler(settings)
-    profiler.install
     //must be after the profier is installed
     val threadFactory = ThreadPoolFactory(Global.this)
     keepPhaseStack = settings.log.isSetByUser
@@ -1552,11 +1542,13 @@ override def isCompilerUniverse = true
         val phaseTimer = if (timePhases) statistics.newSubTimer(s"  ${phase.name}", totalCompileTime) else null
         val startPhase = if (timePhases) statistics.startTimer(phaseTimer) else null
 
-        val profileBefore=profiler.beforePhase(phase)
+        val profileBefore = profiler.beforePhase(phase, lockManager)
         try globalPhase.run()
         catch { case _: InterruptedException => reporter.cancelled = true }
-        finally if (timePhases) statistics.stopTimer(phaseTimer, startPhase) else ()
-        profiler.afterPhase(phase, profileBefore)
+        finally {
+          if (timePhases) statistics.stopTimer(phaseTimer, startPhase)
+          profiler.afterPhase(phase, lockManager, profileBefore)
+        }
 
         if (timePhases)
           informTime(globalPhase.description, phaseTimer.nanos)
@@ -1643,9 +1635,9 @@ override def isCompilerUniverse = true
     /** Compile list of abstract files. */
     def compileFiles(files: List[AbstractFile]): Unit = {
       try {
-        val snap = profiler.beforePhase(Global.InitPhase)
+        val snap = profiler.beforePhase(Global.InitPhase, lockManager)
         val sources = files map getSourceFile
-        profiler.afterPhase(Global.InitPhase, snap)
+        profiler.afterPhase(Global.InitPhase, lockManager, snap)
         compileSources(sources)
       }
       catch {
@@ -1657,13 +1649,13 @@ override def isCompilerUniverse = true
     /** Compile list of files given by their names */
     def compile(filenames: List[String]): Unit = {
       try {
-        val snap = profiler.beforePhase(Global.InitPhase)
+        val snap = profiler.beforePhase(Global.InitPhase, lockManager)
 
         val sources: List[SourceFile] =
           if (settings.script.isSetByUser && filenames.size > 1) returning(Nil)(_ => globalError("can only compile one script at a time"))
           else filenames map getSourceFile
 
-        profiler.afterPhase(Global.InitPhase, snap)
+        profiler.afterPhase(Global.InitPhase, lockManager, snap)
         compileSources(sources)
       }
       catch { case ex: IOException => globalError(ex.getMessage()) }

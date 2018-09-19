@@ -5,12 +5,11 @@ import java.util.{HashSet => JHashSet}
 import java.util.{IdentityHashMap => IHashMap}
 import java.lang.{Long => JLong}
 import java.util.concurrent.locks.ReentrantLock
-import java.util.concurrent.TimeUnit
+import java.util.concurrent.{ConcurrentHashMap, TimeUnit}
 
 import scala.annotation.tailrec
+import scala.collection.mutable
 import scala.collection.mutable.{ArrayBuffer, ListBuffer}
-import scala.reflect.internal.util.Parallel.LockGroup
-import scala.reflect.internal.util.Parallel.LockGroup.LockGroup
 
 object Parallel {
 
@@ -40,93 +39,15 @@ object Parallel {
     def apply(initial: Int = 0): Counter = new Counter(initial)
   }
 
-  private object lockManager extends ThreadLocal[LockManager] {
-    //assumes that we dont run parallel except with global
-    override def initialValue(): LockManager = new LockManager
-  }
+  case class LockStats(name: String, id: Long,
+                       acquireNoWaitCount: Int,
+                       acquireWaitCount: Int,
+                       acquireWaitNs: Long,
+                       acquireUnorderedNoWaitCount : Int,
+                       acquireUnorderedWaitCount : Int,
+                       acquireUnorderedWaitNs: Long) {
 
-  def profileLocks(doProfiling: Boolean): Unit = {
-    assertOnMain()
-    if (doProfiling) lockManager.set(new ProfileLockManager)
-    else lockManager.set(new LockManager)
-  }
-
-  def getLockManager = lockManager.get
-
-  def installLockManager(lockMgr: LockManager): Unit = {
-    assertOnWorker()
-    lockManager.set(lockMgr)
-  }
-  def lockedWriteAccess[U](locked: AnyRef)(block: => U): U = {
-    lockManager.get().lockedWriteAccess(locked)(block)
-  }
-  def withWriteLock[U](lock: LockWithStats)(block: => U): U = {
-    lockManager.get().withWriteLock(lock)(block)
-  }
-  class LockManager {
-    val autoLocks = java.util.Collections.synchronizedMap(new IHashMap[AnyRef, LockWithStats])
-    def lockedWriteAccess[U](locked: AnyRef)(block: => U): U = {
-      val lock = autoLocks.computeIfAbsent(locked, l => new LockWithStats(l.toString))
-      withWriteLock(lock)(block)
-    }
-    def withWriteLock[U](lock: LockWithStats)(block: => U): U = {
-      lock.writeLock.lock
-      try block finally lock.writeLock.unlock
-    }
-    import collection.JavaConverters._
-    def lockStats = autoLocks.values().asScala.toList.map {_.snapAndReset}
-  }
-  class ProfileLockManager extends LockManager{
-    override def withWriteLock[U](lock: LockWithStats)(block: => U): U = {
-      if (lock.writeLock.tryLock())
-        lock.uncontendedWrites.incrementAndGet()
-      else {
-        lock.contendedWrites.incrementAndGet()
-        val start = System.nanoTime()
-        lock.writeLock.lock
-        lock.contendedWriteNs.addAndGet(System.nanoTime() - start)
-      }
-      try block finally lock.writeLock.unlock
-    }
-  }
-  private val lockIdGen = new AtomicLong
-
-  case class LockStats(name: String, id: Long, contendedWrites: Int, uncontendedWrites: Int, contendedWriteNs: Long) {
-    def accessCount = contendedWrites + uncontendedWrites
-  }
-  class LockWithStats(name: String) {
-    val writeLock = new ReentrantLock
-    val id: Long =  lockIdGen.incrementAndGet()
-
-//    val contendedReads = new AtomicInteger
-//    val uncontendedReads = new AtomicInteger
-
-    val contendedWrites = new AtomicInteger
-    val uncontendedWrites = new AtomicInteger
-
-    val contendedWriteNs = new AtomicLong
-//    val contendedReadNs = new AtomicLong
-
-    def snapAndReset = {
-      val snapped = new LockStats(name, id, contendedWrites.get(), uncontendedWrites.get, contendedWriteNs.get)
-      contendedWrites.addAndGet(-snapped.contendedWrites)
-      uncontendedWrites.addAndGet(-snapped.uncontendedWrites)
-      contendedWriteNs.addAndGet(-snapped.contendedWriteNs)
-      snapped
-    }
-  }
-
-  val locks: ThreadLocal[JHashSet[JLong]] = new ThreadLocal[JHashSet[JLong]]() {
-    override def initialValue(): JHashSet[JLong] = new JHashSet[JLong]()
-  }
-
-  // Wrapper for `synchronized` method. In future could provide additional logging, safety checks, etc.
-  @inline final def synchronizeAccess[T <: Object, U](obj: T)(block: => U): U = {
-    if (isParallel) obj.synchronized[U](block) else block
-  }
-
-  class Lock {
-    @inline final def apply[T](op: => T): T = synchronizeAccess(this)(op)
+    def accessCount = acquireNoWaitCount + acquireWaitCount + acquireUnorderedNoWaitCount + acquireUnorderedWaitNs
   }
 
   @inline final def EagerWorkerThreadLocal[T](initial: T, shouldFailOnMain: Boolean = true) =
@@ -229,110 +150,173 @@ object Parallel {
     override def initialValue(): Boolean = true
   }
 
+  // Wrapper for `synchronized` method. In future could provide additional logging, safety checks, etc.
+  @inline final def synchronizeAccess[T <: Object, U](obj: T)(block: => U): U = {
+    if (isParallel) obj.synchronized[U](block) else block
+  }
 
-  sealed abstract class LockManager {
-    def childLock(parent: LockType, name: String): LockType
 
-    def rootLock(name: String): LockType
+  abstract class LockedBy(lock: Lock) {
+    @inline final def withLock[T](fn: => T) : T = lock.withLock(fn)
+  }
 
-    type LockType <: BaseLockType
+  /** A lock where there is no symbol table in scope, and no possibility of reentry
+    *
+    * @param name the name of the lock
+    */
+  def simpleLock(name: String): SimpleLock = new SimpleLock(name)
 
-    sealed abstract class AbstractLockType(name: String) {
-      protected def fullName: String
+  sealed class SimpleLock private[Parallel](name: String) {
+    protected val underlying = new ReentrantLock()
+    override def toString: String = s"SimpleLock[${name}"
 
-      protected val level: Int
-
-      override def toString: String = s"Lock[${fullName}"
-
-      protected val underlying = new ReentrantLock()
-
-      /**
-        * acquire the lock
-        * if you own the lock, or the parent it cheap and cant deadlock
-        *
-        * otherwise it is illegal to call [[lock]] if
-        * you hold locks with the same parent (i.e. siblings)
-        * you hold locks for which this is the ancestor (i.e. transitive parent)
-        * you hold locks for which this is a descendant (i.e. transitive child)
-        */
-      def lock(): Unit = underlying.lock
-
-      /**
-        * acquire the lock, where you may hold some direct children already
-        * if you own the lock, or the parent it cheap and cant deadlock
-        *
-        * if you hold direct child locks then these locks ( and their children recursively) may be unlocked prior to
-        * acquiring this lock and relocaked afterwards
-        *
-        * otherwise it is illegal to call [[unorderedLock]] if
-        * you hold locks with the same parent (i.e. siblings)
-        * you hold locks for which this is the ancestor (i.e. transitive parent)
-        * you hold locks for which this is a descendant (i.e. transitive child)
-        */
-      def unorderedLock() = underlying.lock
-
-      /**
-        * unlock the lock
-        */
-      def unlock(): Unit = underlying.unlock
+    /**
+      * acquire the lock
+      * if you own the lock, or the parent it cheap and cant deadlock
+      *
+      * otherwise it is illegal to call [[lock]] if
+      * you hold locks with the same parent (i.e. siblings)
+      * you hold locks for which this is the ancestor (i.e. transitive parent)
+      * you hold locks for which this is a descendant (i.e. transitive child)
+      */
+    def lock(): Unit = underlying.lock
+    /**
+      * unlock the lock
+      */
+    def unlock(): Unit = underlying.unlock
+    @inline final def withLock[T](fn: => T) : T = {
+      lock()
+      try fn finally unlock()
     }
+  }
+  sealed abstract class Lock(name: String) extends SimpleLock(name) {
+    protected def fullName: String
 
-    sealed class BaseLockType(parent: LockType, name: String) extends AbstractLockType(name) {
-      def fullName: String = s"${if (parent eq null) "" else parent.fullName}/$name"
+    protected val level: Int
+
+    override def toString: String = s"Lock[${fullName}"
+
+
+    /**
+      * acquire the lock, where you may hold some direct children already
+      * if you own the lock, or the parent it cheap and cant deadlock
+      *
+      * if you hold direct child locks then these locks ( and their children recursively) may be unlocked prior to
+      * acquiring this lock and relocaked afterwards
+      *
+      * otherwise it is illegal to call [[unorderedLock]] if
+      * you hold locks with the same parent (i.e. siblings)
+      * you hold locks for which this is the ancestor (i.e. transitive parent)
+      * you hold locks for which this is a descendant (i.e. transitive child)
+      */
+    def unorderedLock() = underlying.lock
+
+    /**
+      *
+      * @return { @code true} if the lock was free and was acquired by the
+      *                 current thread, or the lock was already held by the current
+      *                 thread; and { @code false} otherwise
+      */
+    def tryLock(): Boolean = underlying.tryLock()
+    def isHeldByCurrentThread: Boolean = underlying.isHeldByCurrentThread
+
+    @inline final def withUnorderedLock[T](fn: => T) : T = {
+      unorderedLock()
+      try fn finally unlock()
+    }
+  }
+  sealed abstract class LockManager {
+    def lockStats(): Seq[LockStats] = Nil
+
+    def childLock(parent: LockType, name: String, perRun: Boolean): LockType
+
+    def rootLock(name: String, perRun: Boolean): LockType
+
+    type LockType <: BaseLock
+
+
+    sealed class BaseLock(private[Parallel] val parent: LockType, name: String, perRun: Boolean) extends Lock(name) {
+      def fullName: String = s"${if (parent eq null) "" else parent.fullName}/$name${if (perRun) "- perRun" else ""}"
 
       val level = if (parent eq null) 0 else parent.level + 1
     }
 
   }
+  private val lockIdGen = new AtomicInteger()
 
   object noopLockManager extends LockManager {
-    def childLock(parent: LockType, name: String) = new BaseLockType(parent, name)
+    def childLock(parent: LockType, name: String, perRun: Boolean) = new BaseLock(parent, name, perRun)
 
-    def rootLock(name: String) = new BaseLockType(null, name)
+    def rootLock(name: String, perRun: Boolean) = new BaseLock(null, name, perRun)
 
-    type LockType = BaseLockType
+    type LockType = BaseLock
   }
 
   final class RealLockManager extends LockManager {
-    def childLock(parent: LockType, name: String) = new RealLockType(parent, name)
+    private val lockIdGen = new AtomicLong
 
-    def rootLock(name: String) = new RealLockType(null, name)
+    def childLock(parent: LockType, name: String, perRun: Boolean) = new RealLock(parent, name, perRun)
 
-    type LockType = RealLockType
+    private val allRoots = new ConcurrentHashMap[LockType,LockType]()
+    override def rootLock(name: String, perRun: Boolean) = {
+      val res = new RealLock(null, name, perRun)
+      allRoots.put(res,res)
+      res
+    }
+
+    type LockType = RealLock
 
     val checkAllInvariants = true
 
+    override def lockStats(): Seq[LockStats] = {
+      import scala.collection.JavaConverters._
 
-    //    private class ThreadLocks {
-    //      var minLevelHeld = -1
-    //
-    //      val lockHeld = new Array[ArrayBuffer[RealLock]](LockGroups.maxGroups)
-    //
-    //    }
-    //private val threadLocks = new ThreadLocal[ThreadLocks] {
-    //  override def initialValue() = new ThreadLocks
-    //}
+      val builder = Seq.newBuilder[LockStats]
+      allRoots.keys().asScala foreach { _.addStatsTo(builder) }
+
+      builder.result()
+    }
+
     def trace(s: String) = println(s)
 
-    final class RealLockType(parent: LockType, name: String) extends BaseLockType(parent, name) {
-      val acquireNoWaitCount = new AtomicInteger()
-      val acquireWaitCount = new AtomicInteger()
-      val acquireWaitNs = new AtomicLong()
+    final class RealLock(parent: LockType, name: String, perRun: Boolean) extends BaseLock(parent, name, perRun) {
+      val id = lockIdGen.incrementAndGet
+      def addStatsTo(builder: mutable.Growable[LockStats]): Unit = {
+        builder += snapAndReset()
+        children foreach {_.addStatsTo(builder)}
+      }
+      private def snapAndReset() = {
+        val snapped = new LockStats(name, id,
+          acquireNoWaitCount.get(), acquireWaitCount.get, acquireWaitNs.get,
+          acquireUnorderedNoWaitCount.get(), acquireUnorderedWaitCount.get, acquireUnorderedWaitNs.get)
+        acquireNoWaitCount.addAndGet(-snapped.acquireNoWaitCount)
+        acquireWaitCount.addAndGet(-snapped.acquireWaitCount)
+        acquireWaitNs.addAndGet(-snapped.acquireWaitNs)
+        acquireUnorderedNoWaitCount.addAndGet(-snapped.acquireUnorderedNoWaitCount)
+        acquireUnorderedWaitCount.addAndGet(-snapped.acquireUnorderedWaitCount)
+        acquireUnorderedWaitNs.addAndGet(-snapped.acquireUnorderedWaitNs)
+        snapped
+      }
 
-      val acquireUnorderedNoWaitCount = new AtomicInteger()
-      val acquireUnorderedWaitCount = new AtomicInteger()
-      val acquireUnorderedWaitNs = new AtomicLong()
+
+      private val acquireNoWaitCount = new AtomicInteger()
+      private val acquireWaitCount = new AtomicInteger()
+      private val acquireWaitNs = new AtomicLong()
+
+      private val acquireUnorderedNoWaitCount = new AtomicInteger()
+      private val acquireUnorderedWaitCount = new AtomicInteger()
+      private val acquireUnorderedWaitNs = new AtomicLong()
       if (parent ne null) parent.addChild(this)
 
 
-      @tailrec def checkParentNotOwned(parent: RealLockType): Unit = {
+      @tailrec def checkParentNotOwned(parent: RealLock): Unit = {
         if (parent ne null) {
           assert(!parent.underlying.isHeldByCurrentThread, s"cant acquire $this when we own $parent")
           checkParentNotOwned(parent.parent)
         }
       }
 
-      private def checkNoChildLocks(current: RealLockType): Unit = {
+      private def checkNoChildLocks(current: RealLock): Unit = {
         for (child <- current.children) {
           assert(!child.underlying.isHeldByCurrentThread)
           checkNoChildLocks(child)
@@ -369,16 +353,16 @@ object Parallel {
         }
       }
 
-      private val children = new WeakHashSet[RealLockType]
+      private val children = new WeakHashSet[RealLock]
 
-      private[RealLockType] def addChild(child: RealLockType): Unit = children.add(child)
+      private[RealLock] def addChild(child: RealLock): Unit = children.add(child)
 
       /**
         * all locks that are held by children or their descendents
         * @param locks
         * @return
         */
-      private def childLocksHeld(locks: ArrayBuffer[RealLockType] = new ArrayBuffer[RealLockType]()): ArrayBuffer[RealLockType] = {
+      private def childLocksHeld(locks: ArrayBuffer[RealLock] = new ArrayBuffer[RealLock]()): ArrayBuffer[RealLock] = {
         locks += this
         for (child <- children if (child.underlying.isHeldByCurrentThread))
           child.childLocksHeld(locks)

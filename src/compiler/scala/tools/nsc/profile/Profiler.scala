@@ -9,6 +9,7 @@ import javax.management.openmbean.CompositeData
 import javax.management.{Notification, NotificationEmitter, NotificationListener}
 
 import scala.reflect.internal.util.Parallel
+import scala.reflect.internal.util.Parallel.LockManager
 import scala.tools.nsc.{Phase, Settings}
 
 object Profiler {
@@ -63,20 +64,17 @@ case class ProfileRange(start: ProfileSnap, end:ProfileSnap, phase:Phase, purpos
 }
 
 sealed trait Profiler {
-  def install:Unit
-
   def finished(): Unit
 
-  def beforePhase(phase: Phase): ProfileSnap
+  def beforePhase(phase: Phase, lockManager: LockManager): ProfileSnap
 
-  def afterPhase(phase: Phase, profileBefore: ProfileSnap): Unit
+  def afterPhase(phase: Phase, lockManager: LockManager, profileBefore: ProfileSnap): Unit
 }
 private [profile] object NoOpProfiler extends Profiler {
-  override def install: Unit = Parallel.profileLocks(false)
 
-  override def beforePhase(phase: Phase): ProfileSnap = Profiler.emptySnap
+  override def beforePhase(phase: Phase, lockManager: LockManager): ProfileSnap = Profiler.emptySnap
 
-  override def afterPhase(phase: Phase, profileBefore: ProfileSnap): Unit = ()
+  override def afterPhase(phase: Phase, lockManager: LockManager, profileBefore: ProfileSnap): Unit = ()
 
   override def finished(): Unit = ()
 }
@@ -94,7 +92,6 @@ private [profile] object RealProfiler {
 }
 
 private [profile] class RealProfiler(reporter : ProfileReporter, val settings: Settings) extends Profiler with NotificationListener {
-  override def install: Unit = Parallel.profileLocks(true)
 
   def completeBackground(threadRange: ProfileRange): Unit = {
     reporter.reportBackground(this, threadRange)
@@ -170,7 +167,7 @@ private [profile] class RealProfiler(reporter : ProfileReporter, val settings: S
     }
   }
 
-  override def afterPhase(phase: Phase, snapBefore: ProfileSnap): Unit = {
+  override def afterPhase(phase: Phase, lockManager: LockManager, snapBefore: ProfileSnap): Unit = {
     assert(mainThread eq Thread.currentThread())
     val initialSnap = snapThread(0)
     active foreach {_.afterPhase(phase)}
@@ -184,10 +181,10 @@ private [profile] class RealProfiler(reporter : ProfileReporter, val settings: S
     } else initialSnap
 
     reporter.reportForeground(this, ProfileRange(snapBefore, finalSnap, phase, "", 0, Thread.currentThread))
-    reporter.reportLockStats(this, phase, snapBefore.snapTimeNanos, finalSnap.snapTimeNanos, Parallel.getLockManager.lockStats)
+    reporter.reportLockStats(this, phase, snapBefore.snapTimeNanos, finalSnap.snapTimeNanos, lockManager.lockStats())
   }
 
-  override def beforePhase(phase: Phase): ProfileSnap = {
+  override def beforePhase(phase: Phase, lockManager: LockManager): ProfileSnap = {
     assert(mainThread eq Thread.currentThread())
     if (settings.YprofileRunGcBetweenPhases.containsPhase(phase))
       doGC
@@ -237,7 +234,7 @@ object ConsoleProfileReporter extends ProfileReporter {
 
   override def reportLockStats(profiler: RealProfiler, phase: Phase, phaseStartNs: Long, phaseEndNs: Long, lockStats: Seq[Parallel.LockStats]): Unit =
     //TODO
-  // ???
+    ???
 
   override def close(profiler: RealProfiler): Unit = ()
 
@@ -252,9 +249,9 @@ object ConsoleProfileReporter extends ProfileReporter {
 
 class StreamProfileReporter(out:PrintWriter) extends ProfileReporter {
   override def header(profiler: RealProfiler): Unit = {
-    out.println(s"info, ${profiler.id}, version, 2, output, ${profiler.outDir}")
+    out.println(s"info, ${profiler.id}, version, 3, output, ${profiler.outDir}")
     out.println(s"header(main/background),startNs,endNs,runId,phaseId,phaseName,purpose,task-count,threadId,threadName,runNs,idleNs,cpuTimeNs,userTimeNs,allocatedByte,heapSize")
-    out.println(s"header(lock),startNs,endNs,runId,phaseId,phaseName,lockName,lockId,accessCount,contentedWrite,cuncontendedWrites,contendedWriteNs")
+    out.println(s"header(lock),startNs,endNs,runId,phaseId,phaseName,lockName,lockId,accessCount,acquireNoWaitCount,acquireWaitCount,acquireWaitNs,acquireUnorderedNoWaitCount,acquireUnorderedWaitCount,acquireUnorderedWaitNs")
     out.println(s"header(GC),startNs,endNs,startMs,endMs,name,action,cause,threads")
   }
 
@@ -270,7 +267,9 @@ class StreamProfileReporter(out:PrintWriter) extends ProfileReporter {
   override def reportLockStats(profiler: RealProfiler, phase: Phase, phaseStartNs: Long, phaseEndNs: Long, lockStats: Seq[Parallel.LockStats]): Unit = {
     lockStats.filter(_.accessCount > 0).sortBy(_.name).foreach {
       stats =>
-        out.println(s"${EventType.LOCK},$phaseStartNs,$phaseEndNs,${profiler.id},${phase.id},${phase.name},${stats.name},${stats.id},${stats.accessCount},${stats.contendedWrites},${stats.uncontendedWrites},${stats.contendedWriteNs}")
+        out.println(s"${EventType.LOCK},$phaseStartNs,$phaseEndNs,${profiler.id},${phase.id},${phase.name},${stats.name},${stats.id},${stats.accessCount}," +
+          s"${stats.acquireNoWaitCount},${stats.acquireWaitCount},${stats.acquireWaitNs}," +
+          s"${stats.acquireUnorderedNoWaitCount},${stats.acquireUnorderedWaitCount},${stats.acquireUnorderedWaitNs}")
     }
 
   }
