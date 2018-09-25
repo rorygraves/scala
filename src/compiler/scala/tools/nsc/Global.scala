@@ -421,23 +421,25 @@ class Global(var currentSettings: Settings, reporter0: LegacyReporter)
          * (which is indicated by `isParallel`) it's swill run on the main thread. This is accomplished by
          * properly modified `ExecutionContext` returned by `createExecutionContext`.
          */
-        val futures = currentRun.units.toList.collect {
-          case unit if !cancelled(unit) =>
+
+        val result: Future[Iterator[LegacyReporter]] = Future.traverse(curRun.units) { unit =>
+          if (cancelled(unit)) Future(reporter)
+          else {
             Future {
               asWorkerThread {
-                processUnit(unit)
-                afterUnit(unit)
+                applyPhase(unit)
                 reporter
               }
             }
+          }
         }
 
         /* Dumping messages from unit's `BufferedReporter` to main reporter.
          * Since we are awaiting for previous units this allows us to retain messages order.
          */
-        futures.foreach { future =>
-          val workerReporter = Await.result(future, Duration.Inf)
-          if (isParallel) workerReporter.asInstanceOf[BufferedReporter].flushTo(reporter)
+        val reporters = Await.result(result, Duration.Inf)
+        if (isParallel) {
+          reporters.foreach(_.asInstanceOf[BufferedReporter].flushTo(reporter))
         }
       } finally {
         _synchronizeNames = false
@@ -451,13 +453,8 @@ class Global(var currentSettings: Settings, reporter0: LegacyReporter)
       }
     }
 
-    // Used in methods like `compileLate`
-    final def applyPhase(unit: CompilationUnit): Unit = {
-      assertOnWorker()
-      if (!cancelled(unit)) processUnit(unit)
-    }
 
-    private def processUnit(unit: CompilationUnit): Unit = {
+    final def applyPhase(unit: CompilationUnit): Unit = {
       assertOnWorker()
 
       /* In worker threads if we are processing units in parallel we want to use temporary `BufferedReporter` for every unit.
@@ -476,6 +473,7 @@ class Global(var currentSettings: Settings, reporter0: LegacyReporter)
       } finally {
         currentRun.currentUnit = unit0
         currentRun.advanceUnit()
+        afterUnit(unit)
       }
     }
 

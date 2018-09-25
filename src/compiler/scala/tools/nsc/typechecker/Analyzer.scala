@@ -97,6 +97,7 @@ trait Analyzer extends AnyRef
         // We never want to completely override `run` without calling `super.run()` inside.
         // `run` is now more complicated that for over the units and there is no point in duplicating that logic
         super.run()
+        finishComputeParamAlias()
         // defensive measure in case the bookkeeping in deferred macro expansion is buggy
         clearDelayed()
         if (StatisticsStatics.areSomeColdStatsEnabled) statistics.stopTimer(statistics.typerNanos, start)
