@@ -1519,6 +1519,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
      *  ensuring that symbol is initialized (i.e. type is completed).
      */
     def info: Type = SymbolLock {
+      val start = if (StatisticsStatics.areSomeColdStatsEnabled) statistics.pushTimer(symbolOpsStack, infoNanos) else null
       try {
         var cnt = 0
         while (validTo == NoPeriod) {
@@ -1548,6 +1549,9 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
         case ex: CyclicReference =>
           devWarning("... hit cycle trying to complete " + this.fullLocationString)
           throw ex
+      }
+      finally {
+        if (StatisticsStatics.areSomeColdStatsEnabled) statistics.popTimer(symbolOpsStack, start)
       }
     }
 
@@ -3812,4 +3816,9 @@ trait SymbolsStats {
   val symbolsCount        = newView("#symbols")(symbolTable.getCurrentSymbolIdCount)
   val typeSymbolCount     = newCounter("#type symbols")
   val classSymbolCount    = newCounter("#class symbols")
+
+  val symbolLockNanos = newTimer("time spent in symbol locks")
+  val infoNanos = newStackableTimer("time spent in Symbol.info", symbolLockNanos)
+  val infoTransformersNanos = newStackableTimer("time spent in SymbolTable.infoTransformers", symbolLockNanos)
+  val symbolOpsStack = newTimerStack()
 }

@@ -479,8 +479,23 @@ abstract class SymbolTable extends macros.Universe
     def transform(sym: Symbol, tpe: Type): Type = tpe
   }
   /** The set of all installed infotransformers. */
-  def infoTransformers = Parallel.synchronizeAccess(this){_infoTransformers}
-  def infoTransformers_=(v: InfoTransformer) = Parallel.synchronizeAccess(this){_infoTransformers = v}
+  def infoTransformers = Parallel.synchronizeAccess(this) {
+    val start = if (StatisticsStatics.areSomeColdStatsEnabled) statistics.pushTimer(statistics.symbolOpsStack, statistics.infoTransformersNanos) else null
+    try {
+      _infoTransformers
+    } finally {
+      if (StatisticsStatics.areSomeColdStatsEnabled) statistics.popTimer(statistics.symbolOpsStack, start)
+    }
+  }
+
+  def infoTransformers_=(v: InfoTransformer) = Parallel.synchronizeAccess(this) {
+    val start = if (StatisticsStatics.areSomeColdStatsEnabled) statistics.pushTimer(statistics.symbolOpsStack, statistics.infoTransformersNanos) else null
+    try {
+      _infoTransformers = v
+    } finally {
+      if (StatisticsStatics.areSomeColdStatsEnabled) statistics.popTimer(statistics.symbolOpsStack, start)
+    }
+  }
 
   /** The phase which has given index as identifier. */
   val phaseWithId: Array[Phase]
