@@ -322,4 +322,9 @@ quant)
     val start = startTimer(timer)
     try body finally stopTimer(timer, start)
   }
+
+  @inline final def timedStackable[T](timers: TimerStack, timer: => StackableTimer)(body: => T): T = {
+    val start = pushTimer(timers, timer)
+    try body finally popTimer(timers, start)
+  }
 }
