@@ -39,6 +39,7 @@ import scala.tools.nsc.util.{ClassPath, returning}
 
 class Global(var currentSettings: Settings, reporter0: LegacyReporter)
     extends SymbolTable
+    with RealLockManagement
     with CompilationUnits
     with Plugins
     with PhaseAssembly
@@ -47,7 +48,6 @@ class Global(var currentSettings: Settings, reporter0: LegacyReporter)
     with DocComments
     with Positions
     with Reporting
-    with RealLockManagement
     with Parsing { self =>
 
   // the mirror --------------------------------------------------

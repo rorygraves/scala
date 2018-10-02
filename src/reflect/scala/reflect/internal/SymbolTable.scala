@@ -18,6 +18,7 @@ import scala.collection.mutable.ArrayBuffer
 import scala.reflect.internal.{TreeGen => InternalTreeGen}
 
 abstract class SymbolTable extends macros.Universe
+                              with LockManagement
                               with Collections
                               with Names
                               with Symbols
@@ -51,12 +52,10 @@ abstract class SymbolTable extends macros.Universe
                               with FreshNames
                               with Internals
                               with Reporting
-                              with LockManagement
 {
 
   val gen = new InternalTreeGen { val global: SymbolTable.this.type = SymbolTable.this }
 
-  final val symbolTableLock = lockManager.rootLock("symbolTableLock", false)
   @inline final def synchronizeSymbolsAccess[T](fn: => T):T = symbolTableLock.withUnorderedLock(fn)
 
   trait ReflectStats extends BaseTypeSeqsStats

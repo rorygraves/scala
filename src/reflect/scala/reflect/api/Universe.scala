@@ -2,6 +2,9 @@ package scala
 package reflect
 package api
 
+import scala.reflect.internal.LockManagementBase
+import scala.reflect.internal.util.Parallel
+
 /**
  * <span class="badge badge-red" style="float: right;">EXPERIMENTAL</span>
  *
@@ -55,10 +58,10 @@ package api
  *
  *  @groupprio Universe -1
  *  @group ReflectionAPI
- *
  *  @contentDiagram hideNodes "*Api"
  */
-abstract class Universe extends Symbols
+abstract class Universe extends LockManagementBase
+                           with Symbols
                            with Types
                            with FlagSets
                            with Scopes

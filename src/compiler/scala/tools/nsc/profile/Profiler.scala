@@ -5,11 +5,12 @@ import java.lang.management.ManagementFactory
 import java.util.ServiceLoader
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+
 import javax.management.openmbean.CompositeData
 import javax.management.{Notification, NotificationEmitter, NotificationListener}
 
 import scala.reflect.internal.util.Parallel
-import scala.reflect.internal.util.Parallel.LockManager
+import scala.reflect.internal.util.Parallel.{LockManager, RealLockManager}
 import scala.tools.nsc.{Phase, Settings}
 
 object Profiler {
@@ -66,15 +67,15 @@ case class ProfileRange(start: ProfileSnap, end:ProfileSnap, phase:Phase, purpos
 sealed trait Profiler {
   def finished(): Unit
 
-  def beforePhase(phase: Phase, lockManager: LockManager): ProfileSnap
+  def beforePhase(phase: Phase, lockManager: RealLockManager): ProfileSnap
 
-  def afterPhase(phase: Phase, lockManager: LockManager, profileBefore: ProfileSnap): Unit
+  def afterPhase(phase: Phase, lockManager: RealLockManager, profileBefore: ProfileSnap): Unit
 }
 private [profile] object NoOpProfiler extends Profiler {
 
-  override def beforePhase(phase: Phase, lockManager: LockManager): ProfileSnap = Profiler.emptySnap
+  override def beforePhase(phase: Phase, lockManager: RealLockManager): ProfileSnap = Profiler.emptySnap
 
-  override def afterPhase(phase: Phase, lockManager: LockManager, profileBefore: ProfileSnap): Unit = ()
+  override def afterPhase(phase: Phase, lockManager: RealLockManager, profileBefore: ProfileSnap): Unit = ()
 
   override def finished(): Unit = ()
 }
@@ -167,7 +168,7 @@ private [profile] class RealProfiler(reporter : ProfileReporter, val settings: S
     }
   }
 
-  override def afterPhase(phase: Phase, lockManager: LockManager, snapBefore: ProfileSnap): Unit = {
+  override def afterPhase(phase: Phase, lockManager: RealLockManager, snapBefore: ProfileSnap): Unit = {
     assert(mainThread eq Thread.currentThread())
     val initialSnap = snapThread(0)
     active foreach {_.afterPhase(phase)}
@@ -184,7 +185,7 @@ private [profile] class RealProfiler(reporter : ProfileReporter, val settings: S
     reporter.reportLockStats(this, phase, snapBefore.snapTimeNanos, finalSnap.snapTimeNanos, lockManager.lockStats())
   }
 
-  override def beforePhase(phase: Phase, lockManager: LockManager): ProfileSnap = {
+  override def beforePhase(phase: Phase, lockManager: RealLockManager): ProfileSnap = {
     assert(mainThread eq Thread.currentThread())
     if (settings.YprofileRunGcBetweenPhases.containsPhase(phase))
       doGC
