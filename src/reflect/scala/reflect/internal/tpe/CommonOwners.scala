@@ -22,13 +22,13 @@ private[internal] trait CommonOwners {
 
       private def register(sym: Symbol): Unit =
         // First considered type is the trivial result.
-        if ((result eq null) || (sym eq NoSymbol))
+        if ((result eq NoSymbol) || (sym eq NoSymbol))
           result = sym
         else
           while ((result ne NoSymbol) && (result ne sym) && !(sym isNestedIn result))
             result = result.owner
 
-      def traverse(tp: Type) = tp.normalize match {
+      def traverse(tp: Type): Unit = tp.normalize match {
         case ThisType(sym)                => register(sym)
         case TypeRef(NoPrefix, sym, args) => register(sym.owner) ; args foreach traverse
         case SingleType(NoPrefix, sym)    => register(sym.owner)
@@ -36,8 +36,11 @@ private[internal] trait CommonOwners {
       }
     }
 
-    val traverser = new CommonOwnerMap
-    if (tps.nonEmpty) tps.foreach(traverser.traverse)
+    if (tps.nonEmpty) {
+      val traverser = new CommonOwnerMap
+      tps.foreach(traverser.traverse)
+    }
+
     result
   }
 }
