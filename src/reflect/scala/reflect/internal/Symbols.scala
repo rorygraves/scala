@@ -1519,6 +1519,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
      *  ensuring that symbol is initialized (i.e. type is completed).
      */
     def info: Type = SymbolLock {
+      val start = if (StatisticsStatics.areSomeColdStatsEnabled) statistics.pushTimer(symbolOpsStack, infoNanos) else null
       try {
         var cnt = 0
         while (validTo == NoPeriod) {
@@ -1533,7 +1534,9 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
             withSavedPhase {
               assertCorrectThread()
               phase = phaseOf(infos.validFrom)
-              tp.complete(this)
+              timedStackable(symbolOpsStack, completingTypesNanos){
+                tp.complete(this)
+              }
             }
           }
 
@@ -1548,6 +1551,9 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
         case ex: CyclicReference =>
           devWarning("... hit cycle trying to complete " + this.fullLocationString)
           throw ex
+      }
+      finally {
+        if (StatisticsStatics.areSomeColdStatsEnabled) statistics.popTimer(symbolOpsStack, start)
       }
     }
 
@@ -1601,46 +1607,50 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
 
     /** Return info without checking for initialization or completing */
     def rawInfo: Type = SymbolLock {
-      var infos = this.infos
-      assert(infos != null)
-      val curPeriod = currentPeriod
-      val curPid = phaseId(curPeriod)
+      timedStackable(symbolOpsStack, rawInfoNanos) {
+        var infos = this.infos
+        assert(infos != null)
+        val curPeriod = currentPeriod
+        val curPid = phaseId(curPeriod)
 
-      if (validTo != NoPeriod) {
-        // skip any infos that concern later phases
-        while (curPid < phaseId(infos.validFrom) && infos.prev != null)
-          infos = infos.prev
+        if (validTo != NoPeriod) {
+          // skip any infos that concern later phases
+          while (curPid < phaseId(infos.validFrom) && infos.prev != null)
+            infos = infos.prev
 
-        if (validTo < curPeriod) {
-          assertCorrectThread()
-          // adapt any infos that come from previous runs
-          withSavedPhase {
-            val current = phase
-            infos = adaptInfos(infos)
+          if (validTo < curPeriod) {
+            assertCorrectThread()
+            // adapt any infos that come from previous runs
+            withSavedPhase {
+              val current = phase
+              infos = adaptInfos(infos)
 
-            //assert(runId(validTo) == currentRunId, name)
-            //assert(runId(infos.validFrom) == currentRunId, name)
+              //assert(runId(validTo) == currentRunId, name)
+              //assert(runId(infos.validFrom) == currentRunId, name)
 
-            if (validTo < curPeriod) {
-              var itr = infoTransformers.nextFrom(phaseId(validTo))
-              infoTransformers = itr; // caching optimization
-              while (itr.pid != NoPhase.id && itr.pid < current.id) {
-                phase = phaseWithId(itr.pid)
-                val info1 = itr.transform(this, infos.info)
-                if (info1 ne infos.info) {
-                  infos = TypeHistory(currentPeriod + 1, info1, infos)
-                  this.infos = infos
+              if (validTo < curPeriod) {
+                var itr = infoTransformers.nextFrom(phaseId(validTo))
+                infoTransformers = itr; // caching optimization
+                while (itr.pid != NoPhase.id && itr.pid < current.id) {
+                  phase = phaseWithId(itr.pid)
+                  val info1 = timedStackable(symbolOpsStack, adjustingInfoHistoryNanos){
+                    itr.transform(this, infos.info)
+                  }
+                  if (info1 ne infos.info) {
+                    infos = TypeHistory(currentPeriod + 1, info1, infos)
+                    this.infos = infos
+                  }
+                  _validTo = currentPeriod + 1 // to enable reads from same symbol during info-transform
+                  itr = itr.next
                 }
-                _validTo = currentPeriod + 1 // to enable reads from same symbol during info-transform
-                itr = itr.next
+                _validTo = if (itr.pid == NoPhase.id) curPeriod
+                else period(currentRunId, itr.pid)
               }
-              _validTo = if (itr.pid == NoPhase.id) curPeriod
-                         else period(currentRunId, itr.pid)
             }
           }
         }
+        infos.info
       }
-      infos.info
     }
 
     // adapt to new run in fsc.
@@ -3812,4 +3822,14 @@ trait SymbolsStats {
   val symbolsCount        = newView("#symbols")(symbolTable.getCurrentSymbolIdCount)
   val typeSymbolCount     = newCounter("#type symbols")
   val classSymbolCount    = newCounter("#class symbols")
+
+  val symbolLockNanos = newTimer("time spent in symbol locks")
+  val infoNanos = newStackableTimer("time spent in Symbol.info", symbolLockNanos)
+  val rawInfoNanos = newStackableTimer("time spent in Symbol.rawInfo", symbolLockNanos)
+  val completingTypesNanos = newStackableTimer("Time taken completing types", symbolLockNanos)
+  val infoTransformersNanos = newStackableTimer("time spent in SymbolTable.infoTransformers", symbolLockNanos)
+  val adjustingInfoHistoryNanos = newStackableTimer("Tie taken adjusting info history", symbolLockNanos)
+  val symbolOpsStack = newTimerStack()
 }
+
+
