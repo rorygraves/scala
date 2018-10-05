@@ -1294,10 +1294,10 @@ abstract class ClassfileParser {
   }
 
   class TypeParamsType(override val typeParams: List[Symbol]) extends LazyType with FlagAgnosticCompleter {
-    override def complete(sym: Symbol): Unit = { throw new AssertionError("cyclic type dereferencing") }
+    override def actuallyComplete(sym: Symbol): Unit = { throw new AssertionError("cyclic type dereferencing") }
   }
   class LazyAliasType(alias: Symbol) extends LazyType with FlagAgnosticCompleter {
-    override def complete(sym: Symbol): Unit = {
+    override def actuallyComplete(sym: Symbol): Unit = {
       sym setInfo createFromClonedSymbols(alias.initialize.typeParams, alias.tpe)(typeFun)
     }
   }

@@ -739,7 +739,7 @@ abstract class UnPickler {
         completingStack.remove(completingStack.length - 1)
       }
 
-      override def complete(sym: Symbol) : Unit = {
+      override def actuallyComplete(sym: Symbol) : Unit = {
         completeInternal(sym)
         if (!isCompilerUniverse) markAllCompleted(sym)
       }
