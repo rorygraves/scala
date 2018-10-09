@@ -225,8 +225,9 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     private def isSynchronized = this.isInstanceOf[scala.reflect.runtime.SynchronizedSymbols#SynchronizedSymbol]
     private def isAprioriThreadsafe = isThreadsafe(AllOps)
 
-    @inline final def SymbolLock[T](op: => T): T =
-      Parallel.synchronizeAccess(this)(op)
+    @inline final def SymbolLock[T](op: => T): T = {
+      Parallel.synchronizeAccess(enclClass)(op)
+    }
 
     if (!(isCompilerUniverse || isSynchronized || isAprioriThreadsafe))
       throw new AssertionError(s"unsafe symbol $initName (child of $initOwner) in runtime reflection universe") // Not an assert to avoid retention of `initOwner` as a field!

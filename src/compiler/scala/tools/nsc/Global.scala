@@ -12,7 +12,7 @@ import java.net.URL
 import java.nio.charset.{Charset, CharsetDecoder, IllegalCharsetNameException, UnsupportedCharsetException}
 import java.util.concurrent.{Executor, TimeUnit}
 
-import scala.collection.{immutable, mutable}
+import scala.collection.{BuildFrom, immutable, mutable}
 import scala.concurrent._
 import scala.concurrent.duration.Duration
 import scala.language.postfixOps
@@ -422,14 +422,16 @@ class Global(var currentSettings: Settings, reporter0: LegacyReporter)
          * properly modified `ExecutionContext` returned by `createExecutionContext`.
          */
 
-        val result: Future[Iterator[LegacyReporter]] = Future.traverse(curRun.units) { unit =>
-          if (cancelled(unit)) Future(reporter)
-          else {
-            Future {
-              asWorkerThread {
-                applyPhase(unit)
-                reporter
-              }
+        val units = curRun.units
+        val result = Future.traverse(units) { unit =>
+          Future {
+            asWorkerThread {
+              /* In worker threads if we are processing units in parallel we want to use temporary `BufferedReporter` for every unit.
+               * Then later we can then keep it until all previous units are processed and then dump all messages to main reporter.
+               */
+              if (isParallel) reporter = new BufferedReporter
+              if (!cancelled(unit)) applyPhase(unit)
+              reporter
             }
           }
         }
@@ -438,7 +440,7 @@ class Global(var currentSettings: Settings, reporter0: LegacyReporter)
          * Since we are awaiting for previous units this allows us to retain messages order.
          */
         val reporters = Await.result(result, Duration.Inf)
-        if (isParallel) {
+        if (Parallel.isParallel) {
           reporters.foreach(_.asInstanceOf[BufferedReporter].flushTo(reporter))
         }
       } finally {
@@ -456,11 +458,6 @@ class Global(var currentSettings: Settings, reporter0: LegacyReporter)
 
     final def applyPhase(unit: CompilationUnit): Unit = {
       assertOnWorker()
-
-      /* In worker threads if we are processing units in parallel we want to use temporary `BufferedReporter` for every unit.
-       * Then later we can then keep it until all previous units are processed and then dump all messages to main reporter.
-       */
-      if (isParallel) reporter = new BufferedReporter
 
       if (isDebugPrintEnabled) inform("[running phase " + name + " on " + unit + "]")
 

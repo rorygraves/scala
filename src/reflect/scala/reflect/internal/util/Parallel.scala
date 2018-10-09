@@ -2,9 +2,11 @@ package scala.reflect.internal.util
 
 import java.util.concurrent.atomic.AtomicInteger
 
+import scala.collection.mutable
+
 object Parallel {
 
-  var isParallel = false
+  var isParallel: Boolean = false
 
   class Counter(initial: Int = 0) {
     private val count = new AtomicInteger
@@ -32,7 +34,8 @@ object Parallel {
 
   // Wrapper for `synchronized` method. In future could provide additional logging, safety checks, etc.
   @inline final def synchronizeAccess[T <: Object, U](obj: T)(block: => U): U = {
-    if (isParallel) obj.synchronized[U](block) else block
+    if (isParallel) obj.synchronized[U](block)
+    else block
   }
 
   class Lock {
@@ -52,10 +55,8 @@ object Parallel {
     @inline final def get: T = {
       if (isParallel && isWorker.get()) worker.get()
       else {
-        if (main == null) {
-          if (isParallel && shouldFailOnMain) throw new IllegalStateException("not allowed on main thread")
-          main = initial
-        }
+        if (isParallel && shouldFailOnMain) throw new IllegalStateException("not allowed on main thread")
+        if (main == null) main = initial
         main
       }
     }
@@ -79,10 +80,8 @@ object Parallel {
     @inline final def get: T = {
       if (isParallel && isWorker.get()) worker.get()
       else {
-        if (main == null) {
-          if (isParallel && shouldFailOnMain) throw new IllegalStateException("not allowed on main thread")
-          main = initial
-        }
+        if (isParallel && shouldFailOnMain) throw new IllegalStateException("not allowed on main thread")
+        if (main == null) main = initial
         main
       }
     }
