@@ -52,8 +52,10 @@ object Parallel {
     @inline final def get: T = {
       if (isParallel && isWorker.get()) worker.get()
       else {
-        if (isParallel && shouldFailOnMain) throw new IllegalStateException("not allowed on main thread")
-        if (main == null) main = initial
+        if (main == null) {
+          if (isParallel && shouldFailOnMain) throw new IllegalStateException("not allowed on main thread")
+          main = initial
+        }
         main
       }
     }
@@ -77,8 +79,10 @@ object Parallel {
     @inline final def get: T = {
       if (isParallel && isWorker.get()) worker.get()
       else {
-        if (isParallel && shouldFailOnMain) throw new IllegalStateException("not allowed on main thread")
-        if (main == null) main = initial
+        if (main == null) {
+          if (isParallel && shouldFailOnMain) throw new IllegalStateException("not allowed on main thread")
+          main = initial
+        }
         main
       }
     }
