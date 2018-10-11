@@ -226,7 +226,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     private def isAprioriThreadsafe = isThreadsafe(AllOps)
 
     @inline final def SymbolLock[T](op: => T): T = {
-      Parallel.synchronizeAccess(enclClass)(op)
+      if (this.getClass.getName == "scala.reflect.internal.Mirrors$Roots$RootClass") Parallel.synchronizeAccess(perRunCaches)(op) else op
     }
 
     if (!(isCompilerUniverse || isSynchronized || isAprioriThreadsafe))

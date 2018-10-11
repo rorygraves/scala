@@ -413,6 +413,9 @@ class Global(var currentSettings: Settings, reporter0: LegacyReporter)
       if (isDebugPrintEnabled) inform("[running phase " + name + " on " + currentRun.size +  " compilation units]")
       implicit val ec: ExecutionContextExecutor = createExecutionContext()
 
+      println("")
+      println(s"===================================== $name===================================== ")
+
       try {
         Parallel.isParallel = isParallel
         _synchronizeNames = isParallel
@@ -443,6 +446,39 @@ class Global(var currentSettings: Settings, reporter0: LegacyReporter)
         if (Parallel.isParallel) {
           reporters.foreach(_.asInstanceOf[BufferedReporter].flushTo(reporter))
         }
+
+//        println("")
+//        println(s"-------- Total locks hits (per class) -------- ")
+//        locksPerClass.foreach { case (cls, cnt) =>
+//          println(s"${cls.getName}: $cnt")
+//        }
+//
+//
+//        println("")
+//        println(s"-------- Total locks hits (unique lock objects grouped per class) -------- ")
+//        val lockedObjectsPerClass = locksCount.keySet.groupBy(_.getClass).mapValues(_.size)
+//        lockedObjectsPerClass.foreach { case (cls, cnt) =>
+//          println(s"${cls.getName}: $cnt")
+//        }
+//
+//        println("")
+//        println(s"-------- Total waiting times -------- ")
+//        waitingTime.foreach { case (cls, times) =>
+//          println(s"${cls.getName}: $times ms")
+//        }
+//
+//        println("")
+//        println(s"-------- Total processing times -------- ")
+//        lockTime.foreach { case (cls, times) =>
+//          println(s"${cls.getName}: $times ms")
+//        }
+
+        println("")
+        println(s"-------- uniqueLockSets -------- ")
+        uniqueLockSets.foreach { s =>
+          println(s.map(_.getClass.getName).mkString(", "))
+        }
+
       } finally {
         _synchronizeNames = false
         Parallel.isParallel = false

@@ -1,4 +1,5 @@
 package scala
+
 package collection
 package mutable
 

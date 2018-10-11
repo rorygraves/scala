@@ -2,7 +2,7 @@ package scala.reflect.internal.util
 
 import java.util.concurrent.atomic.AtomicInteger
 
-import scala.collection.mutable
+import scala.collection.{immutable, mutable}
 
 object Parallel {
 
@@ -32,10 +32,62 @@ object Parallel {
     @inline final def apply(initial: Int = 0): Counter = new Counter(initial)
   }
 
+  val locksCount = mutable.Map[Object, Int]().withDefault(_ => 0)
+  val locksPerClass = mutable.Map[Class[_], Int]().withDefault(_ => 0)
+  val waitingTime = mutable.Map[Class[_], Long]().withDefault(_ => 0)
+  val lockTime = mutable.Map[Class[_], Long]().withDefault(_ =>  0)
+  object StatLock
+
+
+  private[this] lazy val currentLocks: ThreadLocal[mutable.ListBuffer[Any]] = new ThreadLocal[mutable.ListBuffer[Any]] {
+    override def initialValue(): mutable.ListBuffer[Any] = mutable.ListBuffer[Any]()
+  }
+  private[this] lazy val repeated: ThreadLocal[Int] = new ThreadLocal[Int] {
+    override def initialValue(): Int = 0
+  }
+  val uniqueLockSets = mutable.Set[immutable.List[Any]]()
+
+  object Repeated
+  object Sym
+
+
   // Wrapper for `synchronized` method. In future could provide additional logging, safety checks, etc.
   @inline final def synchronizeAccess[T <: Object, U](obj: T)(block: => U): U = {
-    if (isParallel) obj.synchronized[U](block)
-    else block
+    var startTime, endTime, lockedTime: Long = 0
+    if (isParallel) {
+      startTime = System.currentTimeMillis
+      val ret = obj.synchronized[U] {
+        lockedTime = System.currentTimeMillis
+
+        val tmpObj = if (obj.getClass.getName.startsWith("scala.reflect.internal.Symbols$")) Sym else obj
+
+        if (currentLocks.get().nonEmpty && (currentLocks.get().last.getClass == tmpObj.getClass  || currentLocks.get().last.getClass == Repeated.getClass)) {
+          if (currentLocks.get().last.getClass == Repeated.getClass) repeated.set(repeated.get() + 1)
+          else currentLocks.get += Repeated
+        } else currentLocks.get += tmpObj
+
+
+        StatLock.synchronized { uniqueLockSets.add(currentLocks.get.toList) }
+        val r = block
+
+        if (currentLocks.get().last.getClass == Repeated.getClass) {
+          if (repeated == 0) currentLocks.get.dropRight(1)
+          else repeated.set(repeated.get() - 1)
+        } else currentLocks.get.dropRight(1)
+
+
+        endTime = System.currentTimeMillis
+        r
+      }
+      StatLock.synchronized {
+        val clazz = obj.getClass
+        locksCount(obj) += 1
+        locksPerClass(clazz) += 1
+        waitingTime(clazz) += (lockedTime - startTime)
+        lockTime(clazz) += (endTime - lockedTime)
+      }
+      ret
+    } else block
   }
 
   class Lock {
@@ -55,7 +107,7 @@ object Parallel {
     @inline final def get: T = {
       if (isParallel && isWorker.get()) worker.get()
       else {
-        if (isParallel && shouldFailOnMain) throw new IllegalStateException("not allowed on main thread")
+        //if (isParallel && shouldFailOnMain) throw new IllegalStateException("not allowed on main thread")
         if (main == null) main = initial
         main
       }
@@ -80,7 +132,7 @@ object Parallel {
     @inline final def get: T = {
       if (isParallel && isWorker.get()) worker.get()
       else {
-        if (isParallel && shouldFailOnMain) throw new IllegalStateException("not allowed on main thread")
+        //if (isParallel && shouldFailOnMain) throw new IllegalStateException("not allowed on main thread")
         if (main == null) main = initial
         main
       }

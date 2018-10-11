@@ -28,7 +28,7 @@ trait Names extends api.Names {
   //
   // Discussion: https://groups.google.com/forum/#!search/biased$20scala-internals/scala-internals/0cYB7SkJ-nM/47MLhsgw8jwJ
   protected def synchronizeNames: Boolean = false
-  private val nameLock: Object = new Object
+  object nameLock
 
   /** Memory to store all names sequentially. */
   var chrs: Array[Char] = new Array[Char](NAME_SIZE)
