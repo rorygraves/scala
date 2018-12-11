@@ -28,7 +28,7 @@ private[reflect] trait SymbolLoaders { self: SymbolTable =>
    */
   class TopClassCompleter(clazz: ClassSymbol, module: ModuleSymbol) extends SymLoader with FlagAssigningCompleter {
     markFlagsCompleted(clazz, module)(mask = ~TopLevelPickledFlags)
-    override def complete(sym: Symbol) = {
+    override def actuallyComplete(sym: Symbol) = {
       debugInfo("completing "+sym+"/"+clazz.fullName)
       assert(sym == clazz || sym == module || sym == module.moduleClass)
       slowButSafeEnteringPhaseNotLaterThan(picklerPhase) {
@@ -72,7 +72,7 @@ private[reflect] trait SymbolLoaders { self: SymbolTable =>
   /** The type completer for packages.
    */
   class LazyPackageType extends LazyType with FlagAgnosticCompleter {
-    override def complete(sym: Symbol): Unit = {
+    override def actuallyComplete(sym: Symbol): Unit = {
       assert(sym.isPackageClass)
       // Time travel to a phase before refchecks avoids an initialization issue. `openPackageModule`
       // creates a module symbol and invokes invokes `companionModule` while the `infos` field is

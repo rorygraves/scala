@@ -615,9 +615,9 @@ trait Namers extends MethodSynthesis {
       }
 
       new CompleterWrapper(completerOf(copyDef)) {
-        override def complete(sym: Symbol): Unit = {
+        override def actuallyComplete(sym: Symbol): Unit = {
           assignParamTypes(tree.asInstanceOf[DefDef], sym)
-          super.complete(sym)
+          super.actuallyComplete(sym)
         }
       }
     }
@@ -625,10 +625,10 @@ trait Namers extends MethodSynthesis {
     // for apply/unapply, which may need to disappear when they clash with a user-defined method of matching signature
     def applyUnapplyMethodCompleter(un_applyDef: DefDef, companionContext: Context): TypeCompleter =
       new CompleterWrapper(completerOf(un_applyDef)) {
-        override def complete(sym: Symbol): Unit = {
+        override def actuallyComplete(sym: Symbol): Unit = {
           assert(sym hasAllFlags CASE | SYNTHETIC, sym.defString)
 
-          super.complete(sym)
+          super.actuallyComplete(sym)
 
           // don't propagate e.g. @volatile annot to apply's argument
           def retainOnlyParamAnnots(param: Symbol) =
@@ -896,8 +896,8 @@ trait Namers extends MethodSynthesis {
     import AnnotationInfo.{mkFilter => annotationFilter}
 
     def implicitFactoryMethodCompleter(tree: DefDef, classSym: Symbol) = new CompleterWrapper(completerOf(tree)) {
-      override def complete(methSym: Symbol): Unit = {
-        super.complete(methSym)
+      override def actuallyComplete(methSym: Symbol): Unit = {
+        super.actuallyComplete(methSym)
         val annotations = classSym.initialize.annotations
 
         methSym setAnnotations (annotations filter annotationFilter(MethodTargetClass, defaultRetention = false))
@@ -1728,7 +1728,7 @@ trait Namers extends MethodSynthesis {
     }
 
     private def safeNextOverriddenSymbolLazySchema(sym: Symbol, schema: () => Type): Symbol =
-      safeNextOverriddenSymbol(sym, new LazyType { override def complete(sym: Symbol): Unit = sym setInfo schema() })
+      safeNextOverriddenSymbol(sym, new LazyType { override def actuallyComplete(sym: Symbol): Unit = sym setInfo schema() })
 
 
     //@M! an abstract type definition (abstract type member/type parameter)
@@ -2013,7 +2013,7 @@ trait Namers extends MethodSynthesis {
   trait LockingTypeCompleter extends TypeCompleter {
     def completeImpl(sym: Symbol): Unit
 
-    override def complete(sym: Symbol) = {
+    override def actuallyComplete(sym: Symbol) = {
       lockedCount += 1
       try completeImpl(sym)
       finally lockedCount -= 1
@@ -2063,7 +2063,7 @@ trait Namers extends MethodSynthesis {
 
     val tree = completer.tree
 
-    override def complete(sym: Symbol): Unit = {
+    override def actuallyComplete(sym: Symbol): Unit = {
       completer.complete(sym)
     }
   }

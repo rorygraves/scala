@@ -117,7 +117,7 @@ trait Infer extends Checkable {
   // [Eugene] is there a better way?
   private object CheckAccessibleMacroCycle extends TypeCompleter {
     val tree = EmptyTree
-    override def complete(sym: Symbol) = ()
+    override def actuallyComplete(sym: Symbol) = ()
   }
 
   /** A fresh type variable with given type parameter as origin.

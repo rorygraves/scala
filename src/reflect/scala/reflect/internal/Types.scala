@@ -214,7 +214,7 @@ trait Types
     override def atOwner(owner: Symbol) = maybeRewrap(underlying.atOwner(owner))
     override def prefixString = underlying.prefixString
     override def isComplete = underlying.isComplete
-    override def complete(sym: Symbol) = underlying.complete(sym)
+    override def actuallyComplete(sym: Symbol) = underlying.complete(sym)
     override def load(sym: Symbol): Unit = { underlying.load(sym) }
     override def withAnnotations(annots: List[AnnotationInfo]) = maybeRewrap(underlying.withAnnotations(annots))
     override def withoutAnnotations = maybeRewrap(underlying.withoutAnnotations)
@@ -324,7 +324,17 @@ trait Types
     def isShowAsInfixType: Boolean = false
 
     /** If this is a lazy type, assign a new type to `sym`. */
-    def complete(sym: Symbol): Unit = {}
+    @inline def complete(sym: Symbol): Unit = {
+      Types.pushCompletion(sym)
+      val pad = "│" * (Types.completions.size - 1)
+      val bullet = if (pad.isEmpty) "." else "├"
+      val msg = s"${pad}${bullet}completing ${sym.fullName} from ${this.getClass}"
+      println(scala.reflect.internal.util.Position.formatShort(sym.pos, msg))
+      actuallyComplete(sym)
+      Types.popCompletion()
+    }
+
+    def actuallyComplete(sym: Symbol): Unit = {}
 
     /** If this is a lazy type corresponding to a subclass add it to its
      *  parents children
@@ -3883,7 +3893,7 @@ trait Types
    */
   abstract class LazyType extends Type {
     override def isComplete: Boolean = false
-    override def complete(sym: Symbol): Unit
+    override def actuallyComplete(sym: Symbol): Unit
     override def safeToString = "<?>"
     override def kind = "LazyType"
   }
@@ -5231,6 +5241,19 @@ trait Types
   implicit val TypeBoundsTag = ClassTag[TypeBounds](classOf[TypeBounds])
   implicit val TypeRefTag = ClassTag[TypeRef](classOf[TypeRef])
   implicit val TypeTagg = ClassTag[Type](classOf[Type])
+}
+
+object Types {
+  // No need to synchronize because everything is done in the main thread
+  var completions: List[AnyRef] = Nil
+  def pushCompletion(sym: AnyRef): Unit = {
+    completions = sym :: completions
+  }
+  def popCompletion(): AnyRef = {
+    val result = completions.head
+    completions = completions.tail
+    result
+  }
 }
 
 object TypeConstants {

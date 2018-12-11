@@ -54,6 +54,15 @@ object Position {
     prefix + (pos showError msg)
   }
 
+  def formatShort(posIn: Position, msg: String): String = {
+    val pos    = if (posIn eq null) NoPosition else posIn
+    val prefix = pos.source match {
+      case NoSourceFile     => ""
+      case s                => s.file.name + ":"
+    }
+    f"${prefix + pos.show}%30s" + msg
+  }
+
   def offset(source: SourceFile, point: Int): Position                            = validate(new OffsetPosition(source, point))
   def range(source: SourceFile, start: Int, point: Int, end: Int): Position       = validate(new RangePosition(source, start, point, end))
   def transparent(source: SourceFile, start: Int, point: Int, end: Int): Position = validate(new TransparentPosition(source, start, point, end))

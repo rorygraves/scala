@@ -219,7 +219,7 @@ abstract class SymbolLoaders {
       })
     }
 
-    override def complete(root: Symbol): Unit = {
+    override def actuallyComplete(root: Symbol): Unit = {
       try {
         val start = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime())
         val currentphase = phase

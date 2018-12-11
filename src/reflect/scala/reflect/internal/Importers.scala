@@ -83,7 +83,7 @@ trait Importers { to: SymbolTable =>
         my setFlag Flags.LOCKED
         val mytypeParams = their.typeParams map importSymbol
         new LazyPolyType(mytypeParams) with FlagAgnosticCompleter {
-          override def complete(my: to.Symbol): Unit = {
+          override def actuallyComplete(my: to.Symbol): Unit = {
             val theirCore = their.info match {
               case from.PolyType(_, core) => core
               case core => core

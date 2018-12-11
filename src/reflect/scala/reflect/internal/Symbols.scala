@@ -3814,3 +3814,4 @@ trait SymbolsStats {
   val typeSymbolCount     = newCounter("#type symbols")
   val classSymbolCount    = newCounter("#class symbols")
 }
+
