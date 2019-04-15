@@ -19,12 +19,12 @@ import org.openjdk.jmh.infra.Blackhole
 
 import scala.reflect.internal.util.cache._
 
-//@Threads(4)
-//@BenchmarkMode(Array(org.openjdk.jmh.annotations.Mode.Throughput))
-//class NameLookupBenchmark4Threads extends NameLookupBenchmark
-//@Threads(2)
-//@BenchmarkMode(Array(org.openjdk.jmh.annotations.Mode.Throughput))
-//class NameLookupBenchmark2Threads extends NameLookupBenchmark
+@Threads(4)
+@BenchmarkMode(Array(org.openjdk.jmh.annotations.Mode.Throughput))
+class NameLookupBenchmark4Threads extends NameLookupBenchmark
+@Threads(2)
+@BenchmarkMode(Array(org.openjdk.jmh.annotations.Mode.Throughput))
+class NameLookupBenchmark2Threads extends NameLookupBenchmark
 
 @BenchmarkMode(Array(org.openjdk.jmh.annotations.Mode.Throughput))
 @Fork(1)
@@ -45,24 +45,24 @@ class NameLookupBenchmark {
     Collections.shuffle(java.util.Arrays.asList(data))
   }
 
-  @Benchmark
-  def chmGet2(bh: Blackhole): Unit = chmGet(bh)
-  @Benchmark
-  def chmGet(bh: Blackhole): Unit = {
-    var i = 0
-    val d = data
-    while (i < d.length) {
-      val key = data(i)
-      var found = map.get(key)
-      if (found eq null) {
-        val x = new TestNode(key,null)
-        found = map.put(key,x)
-        if (found eq null) found = x
-      }
-      bh.consume(found)
-      i += 1
-    }
-  }
+//  @Benchmark
+//  def chmGet2(bh: Blackhole): Unit = chmGet(bh)
+//  @Benchmark
+//  def chmGet(bh: Blackhole): Unit = {
+//    var i = 0
+//    val d = data
+//    while (i < d.length) {
+//      val key = data(i)
+//      var found = map.get(key)
+//      if (found eq null) {
+//        val x = new TestNode(key,null)
+//        found = map.put(key,x)
+//        if (found eq null) found = x
+//      }
+//      bh.consume(found)
+//      i += 1
+//    }
+//  }
 //  @Benchmark
 //  def chmGetExisting(bh: Blackhole): Unit = {
 //    var i = 0
@@ -103,17 +103,17 @@ class NameLookupBenchmark {
       i += 1
     }
   }
-  @Benchmark
-  def lookupJ(bh: Blackhole): Unit = {
-    var i = 0
-    val d = data
-    while (i < d.length) {
-      val key = data(i)
-      val found = cacheJ.insertOrFind(key)
-      bh.consume(found)
-      i += 1
-    }
-  }
+//  @Benchmark
+//  def lookupJ(bh: Blackhole): Unit = {
+//    var i = 0
+//    val d = data
+//    while (i < d.length) {
+//      val key = data(i)
+//      val found = cacheJ.insertOrFind(key)
+//      bh.consume(found)
+//      i += 1
+//    }
+//  }
 //  @Benchmark
 //  def lookupExisting(bh: Blackhole): Unit = {
 //    var i = 0
