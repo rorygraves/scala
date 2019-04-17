@@ -60,6 +60,34 @@ class NameLookupTest {
     assertEquals(0, bad.size)
     assertEquals(data.length, cache.size)
   }
+  @Test def insertAll2(): Unit = {
+    import scala.collection.JavaConverters._
+    val all = new util.IdentityHashMap[TestNode, String]()
+
+    for (i <- 0 until data.length) {
+      val key = data(i)
+      val existing = all.put(cache.insertOrFind(key), key)
+      assertTrue((existing eq null) || existing == key)
+    }
+    cache.initHack
+
+    val random = new Random()
+    for (i <- 1 to data.length * 10) {
+      val r = random.nextInt(data.length)
+      val key = data(r)
+      val cached = cache.insertOrFind2(key)
+      val existing = all.put(cached, key)
+      assertTrue((existing eq null) || existing == key)
+    }
+    for (i <- 0 until data.length) {
+      val key = data(i)
+      val existing = all.put(cache.insertOrFind(key), key)
+      assertTrue((existing eq null) || existing == key)
+    }
+    val bad = all.asScala groupBy {_._2} filter {_._2.size > 1}
+    assertEquals(0, bad.size)
+    assertEquals(data.length, cache.size)
+  }
   @Test def sizeJ(): Unit = {
     assertEquals(0, cacheJ.size)
     val f1 = cacheJ.insertOrFind("foo")

@@ -20,18 +20,20 @@ import scala.annotation.tailrec
 abstract class Node(val key: String, @volatile private[cache] var next: Node) extends AnyRef
 
 abstract class NodeInterner[T <: Node] {
+
   final def size = approxSize.get
   protected def createNode(key: String, node: T): T
 
   final def insertOrFind(key: String): T = {
     val hash = key.hashCode
+    val improved = hash ^ (hash >>> 11) ^ (hash >>> 22)
     var oldTail: Node = null
 
     var node: Node = null
     do {
       //deliberately hiding this.data
       val data = initial()
-      val bucket = hash & (data.length - 1)
+      val bucket = improved & (data.length - 1)
       val head = data.get(bucket)
       node = head
       while ((node ne null) &&
@@ -48,6 +50,7 @@ abstract class NodeInterner[T <: Node] {
         val newNode = createNode(key, head.asInstanceOf[T])
         if (data.compareAndSet(bucket, head, newNode) &&
           // volatile read to ensure that we have not grown in another thread
+          //must be after the CAS and guard afterInsert
           (data eq this.data.get)) {
           afterInsert(data)
           node = newNode
@@ -68,7 +71,9 @@ abstract class NodeInterner[T <: Node] {
   }
   final def getExistingImpl(key: String): Node = {
     val data = initial
-    val list = data.get(key.hashCode & (data.length() -1))
+    val hash = key.hashCode
+    val improved = hash ^ (hash >>> 11) ^ (hash >>> 22)
+    val list = data.get(improved & (data.length() -1))
       getExistingImpl(list,key)
   }
   @tailrec private def getExistingImpl(list: Node, key: String): Node = {
@@ -119,7 +124,9 @@ abstract class NodeInterner[T <: Node] {
             var tail1: Node = null
             var sourceNode = data.get(sourceIdx)
             while (sourceNode ne null) {
-              if ((sourceNode.key.hashCode & mask) == 0) {
+              val hash = sourceNode.key.hashCode
+              val improved = hash ^ (hash >>> 11) ^ (hash >>> 22)
+              if ((improved & mask) == 0) {
                 if (head0 eq null) head0 = sourceNode
                 else tail0.next = sourceNode
                 tail0 = sourceNode
@@ -142,9 +149,141 @@ abstract class NodeInterner[T <: Node] {
     }
   }
 
-
   private[this] val approxSize = new AtomicInteger
-  private[this] final val data = new AtomicReference(new AtomicReferenceArray[Node](1024))
+  private[this] final val data = new AtomicReference(new AtomicReferenceArray[Node](16384))
+
+  //hacks
+  def initHack: Unit = {
+    data2 = data.get
+    data3 = new Array[Node](data2.length)
+    for ( i <- 0 until data2.length) {
+      data3(i) = data2.get(i)
+    }
+  }
+
+
+  @volatile private[this] final var data2: AtomicReferenceArray[Node] = _
+  @volatile private[this] final var data3: Array[Node] = _
+
+
+  private def initial2(): AtomicReferenceArray[Node] = {
+    //volatile read
+    var result = data2
+    //null indicates it is in the process of being rehashed
+    //updates are applied with synchronisation lock on data
+    if (result eq null) data.synchronized {
+      //when we have the lock we can guarantee that the other threads rehash is complete
+      result = data2
+      assert(result ne null)
+    }
+    result
+  }
+  private def initial3(): Array[Node] = {
+    //volatile read
+    var result = data3
+    //null indicates it is in the process of being rehashed
+    //updates are applied with synchronisation lock on data
+    if (result eq null) data.synchronized {
+      //when we have the lock we can guarantee that the other threads rehash is complete
+      result = data3
+      assert(result ne null)
+    }
+    result
+  }
+  final def insertOrFind2(key: String): T = {
+    val hash = key.hashCode
+    val improved = hash ^ (hash >>> 11) ^ (hash >>> 22)
+    var oldTail: Node = null
+
+    var node: Node = null
+    do {
+      //deliberately hiding this.data
+      val data = initial2
+      val bucket = improved & (data.length - 1)
+      val head = data.get(bucket)
+      node = head
+      while ((node ne null) &&
+        // we have already checked the tail
+        (node ne oldTail) &&
+        // its not equal. HashCode is cheap for strings and a good discriminant
+        (node.key.hashCode() != hash || node.key != key))
+        node = node.next
+      if (node eq oldTail) node = null
+      if (node eq null) {
+        // minor optimisation - we can skip this tail if we have to retry
+        // if we came to the end of the chain of nodes we dont need to search the same tail if we fail and try again
+        oldTail = head
+        val newNode = createNode(key, head.asInstanceOf[T])
+        if (data.compareAndSet(bucket, head, newNode) &&
+          // volatile read to ensure that we have not grown in another thread
+          //must be after the CAS and guard afterInsert
+          (data eq this.data2)) {
+          afterInsert(data)
+          node = newNode
+        }
+      } else if (
+      // volatile read to ensure that we have not grown in another thread
+        data ne this.data2) {
+        node = null
+      }
+    } while (node eq null)
+    node.asInstanceOf[T]
+  }
+  final def insertOrFind3(key: String): T = {
+    val hash = key.hashCode
+    val improved = hash ^ (hash >>> 11) ^ (hash >>> 22)
+    var oldTail: Node = null
+
+    var node: Node = null
+    do {
+      //deliberately hiding this.data
+      val data = initial3
+      val bucket = improved & (data.length - 1)
+      val head = data(bucket)
+      node = head
+      while ((node ne null) &&
+        // we have already checked the tail
+        (node ne oldTail) &&
+        // its not equal. HashCode is cheap for strings and a good discriminant
+        (node.key.hashCode() != hash || node.key != key))
+        node = node.next
+      if (node eq oldTail) node = null
+      if (node eq null) {
+        // minor optimisation - we can skip this tail if we have to retry
+        // if we came to the end of the chain of nodes we dont need to search the same tail if we fail and try again
+        oldTail = head
+        val newNode = createNode(key, head.asInstanceOf[T])
+        if (true && //data(bucket, head, newNode) &&
+          // volatile read to ensure that we have not grown in another thread
+          //must be after the CAS and guard afterInsert
+          (data eq this.data3)) {
+          data(bucket) = newNode
+          //afterInsert(data)
+          node = newNode
+        }
+      } else if (
+      // volatile read to ensure that we have not grown in another thread
+        data ne this.data3) {
+        node = null
+      }
+    } while (node eq null)
+    node.asInstanceOf[T]
+  }
+  final def insertOrFind4(key: String): T = {
+    val hash = key.hashCode
+    val improved = hash ^ (hash >>> 11) ^ (hash >>> 22)
+    var oldTail: Node = null
+
+    var node: Node = null
+    do {
+      //deliberately hiding this.data
+      val data = initial3
+      val bucket = improved & (data.length - 1)
+      val head = data(bucket)
+      node = head
+    } while (node eq null)
+    node.asInstanceOf[T]
+  }
 
 }
 
