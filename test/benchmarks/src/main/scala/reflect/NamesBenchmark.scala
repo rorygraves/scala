@@ -16,7 +16,7 @@ import java.util.concurrent.TimeUnit
 
 import org.openjdk.jmh.annotations._
 
-import scala.reflect.internal.Names
+import scala.reflect.internal.{Names, NamesC}
 
 @BenchmarkMode(Array(Mode.AverageTime))
 @Fork(2)
@@ -26,12 +26,15 @@ import scala.reflect.internal.Names
 @State(Scope.Benchmark)
 class NamesBenchmark{
 
-  val names = new Names {}
+  var names = new Names {}
+  var namesC = new NamesC
 
   var someStrings: Array[String] = _
 
   @Setup(Level.Trial) def init(): Unit = {
     someStrings = Array.tabulate(1000)(i => s"${System.nanoTime()} $i")
+    names = new Names {}
+    namesC = new NamesC {}
   }
 
   @Benchmark def createTerm: Int = {
@@ -45,5 +48,17 @@ class NamesBenchmark{
   @Benchmark def createBoth: Int = {
     someStrings map (s => names.newTypeName(s).toTermName.toTypeName.toTermName)
     names.nameTableSize
+  }
+  @Benchmark def createTermC: Int = {
+    someStrings map namesC.newTermName
+    namesC.nameTableSize
+  }
+  @Benchmark def createTypeC: Int = {
+    someStrings map namesC.newTypeName
+    namesC.nameTableSize
+  }
+  @Benchmark def createBothC: Int = {
+    someStrings map (s => namesC.newTypeName(s).toTermName.toTypeName.toTermName)
+    namesC.nameTableSize
   }
 }

@@ -42,7 +42,7 @@ class NameLookupBenchmark {
     map = new ConcurrentHashMap[String, TestNode]()
     cache = new CacheImpl
     cacheJ = new CacheImplJ
-    data = Array.tabulate[String](10000)(_.toString)
+    data = Array.tabulate[String](100)(_.toString)
     Collections.shuffle(java.util.Arrays.asList(data))
 
     //init
@@ -110,6 +110,28 @@ class NameLookupBenchmark {
     }
   }
   @Benchmark
+  def lookupNotGrowing(bh: Blackhole): Unit = {
+    var i = 0
+    val d = data
+    while (i < d.length) {
+      val key = data(i)
+      val found = cache.insertOrFind2NotGrowing(key)
+      bh.consume(found)
+      i += 1
+    }
+  }
+  @Benchmark
+  def lookupNotGrowing2(bh: Blackhole): Unit = {
+    var i = 0
+    val d = data
+    while (i < d.length) {
+      val key = data(i)
+      val found = cache.insertOrFind2NotGrowing2(key)
+      bh.consume(found)
+      i += 1
+    }
+  }
+  @Benchmark
   def lookup2(bh: Blackhole): Unit = {
     var i = 0
     val d = data
@@ -132,12 +154,23 @@ class NameLookupBenchmark {
     }
   }
   @Benchmark
-  def lookup4(bh: Blackhole): Unit = {
+  def lookup3NG1(bh: Blackhole): Unit = {
     var i = 0
     val d = data
     while (i < d.length) {
       val key = data(i)
-      val found = cache.insertOrFind4(key)
+      val found = cache.insertOrFind3NG1(key)
+      bh.consume(found)
+      i += 1
+    }
+  }
+  @Benchmark
+  def lookup3NG2(bh: Blackhole): Unit = {
+    var i = 0
+    val d = data
+    while (i < d.length) {
+      val key = data(i)
+      val found = cache.insertOrFind3NG2(key)
       bh.consume(found)
       i += 1
     }

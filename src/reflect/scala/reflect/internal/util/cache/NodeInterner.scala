@@ -26,7 +26,7 @@ abstract class NodeInterner[T <: Node] {
 
   final def insertOrFind(key: String): T = {
     val hash = key.hashCode
-    val improved = hash ^ (hash >>> 11) ^ (hash >>> 22)
+    val improved = hash ^ (hash >>> 16)
     var oldTail: Node = null
 
     var node: Node = null
@@ -150,20 +150,26 @@ abstract class NodeInterner[T <: Node] {
   }
 
   private[this] val approxSize = new AtomicInteger
-  private[this] final val data = new AtomicReference(new AtomicReferenceArray[Node](16384))
+  private[this] final val data = new AtomicReference(new AtomicReferenceArray[Node](1 << 16))
 
   //hacks
   def initHack: Unit = {
     data2 = data.get
+    data2NotG = data2
     data3 = new Array[Node](data2.length)
     for ( i <- 0 until data2.length) {
       data3(i) = data2.get(i)
     }
+    data3NotG = data3
+    System.arraycopy(data3, 0, data3NotG2,0, data3.length)
   }
 
 
   @volatile private[this] final var data2: AtomicReferenceArray[Node] = _
+  private[this] final var data2NotG: AtomicReferenceArray[Node] = _
   @volatile private[this] final var data3: Array[Node] = _
+  private[this] final var data3NotG: Array[Node] = _
+  private[this] final val data3NotG2: Array[Node] = new Array[Node](1 << 16)
 
 
   private def initial2(): AtomicReferenceArray[Node] = {
@@ -192,7 +198,7 @@ abstract class NodeInterner[T <: Node] {
   }
   final def insertOrFind2(key: String): T = {
     val hash = key.hashCode
-    val improved = hash ^ (hash >>> 11) ^ (hash >>> 22)
+    val improved = hash ^ (hash >>> 16)
     var oldTail: Node = null
 
     var node: Node = null
@@ -229,9 +235,74 @@ abstract class NodeInterner[T <: Node] {
     } while (node eq null)
     node.asInstanceOf[T]
   }
+  final def insertOrFind2NotGrowing(key: String): T = {
+    val hash = key.hashCode
+    val improved = hash ^ (hash >>> 16)
+    //    var oldTail: Node = null
+
+    var node: Node = null
+    val data = data2NotG
+    val bucket = improved & (data.length - 1)
+    do {
+      //deliberately hiding this.data
+      val head = data.get(bucket)
+      node = head
+      while ((node ne null) &&
+        //        // we have already checked the tail
+        //        (node ne oldTail) &&
+        // its not equal. HashCode is cheap for strings and a good discriminant
+        (node.key.hashCode() != hash || node.key != key))
+        node = node.next
+      //  if (node eq oldTail) node = null
+      if (node eq null) {
+        //        // minor optimisation - we can skip this tail if we have to retry
+        //        // if we came to the end of the chain of nodes we dont need to search the same tail if we fail and try again
+        //        oldTail = head
+        val newNode = createNode(key, head.asInstanceOf[T])
+        if (data.compareAndSet(bucket, head, newNode)){
+          approxSize.incrementAndGet()
+          node = newNode
+        }
+      }
+    } while (node eq null)
+    node.asInstanceOf[T]
+  }
+  final def insertOrFind2NotGrowing2(key: String): T = {
+    val hash = key.hashCode
+    val improved = hash ^ (hash >>> 16)
+        var oldTail: Node = null
+
+    var node: Node = null
+    val data = data2NotG
+    val bucket = improved & (data.length - 1)
+    do {
+      //deliberately hiding this.data
+      val head = data.get(bucket)
+      node = head
+      while ((node ne null) &&
+                // we have already checked the tail
+                (node ne oldTail) &&
+        // its not equal. HashCode is cheap for strings and a good discriminant
+        (node.key.hashCode() != hash || node.key != key))
+        node = node.next
+        if (node eq oldTail) node = null
+      if (node eq null) {
+        val newNode = createNode(key, head.asInstanceOf[T])
+        if (data.compareAndSet(bucket, head, newNode)){
+          approxSize.incrementAndGet()
+          node = newNode
+        } else {
+          // minor optimisation - we can skip this tail if we have to retry
+          // if we came to the end of the chain of nodes we dont need to search the same tail if we fail and try again
+          oldTail = head
+        }
+      }
+    } while (node eq null)
+    node.asInstanceOf[T]
+  }
   final def insertOrFind3(key: String): T = {
     val hash = key.hashCode
-    val improved = hash ^ (hash >>> 11) ^ (hash >>> 22)
+    val improved = hash ^ (hash >>> 16)
     var oldTail: Node = null
 
     var node: Node = null
@@ -269,21 +340,79 @@ abstract class NodeInterner[T <: Node] {
     } while (node eq null)
     node.asInstanceOf[T]
   }
-  final def insertOrFind4(key: String): T = {
+  final def insertOrFind3NG1(key: String): T = {
     val hash = key.hashCode
-    val improved = hash ^ (hash >>> 11) ^ (hash >>> 22)
+    val improved = hash ^ (hash >>> 16)
     var oldTail: Node = null
 
     var node: Node = null
+    //deliberately hiding this.data
+    val data = data3NotG
+    val bucket = improved & (data.length - 1)
     do {
-      //deliberately hiding this.data
-      val data = initial3
-      val bucket = improved & (data.length - 1)
       val head = data(bucket)
       node = head
+      while ((node ne null) &&
+        // we have already checked the tail
+        (node ne oldTail) &&
+        // its not equal. HashCode is cheap for strings and a good discriminant
+        (node.key.hashCode() != hash || node.key != key))
+        node = node.next
+      if (node eq oldTail) node = null
+      if (node eq null) {
+        // minor optimisation - we can skip this tail if we have to retry
+        // if we came to the end of the chain of nodes we dont need to search the same tail if we fail and try again
+        oldTail = head
+        val newNode = createNode(key, head.asInstanceOf[T])
+        if (true //data(bucket, head, newNode) &&
+        // volatile read to ensure that we have not grown in another thread
+        //must be after the CAS and guard afterInsert
+        //(data eq this.data3))
+        ){
+          data(bucket) = newNode
+          //afterInsert(data)
+          node = newNode
+        }
+      }
     } while (node eq null)
     node.asInstanceOf[T]
   }
+  final def insertOrFind3NG2(key: String): T = {
+    val hash = key.hashCode
+    val improved = hash ^ (hash >>> 16)
+    var oldTail: Node = null
 
+    var node: Node = null
+    //deliberately hiding this.data
+    val data = data3NotG
+    val bucket = improved & (data.length - 1)
+    do {
+      val head = data(bucket)
+      node = head
+      while ((node ne null) &&
+        // we have already checked the tail
+        (node ne oldTail) &&
+        // its not equal. HashCode is cheap for strings and a good discriminant
+        (node.key.hashCode() != hash || node.key != key))
+        node = node.next
+      if (node eq oldTail) node = null
+      if (node eq null) {
+        // minor optimisation - we can skip this tail if we have to retry
+        // if we came to the end of the chain of nodes we dont need to search the same tail if we fail and try again
+        oldTail = head
+        val newNode = createNode(key, head.asInstanceOf[T])
+        if (true //data(bucket, head, newNode) &&
+        // volatile read to ensure that we have not grown in another thread
+        //must be after the CAS and guard afterInsert
+        //(data eq this.data3))
+        ){
+          data(bucket) = newNode
+          //afterInsert(data)
+          node = newNode
+        }
+      }
+    } while (node eq null)
+    node.asInstanceOf[T]
+  }
 }
 
