@@ -33,14 +33,14 @@ trait Names extends api.Names {
   implicit final val TermNameTag = ClassTag[TermName](classOf[TermName])
   implicit final val TypeNameTag = ClassTag[TypeName](classOf[TypeName])
 
-  override final def newTypeName(value: String): TypeName = nameTable.newTypeName(value)
-  override final def newTermName(value: String): TermName = nameTable.newTermName(value)
+  @inline override final def newTypeName(value: String): TypeName = nameTable.newTypeName(value)
+  @inline override final def newTermName(value: String): TermName = nameTable.newTermName(value)
   object TermName extends TermNameExtractor {
-    def apply(s: String) = newTermName(s)
+    @inline def apply(s: String) = newTermName(s)
     def unapply(name: TermName): Option[String] = Some(name.toString)
   }
   object TypeName extends TypeNameExtractor {
-    def apply(s: String) = newTypeName(s)
+    @inline def apply(s: String) = newTypeName(s)
     def unapply(name: TypeName): Option[String] = Some(name.toString)
   }
   //deprecated stuff

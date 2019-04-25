@@ -514,6 +514,7 @@ abstract class SymbolTable extends macros.Universe
 
   protected[scala] def currentRunProfilerBeforeCompletion(root: Symbol, associatedFile: AbstractFile): Unit = ()
   protected[scala] def currentRunProfilerAfterCompletion(root: Symbol, associatedFile: AbstractFile): Unit = ()
+
 }
 
 trait SymbolTableStats {
