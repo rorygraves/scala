@@ -125,7 +125,7 @@ sealed class HashMap[A, +B] extends AbstractMap[A, B]
    *  `this` hash map and the second from `that`.
    *
    *  The `merged` method is on average more performant than doing a traversal and reconstructing a
-   *  new immutable hash map from scratch, or `++`.
+   *  new immutable hash map from scratch.
    *
    *  @tparam B1      the value type of the other hash map
    *  @param that     the other hash map
@@ -137,6 +137,73 @@ sealed class HashMap[A, +B] extends AbstractMap[A, B]
 
   override def par = ParHashMap.fromTrie(this)
 
+  private def isCompatibleCBF(cbf: CanBuildFrom[_,_,_]) = {
+    cbf match {
+      case w: WrappedCanBuildFrom[_,_,_] =>
+        val unwrapped = w.unwrap
+        (unwrapped eq HashMap.canBuildFrom) || (unwrapped eq Map.canBuildFrom)
+      case _ =>
+        (cbf eq HashMap.canBuildFrom) || (cbf eq Map.canBuildFrom)
+    }
+  }
+
+  override def ++[B1 >: B](xs: GenTraversableOnce[(A, B1)]): Map[A, B1] = addImpl(xs, HashMap.canBuildFrom[A, B1])
+
+  override def ++[C >: (A, B), That](that: GenTraversableOnce[C])(implicit bf: CanBuildFrom[HashMap[A, B], C, That]): That =
+    addImpl(that, bf)
+  private def addImpl[C >: (A, B), That](that: GenTraversableOnce[C], bf: CanBuildFrom[HashMap[A, B], C, That]): That = {
+    if (isCompatibleCBF(bf)) {
+      //here we know that That =:= HashMap[_, _], or compatible with it
+      that match {
+        case thatHash: HashMap[A, B] =>
+          //default Merge prefers to keep than replace
+          //so we merge from thatHash
+          (thatHash.merged(this) (null) ).asInstanceOf[That]
+        case that =>
+          var result: HashMap[Any, _] = this.asInstanceOf[HashMap[Any, _]]
+          that foreach { case kv: (_, _) => result = result + kv }
+          result.asInstanceOf[That]
+      }
+    } else super.++(that)(bf)
+  }
+
+  override def ++:[C >: (A, B), That](that: TraversableOnce[C])(implicit bf: CanBuildFrom[HashMap[A, B], C, That]): That = {
+    if (isCompatibleCBF(bf)) {
+      //here we know that That =:= HashMap[_, _], or compatible with it
+      that match {
+        case thatHash: HashMap[A, B] =>
+          //default Merge prefers to keep than replace
+          //so we merge from this
+          (this.merged(thatHash)(null)).asInstanceOf[That]
+        case that =>
+          var result: HashMap[A, B] = this.asInstanceOf[HashMap[A, B]]
+          that foreach { case kv: (A, B) =>
+            val key = kv._1
+            result = result.updated0(key, computeHash(key), 0, kv._2, kv, HashMap.liftMerger[A,B](null))
+          }
+          result.asInstanceOf[That]
+      }
+    } else super.++:(that)
+  }
+
+  override def ++:[C >: (A, B), That](that: scala.Traversable[C])(implicit bf: CanBuildFrom[HashMap[A, B], C, That]): That = {
+    if (isCompatibleCBF(bf)) {
+      //here we know that That =:= HashMap[_, _], or compatible with it
+      that match {
+        case thatHash: HashMap[A, B] =>
+          //default Merge prefers to keep than replace
+          //so we merge from this
+          (this.merged(thatHash)(null)).asInstanceOf[That]
+        case that =>
+          var result: HashMap[A, B] = this.asInstanceOf[HashMap[A, B]]
+          that foreach { case kv: (A, B) =>
+            val key = kv._1
+            result = result.updated0(key, computeHash(key), 0, kv._2, kv, HashMap.liftMerger[A,B](null))
+          }
+          result.asInstanceOf[That]
+      }
+    } else super.++:(that)
+  }
 }
 
 /** $factoryInfo
@@ -169,8 +236,18 @@ object HashMap extends ImmutableMapFactory[HashMap] with BitOperations.Int {
     }
   }
 
+  override def newBuilder[A, B]: mutable.Builder[(A, B), HashMap[A, B]] = new HashMapBuilder[A,B]
+  private class HashMapBuilder[A, B] extends mutable.MapBuilder[A, B, HashMap[A, B]](HashMap.empty) {
+    //not sure if this should be part of MapBuilder
+    override def ++=(xs: TraversableOnce[(A, B)]): HashMapBuilder.this.type = {
+      elems ++= xs
+      this
+    }
+  }
+
   /** $mapCanBuildFromInfo */
-  implicit def canBuildFrom[A, B]: CanBuildFrom[Coll, (A, B), HashMap[A, B]] = new MapCanBuildFrom[A, B]
+  implicit def canBuildFrom[A, B]: CanBuildFrom[Coll, (A, B), HashMap[A, B]] = ReusableCBF.asInstanceOf[MapCanBuildFrom[A, B]]
+  private[this] val ReusableCBF = new MapCanBuildFrom[Any, Any]
   def empty[A, B]: HashMap[A, B] = EmptyHashMap.asInstanceOf[HashMap[A, B]]
 
   private object EmptyHashMap extends HashMap[Any, Nothing] { 
@@ -220,8 +297,10 @@ object HashMap extends ImmutableMapFactory[HashMap] with BitOperations.Int {
           if (this.value.asInstanceOf[AnyRef] eq value.asInstanceOf[AnyRef]) this
           else new HashMap1(key, hash, value, kv)
         } else {
-          val nkv = merger(this.ensurePair, if(kv != null) kv else (key, value))
-          new HashMap1(nkv._1, hash, nkv._2, nkv)
+          val current = this.ensurePair
+          val nkv = merger(current, if(kv != null) kv else (key, value))
+          if (current eq nkv) this
+          else new HashMap1(nkv._1, hash, nkv._2, nkv)
         }
       } else {
         if (hash != this.hash) {
