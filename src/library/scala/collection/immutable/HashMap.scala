@@ -154,7 +154,9 @@ sealed class HashMap[A, +B] extends AbstractMap[A, B]
   private def addImpl[C >: (A, B), That](that: GenTraversableOnce[C], bf: CanBuildFrom[HashMap[A, B], C, That]): That = {
     if (isCompatibleCBF(bf)) {
       //here we know that That =:= HashMap[_, _], or compatible with it
-      that match {
+      if (this eq that.asInstanceOf[AnyRef]) that.asInstanceOf[That]
+      else if (that.isEmpty) this.asInstanceOf[That]
+      else that match {
         case thatHash: HashMap[A, B] =>
           //default Merge prefers to keep than replace
           //so we merge from thatHash
@@ -170,7 +172,9 @@ sealed class HashMap[A, +B] extends AbstractMap[A, B]
   override def ++:[C >: (A, B), That](that: TraversableOnce[C])(implicit bf: CanBuildFrom[HashMap[A, B], C, That]): That = {
     if (isCompatibleCBF(bf)) {
       //here we know that That =:= HashMap[_, _], or compatible with it
-      that match {
+      if (this eq that.asInstanceOf[AnyRef]) that.asInstanceOf[That]
+      else if (that.isEmpty) this.asInstanceOf[That]
+      else that match {
         case thatHash: HashMap[A, B] =>
           //default Merge prefers to keep than replace
           //so we merge from this
@@ -189,7 +193,9 @@ sealed class HashMap[A, +B] extends AbstractMap[A, B]
   override def ++:[C >: (A, B), That](that: scala.Traversable[C])(implicit bf: CanBuildFrom[HashMap[A, B], C, That]): That = {
     if (isCompatibleCBF(bf)) {
       //here we know that That =:= HashMap[_, _], or compatible with it
-      that match {
+      if (this eq that) that.asInstanceOf[That]
+      else if (that.isEmpty) this.asInstanceOf[That]
+      else that match {
         case thatHash: HashMap[A, B] =>
           //default Merge prefers to keep than replace
           //so we merge from this
@@ -225,7 +231,7 @@ object HashMap extends ImmutableMapFactory[HashMap] with BitOperations.Int {
   private def liftMerger[A1, B1](mergef: MergeFunction[A1, B1]): Merger[A1, B1] =
     if (mergef == null) defaultMerger.asInstanceOf[Merger[A1, B1]] else liftMerger0(mergef)
 
-  private[this] val defaultMerger : Merger[Any, Any] = liftMerger0((a,b) => a)
+  private val defaultMerger : Merger[Any, Any] = liftMerger0((a,b) => a)
 
   private[this] def liftMerger0[A1, B1](mergef: MergeFunction[A1, B1]): Merger[A1, B1] = new Merger[A1, B1] {
     self =>
@@ -292,40 +298,54 @@ object HashMap extends ImmutableMapFactory[HashMap] with BitOperations.Int {
     override protected def contains0(key: A, hash: Int, level: Int): Boolean =
       hash == this.hash && key == this.key
     private[collection] override def updated0[B1 >: B](key: A, hash: Int, level: Int, value: B1, kv: (A, B1), merger: Merger[A, B1]): HashMap[A, B1] =
-      if (hash == this.hash && key == this.key ) {
+      if (hash == this.hash && key == this.key) {
         if (merger eq null) {
           if (this.value.asInstanceOf[AnyRef] eq value.asInstanceOf[AnyRef]) this
           else new HashMap1(key, hash, value, kv)
         } else {
           val current = this.ensurePair
-          val nkv = merger(current, if(kv != null) kv else (key, value))
-          if (current eq nkv) this
+          val nkv = merger(current, if (kv != null) kv else (key, value))
+          if ((current eq nkv) || (
+            (current._1.asInstanceOf[AnyRef] eq nkv._1.asInstanceOf[AnyRef]) &&
+              (current._2.asInstanceOf[AnyRef] eq nkv._2.asInstanceOf[AnyRef]))) this
           else new HashMap1(nkv._1, hash, nkv._2, nkv)
         }
       } else {
         if (hash != this.hash) {
           // they have different hashes, but may collide at this level - find a level at which they don't
           val that = new HashMap1[A, B1](key, hash, value, kv)
-          makeHashTrieMap[A,B1](this.hash, this, hash, that, level, 2)
+          makeHashTrieMap[A, B1](this.hash, this, hash, that, level, 2)
         } else {
           // 32-bit hash collision (rare, but not impossible)
-          new HashMapCollision1(hash, ListMap.empty.updated(this.key,this.value).updated(key,value))
+          new HashMapCollision1(hash, ListMap.empty.updated(this.key, this.value).updated(key, value))
         }
       }
 
     override def removed0(key: A, hash: Int, level: Int): HashMap[A, B] =
-      if (hash == this.hash && key == this.key) HashMap.empty[A,B] else this
+      if (hash == this.hash && key == this.key) HashMap.empty[A, B] else this
 
-    override protected def filter0(p: ((A, B)) => Boolean, negate: Boolean, level: Int, buffer: Array[HashMap[A, B @uV]], offset0: Int): HashMap[A, B] =
+    override protected def filter0(p: ((A, B)) => Boolean, negate: Boolean, level: Int, buffer: Array[HashMap[A, B@uV]], offset0: Int): HashMap[A, B] =
       if (negate ^ p(ensurePair)) this else null
 
-    override def iterator: Iterator[(A,B)] = Iterator(ensurePair)
+    override def iterator: Iterator[(A, B)] = Iterator(ensurePair)
     override def foreach[U](f: ((A, B)) => U): Unit = f(ensurePair)
     override private[immutable] def foreachEntry[U](f: (A, B) => U): Unit = f(key, value)
-    // this method may be called multiple times in a multithreaded environment, but that's ok
-    private[HashMap] def ensurePair: (A,B) = if (kv ne null) kv else { kv = (key, value); kv }
+    // this method may be called multiple times in a multi-threaded environment, but that's ok
+    private[HashMap] def ensurePair: (A, B) = if (kv ne null) kv else {
+      kv = (key, value); kv
+    }
+
     protected override def merge0[B1 >: B](that: HashMap[A, B1], level: Int, merger: Merger[A, B1]): HashMap[A, B1] = {
-      that.updated0(key, hash, level, value, kv, merger.invert)
+      that match {
+        case hm1: HashMap1[A, B1] =>
+          if (this.hash == hm1.hash && this.key == hm1.key)
+            if (merger eq HashMap.defaultMerger) this
+            else if (merger eq HashMap.defaultMerger.invert) hm1
+            else this.updated0(hm1.key, hm1.hash, level, hm1.value, hm1.kv, merger)
+          else this.updated0(hm1.key, hm1.hash, level, hm1.value, hm1.kv, merger)
+        case _ =>
+          that.updated0(key, hash, level, value, kv, merger.invert)
+      }
     }
   }
 
@@ -393,6 +413,27 @@ object HashMap extends ImmutableMapFactory[HashMap] with BitOperations.Int {
       List(newhm(x), newhm(y))
     }
     protected override def merge0[B1 >: B](that: HashMap[A, B1], level: Int, merger: Merger[A, B1]): HashMap[A, B1] = {
+      // TODO match based on the type of `that`, something like
+      //      that match {
+      //        case hm: HashTrieMap[A,B1] => hm.merge0(this, level, merger.invert)
+      //        case h1: HashMap1[A,B1] =>
+      //          if (h1.hash != hash) makeHashTrieMap
+      //          else updated0 ...
+      //        case c: HashMapCollision1[A,B1] =>
+      //          if (c.hash != hash) makeHashTrieMap
+      //          else {
+      //            var m: HashMapCollision1[A, B1] = null
+      //            if (size > c.size) {
+      //              m = this
+      //              for (p <- c.kvs) m = m.updated0(p._1, this.hash, level, p._2, p, merger)
+      //            } else {
+      //              m = c
+      //              for (p <- kvs) m = m.updated0(p._1, this.hash, level, p._2, p, merger.invert)
+      //            }
+      //            m
+      //          }
+      //        case EmptyHashMap => this
+      //      }
       // this can be made more efficient by passing the entire ListMap at once
       var m = that
       for (p <- kvs) m = m.updated0(p._1, this.hash, level, p._2, p, merger.invert)
@@ -608,9 +649,35 @@ object HashMap extends ImmutableMapFactory[HashMap] with BitOperations.Int {
 
         // determine the necessary size for the array
         val subcount = Integer.bitCount(thisbm | thatbm)
+        var canBeThis = thisbm == (thisbm | thatbm)
+        var canBeThat = thatbm == (thisbm | thatbm)
 
         // construct a new array of appropriate size
-        val merged = new Array[HashMap[A, B1]](subcount)
+        var merged: Array[HashMap[A, B1]] = if (canBeThis || canBeThat) null else new Array[HashMap[A, B1]](subcount)
+        // note we pass in and return merged to avoid the allocation of the ObjectRef
+        def mergeResult(i: Int, m: HashMap[A, B1], merged: Array[HashMap[A, B1]]): Array[HashMap[A, B1]] = {
+          var res = merged
+          if (res eq null) {
+            if (canBeThis && (m ne thiselems(i))) {
+              canBeThis = false
+              if (!canBeThat) {
+                res = new Array[HashMap[A, B1]](subcount)
+                System.arraycopy(thiselems, 0, res, 0, i)
+              }
+            }
+            if (canBeThat && (m ne thatelems(i))) {
+              canBeThat = false
+              if (!canBeThis) {
+                res = new Array[HashMap[A, B1]](subcount)
+                System.arraycopy(thatelems, 0, res, 0, i)
+              }
+            }
+          }
+          if (res ne null)
+            res(i) = m
+          res
+        }
+        val isDefaultMerger = (merger eq HashMap.defaultMerger) || (merger eq HashMap.defaultMerger.invert)
 
         // run through both bitmaps and add elements to it
         var i = 0
@@ -623,9 +690,13 @@ object HashMap extends ImmutableMapFactory[HashMap] with BitOperations.Int {
 
           // collision
           if (thislsb == thatlsb) {
-            val m = thiselems(thisi).merge0(thatelems(thati), level + 5, merger)
+            val thisAtI = thiselems(thisi)
+            val thatAtI = thatelems(thati)
+            val m = //optimise for the special case of structurally shared maps, and the default merger
+              if ((thisAtI eq thatAtI) && isDefaultMerger) thisAtI
+              else thisAtI.merge0(thatAtI, level + 5, merger)
             totalelems += m.size
-            merged(i) = m
+            merged = mergeResult(i, m, merged)
             thisbm = thisbm & ~thislsb
             thatbm = thatbm & ~thatlsb
             thati += 1
@@ -637,14 +708,14 @@ object HashMap extends ImmutableMapFactory[HashMap] with BitOperations.Int {
             if (unsignedCompare(thislsb - 1, thatlsb - 1)) {
               val m = thiselems(thisi)
               totalelems += m.size
-              merged(i) = m
+              merged = mergeResult(i, m, merged)
               thisbm = thisbm & ~thislsb
               thisi += 1
             }
             else {
               val m = thatelems(thati)
               totalelems += m.size
-              merged(i) = m
+              merged = mergeResult(i, m, merged)
               thatbm = thatbm & ~thatlsb
               thati += 1
             }
@@ -652,9 +723,15 @@ object HashMap extends ImmutableMapFactory[HashMap] with BitOperations.Int {
           i += 1
         }
 
-        new HashTrieMap[A, B1](this.bitmap | that.bitmap, merged, totalelems)
+        if (canBeThis) this
+        else if (canBeThat) that
+        else new HashTrieMap[A, B1](this.bitmap | that.bitmap, merged, totalelems)
+
+        // this doesnt look to be the optimal thing to do
+        // at most one of the elems need to be updated
+        // and maybe none of them, if for instance hm is the value in my leaf
       case hm: HashMapCollision1[_, _] => that.merge0(this, level, merger.invert)
-      case hm: HashMap[_, _] => this
+      case _ if that eq EmptyHashMap => this
       case _ => sys.error("section supposed to be unreachable.")
     }
   }

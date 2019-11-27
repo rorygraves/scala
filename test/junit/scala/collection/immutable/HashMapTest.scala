@@ -1,12 +1,14 @@
 package scala.collection.immutable
 
-import org.junit.Assert.assertEquals
+import org.junit.Assert.{assertEquals, assertSame}
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
 
+import scala.tools.testing.AllocationTest
+
 @RunWith(classOf[JUnit4])
-class HashMapTest {
+class HashMapTest extends AllocationTest {
 
   private val computeHashF = {
     HashMap.empty.computeHash _
@@ -71,5 +73,70 @@ class HashMapTest {
     assert(stillSingleElement.isInstanceOf[HashMap.HashMap1[_, _]])
     val twoElemTrie = stillSingleElement + (PoorlyHashed(2) -> 2)
     assert(twoElemTrie.isInstanceOf[HashMap.HashTrieMap[_, _]])
+  }
+
+  @Test
+  def addEmptyAllocations(): Unit = {
+    val nonEmpty = HashMap("a" -> 1,
+      "b" -> 2,
+      "c" -> 3,
+      "d" -> 4,
+      "e" -> 5,
+      "f" -> 6,
+      "g" -> 7,
+      "h" -> 8,
+      "i" -> 9,
+      "j" -> 10
+    )
+    assertSame(nonEmpty, nonAllocating(nonEmpty ++ HashMap.empty))
+    assertSame(nonEmpty, nonAllocating(nonEmpty ++ Map.empty))
+    assertSame(nonEmpty, nonAllocating(HashMap.empty ++ nonEmpty))
+    assertSame(nonEmpty, nonAllocating(Map.empty ++ nonEmpty))
+  }
+  @Test
+  def addSharedAllocations(): Unit = {
+    val nonEmpty1 = HashMap("a" -> 1,
+      "b" -> 2,
+      "c" -> 3,
+      "d" -> 4,
+      "e" -> 5,
+      "f" -> 6,
+      "g" -> 7,
+      "h" -> 8,
+      "i" -> 9,
+      "j" -> 10
+    )
+    val nonEmpty2 = nonEmpty1 - "a"
+    val nonEmpty3 = nonEmpty1 + ("k" -> 11)
+    assertSame(nonEmpty1, nonAllocating(nonEmpty1 ++ nonEmpty1))
+    assertSame(nonEmpty1, exactAllocates(32)(nonEmpty1 ++ nonEmpty2))
+    assertSame(nonEmpty3, exactAllocates(32)(nonEmpty1 ++ nonEmpty3))
+  }
+  @Test
+  def addCollidingAllocations(): Unit = {
+    val nonEmpty1 = HashMap("a" -> 1,
+      "b" -> 2,
+      "c" -> 3,
+      "d" -> 4,
+      "e" -> 5,
+      "f" -> 6,
+      "g" -> 7,
+      "h" -> 8,
+      "i" -> 9,
+      "j" -> 10
+    )
+    val nonEmpty2 = HashMap("a" -> 1,
+      "b" -> 2,
+      "c" -> 3,
+      "d" -> 4,
+      "e" -> 5,
+      "f" -> 6,
+      "g" -> 7,
+      "h" -> 8,
+      "i" -> 9,
+      "j" -> 10
+    )
+    assertSame(nonEmpty2, exactAllocates(64)(
+      nonEmpty1 ++ nonEmpty2))
   }
 }
