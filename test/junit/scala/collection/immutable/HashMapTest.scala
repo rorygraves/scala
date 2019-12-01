@@ -109,8 +109,8 @@ class HashMapTest extends AllocationTest {
     val nonEmpty2 = nonEmpty1 - "a"
     val nonEmpty3 = nonEmpty1 + ("k" -> 11)
     assertSame(nonEmpty1, nonAllocating(nonEmpty1 ++ nonEmpty1))
-    assertSame(nonEmpty1, exactAllocates(32)(nonEmpty1 ++ nonEmpty2))
-    assertSame(nonEmpty3, exactAllocates(32)(nonEmpty1 ++ nonEmpty3))
+    assertSame(nonEmpty1, nonAllocating(nonEmpty1 ++ nonEmpty2))
+    assertSame(nonEmpty3, nonAllocating(nonEmpty1 ++ nonEmpty3))
   }
   @Test
   def addCollidingAllocations(): Unit = {
@@ -136,7 +136,6 @@ class HashMapTest extends AllocationTest {
       "i" -> 9,
       "j" -> 10
     )
-    assertSame(nonEmpty2, exactAllocates(64)(
-      nonEmpty1 ++ nonEmpty2))
+    assertSame(nonEmpty2, nonAllocating(nonEmpty1 ++ nonEmpty2))
   }
 }
