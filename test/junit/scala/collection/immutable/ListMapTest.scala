@@ -5,8 +5,10 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
 
+import scala.tools.testing.AllocationTest
+
 @RunWith(classOf[JUnit4])
-class ListMapTest {
+class ListMapTest extends AllocationTest{
 
   @Test
   def t7445(): Unit = {
@@ -45,4 +47,22 @@ class ListMapTest {
     val m = ListMap(1 -> 1, 2 -> 2, 3 -> 3, 5 -> 5, 4 -> 4)
     assertEquals(List(1 -> 1, 2 -> 2, 3 -> 3, 5 -> 5, 4 -> 4), m.iterator.toList)
   }
+
+  @Test
+  def nonAllocatingEmpty(): Unit = {
+    val m = ListMap(1 -> 1, 2 -> 2, 3 -> 3)
+
+    nonAllocating(m ++ ListMap.empty)
+    nonAllocating(m ++ Map.empty)
+    nonAllocating(ListMap.empty ++ m)
+    nonAllocating(m ++ m)
+  }
+
+  @Test
+  def nonAllocatingAdd(): Unit = {
+    val m = ListMap(1 -> 1, 2 -> 2, 3 -> 3)
+    val add = (3 -> 3)
+    nonAllocating(m + add)
+  }
+
 }

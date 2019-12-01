@@ -16,6 +16,7 @@ package immutable
 
 import generic._
 import scala.annotation.tailrec
+import scala.runtime.AbstractFunction2
 import scala.util.hashing.MurmurHash3
 
 /**
@@ -106,7 +107,30 @@ sealed class ListMap[A, +B] extends AbstractMap[A, B]
 
   override def ++[B1 >: B](xs: GenTraversableOnce[(A, B1)]): ListMap[A, B1] =
     if (xs.isEmpty) this
-    else ((repr: ListMap[A, B1]) /: xs) (_ + _)
+    else xs match {
+      case that: ListMap[A,B1] =>
+        if (isEmpty) that
+          //we switch on size, because there is a possibility of structural sharing
+          //iff this is a subset of that or that is a a subset of this
+        else if (size >= that.size) {
+          object acc extends AbstractFunction2[A,B1, ()] {
+            var result = ListMap.this
+            override def apply(a: A, b: B1): Unit = {
+              val found = result.findOrNullInternal(a)
+            }
+          }
+          that.foreachEntry (acc)
+          acc.result
+        } else {
+          object acc extends AbstractFunction2[A,B1, ()] {
+            var result = that
+            override def apply(v1: A, v2: B1): Unit = ???
+          }
+          this.foreachEntry (acc)
+          acc.result
+        }
+      case _ => xs.foldLeft (this: ListMap[A, B1])(_ + _)
+    }
 
   def iterator: Iterator[(A, B)] = {
     def reverseList = {
@@ -156,6 +180,11 @@ sealed class ListMap[A, +B] extends AbstractMap[A, B]
       else if (k == cur.key) Some(cur.value)
       else getInternal(cur.next, k)
 
+    @tailrec private[ListMap] final def findOrNullInternal(cur: ListMap[A, B1], k: A): ListMap[A, B1] =
+      if (cur.isEmpty) null
+      else if (k == cur.key) cur
+      else findOrNullInternal(cur.next, k)
+
     override def contains(k: A): Boolean = containsInternal(this, k)
 
     @tailrec private[this] def containsInternal(cur: ListMap[A, B1], k: A): Boolean =
@@ -164,7 +193,7 @@ sealed class ListMap[A, +B] extends AbstractMap[A, B]
       else containsInternal(cur.next, k)
 
     override def updated[B2 >: B1](k: A, v: B2): ListMap[A, B2] = {
-      val m = this - k
+      val m: ListMap[Any, Any] = this - k
       new m.Node[B2](k, v)
     }
 
