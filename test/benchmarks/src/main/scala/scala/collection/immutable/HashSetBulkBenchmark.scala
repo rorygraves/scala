@@ -148,3 +148,23 @@ class HashSetIntersectBenchmark extends HashSetBulkBenchmark {
     bh.consume(set1.intersect(set2))
   }
 }
+//for testing, debugging etc
+//object Test extends App {
+//  val bh = new Blackhole("Today's password is swordfish. I understand instantiating Blackholes directly is dangerous.")
+//
+//  val tt = new HashSetPlusPlusBenchmark
+//  for (sharing <- List(0,20,40,60,80,90,100);
+//       size <- List(10,100,1000,10000)) {
+//    println(s"size $size, sharing $sharing")
+//    tt.size = size
+//    tt.sharing = sharing
+//    tt.initKeys()
+//    tt.opWithOverlap(bh)
+//    tt.opWithDistinct(bh)
+//    tt.opContainedWithLarge(bh)
+//    tt.opEmptyWithContained(bh)
+//    tt.opLargeWithContained(bh)
+//    tt.opLargeWithEmpty(bh)
+//    tt.opWithShared(bh)
+//  }
+//}
