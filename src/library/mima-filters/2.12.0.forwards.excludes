@@ -57,3 +57,13 @@ ProblemFilters.exclude[DirectMissingMethodProblem]("scala.collection.immutable.H
 ProblemFilters.exclude[DirectMissingMethodProblem]("scala.collection.immutable.HashMap#HashMapCollision1.foreachEntry")
 ProblemFilters.exclude[DirectMissingMethodProblem]("scala.util.hashing.MurmurHash3.product2Hash")
 ProblemFilters.exclude[DirectMissingMethodProblem]("scala.util.hashing.MurmurHash3.emptyMapHash")
+
+ProblemFilters.exclude[DirectMissingMethodProblem]("scala.collection.immutable.HashSet#HashSetCollision1.union0")
+ProblemFilters.exclude[DirectMissingMethodProblem]("scala.collection.immutable.HashSet.union0")
+ProblemFilters.exclude[DirectMissingMethodProblem]("scala.collection.immutable.HashSet#HashTrieSet.union0")
+ProblemFilters.exclude[DirectMissingMethodProblem]("scala.collection.immutable.HashSet#HashSet1.union0")
+
+ProblemFilters.exclude[IncompatibleMethTypeProblem]("scala.collection.immutable.HashSet#HashSetCollision1.union0")
+ProblemFilters.exclude[IncompatibleMethTypeProblem]("scala.collection.immutable.HashSet.union0")
+ProblemFilters.exclude[IncompatibleMethTypeProblem]("scala.collection.immutable.HashSet#HashTrieSet.union0")
+ProblemFilters.exclude[IncompatibleMethTypeProblem]("scala.collection.immutable.HashSet#HashSet1.union0")

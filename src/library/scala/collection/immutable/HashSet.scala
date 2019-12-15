@@ -86,21 +86,7 @@ sealed class HashSet[A] extends AbstractSet[A]
   override def + (elem1: A, elem2: A, elems: A*): HashSet[A] =
     this + elem1 + elem2 ++ elems
 
-
-  override def ++(that: GenTraversableOnce[A]): HashSet[A] = {
-      if (that.isEmpty) this
-      else that match {
-        case that: HashSet[A] =>
-          if (this eq that) this
-          else {
-            nullToEmpty(union0(that, 0))
-          }
-        case _ =>
-          super.++(that)
-      }
-  }
-
-  override def ++[B >: A, That](that: GenTraversableOnce[B])(implicit bf: CanBuildFrom[HashSet[A], B, That]): That = addImpl(that)(bf)
+  //override def ++[B >: A, That](that: GenTraversableOnce[B])(implicit bf: CanBuildFrom[HashSet[A], B, That]): That = addImpl(that)(bf)
 
   private def addImpl[B >: A, That](that: GenTraversableOnce[B])(implicit bf: CanBuildFrom[HashSet[A], B, That]): That = {
     if ((bf eq Set.canBuildFrom) || (bf eq HashSet.canBuildFrom)) {
@@ -258,9 +244,9 @@ object HashSet extends ImmutableSetFactory[HashSet] {
       }
       new HashTrieSet[A](bitmap, elems, elem0.size + elem1.size)
     } else {
-      val elems = new Array[HashSet[A]](1)
       val bitmap = (1 << index0)
       val child = makeHashTrieSet(hash0, elem0, hash1, elem1, level + 5)
+      val elems = new Array[HashSet[A]](1)
       elems(0) = child
       new HashTrieSet[A](bitmap, elems, child.size)
     }
@@ -288,15 +274,13 @@ object HashSet extends ImmutableSetFactory[HashSet] {
     }
 
     override private[collection] def updated0(key: A, hash: Int, level: Int): HashSet[A] =
-      if (hash == this.hash && key == this.key) this
-      else {
-        if (hash != this.hash) {
-          makeHashTrieSet(this.hash, this, hash, new HashSet1(key, hash), level)
-        } else {
-          // 32-bit hash collision (rare, but not impossible)
+      if (hash == this.hash)
+        if (key == this.key) this
+        else
+        // 32-bit hash collision (rare, but not impossible)
           new HashSetCollision1(hash, ListSet.empty + this.key + key)
-        }
-      }
+      else
+          makeHashTrieSet(this.hash, this, hash, new HashSet1(key, hash), level)
 
     override private[immutable] def union0(that: HashSet[A], level: Int) =
       that match {
@@ -534,7 +518,7 @@ object HashSet extends ImmutableSetFactory[HashSet] {
    */
   class HashTrieSet[A](private val bitmap: Int, private[collection] val elems: Array[HashSet[A]], private val size0: Int)
         extends HashSet[A] {
-    assert(Integer.bitCount(bitmap) == elems.length)
+    // assert(Integer.bitCount(bitmap) == elems.length)
     // assertion has to remain disabled until scala/bug#6197 is solved
     // assert(elems.length > 1 || (elems.length == 1 && elems(0).isInstanceOf[HashTrieSet[_]]))
 

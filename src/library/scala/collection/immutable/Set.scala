@@ -87,18 +87,8 @@ object Set extends ImmutableSetFactory[Set] {
     override def foreach[U](f: Any => U): Unit = ()
     override def toSet[B >: Any]: Set[B] = this.asInstanceOf[Set[B]]
 
-    override def ++(elems: GenTraversableOnce[Any]): Set[Any] =
-      elems match {
-        case hs: HashSet[Any] if hs.size > 4 => hs
-        case hs: Set1[Any] => hs
-        case hs: Set2[Any] => hs
-        case hs: Set3[Any] => hs
-        case hs: Set4[Any] => hs
-        case _ => super.++(elems)
-      }
-
     override def ++[B >: Any, That](that: GenTraversableOnce[B])(implicit bf: CanBuildFrom[Set[Any], B, That]): That = {
-      if (bf eq Set.canBuildFrom)       that match {
+      if (bf eq Set.canBuildFrom) that match {
         case hs: HashSet[Any] if hs.size > 4 => hs.asInstanceOf[That]
         case hs: Set1[Any] => hs.asInstanceOf[That]
         case hs: Set2[Any] => hs.asInstanceOf[That]
@@ -106,7 +96,7 @@ object Set extends ImmutableSetFactory[Set] {
         case hs: Set4[Any] => hs.asInstanceOf[That]
         case _ => super.++(that)
       }
-      else if (bf eq HashSet.canBuildFrom)       that match {
+      else if (bf eq HashSet.canBuildFrom) that match {
         case hs: HashSet[Any] => hs.asInstanceOf[That]
         case _ => super.++(that)
       } else super.++(that)

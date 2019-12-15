@@ -26,11 +26,6 @@ with scala.collection.SetLike[A, Coll]](empty: Coll)
 extends ReusableBuilder[A, Coll] {
   protected var elems: Coll = empty
   def +=(x: A): this.type = { elems = elems + x; this }
-  override def ++=(xs: TraversableOnce[A]): this.type = {
-    elems = elems ++ xs
-    this
-  }
-
   def clear() { elems = empty }
   def result: Coll = elems
 }

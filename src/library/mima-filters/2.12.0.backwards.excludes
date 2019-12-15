@@ -9,3 +9,13 @@ ProblemFilters.exclude[DirectMissingMethodProblem]("scala.collection.mutable.Has
 ProblemFilters.exclude[MissingClassProblem]("scala.concurrent.impl.ExecutionContextImpl$AdaptedForkJoinTask")
 
 ProblemFilters.exclude[DirectMissingMethodProblem]("scala.sys.process.ProcessImpl#CompoundProcess.getExitValue")
+
+ProblemFilters.exclude[DirectMissingMethodProblem]("scala.collection.immutable.HashSet#HashSetCollision1.union0")
+ProblemFilters.exclude[DirectMissingMethodProblem]("scala.collection.immutable.HashSet.union0")
+ProblemFilters.exclude[DirectMissingMethodProblem]("scala.collection.immutable.HashSet#HashTrieSet.union0")
+ProblemFilters.exclude[DirectMissingMethodProblem]("scala.collection.immutable.HashSet#HashSet1.union0")
+
+ProblemFilters.exclude[IncompatibleMethTypeProblem]("scala.collection.immutable.HashSet#HashSetCollision1.union0")
+ProblemFilters.exclude[IncompatibleMethTypeProblem]("scala.collection.immutable.HashSet.union0")
+ProblemFilters.exclude[IncompatibleMethTypeProblem]("scala.collection.immutable.HashSet#HashTrieSet.union0")
+ProblemFilters.exclude[IncompatibleMethTypeProblem]("scala.collection.immutable.HashSet#HashSet1.union0")
