@@ -33,7 +33,7 @@ abstract class HashSetBulkBenchmark {
   @Setup(Level.Trial) def initKeys(): Unit = {
 
     def generate(prefix: String, size: Int) = {
-      Array.tabulate(30)(i => (1 until size).map(k =>
+      Array.tabulate(30)(i => (0 until size).map(k =>
         s"key $i $k")(scala.collection.breakOut): HashSet[String])
     }
 
@@ -44,9 +44,12 @@ abstract class HashSetBulkBenchmark {
     for (i <- 0 until baseData.length - 10) {
       var s1: HashSet[String] = HashSet.empty[String]
       var s2: HashSet[String] = HashSet.empty[String]
-      for (j <- 0 until 10) {
-        s1 ++= baseData(j)
-        s2 ++= baseData(j)
+      for (j <- i until i + 10) {
+        baseData(j) foreach {
+          x =>
+            s1 += x
+            s2 += x
+        }
       }
       overlap(i) = s1
       overlap2(i) = s2
@@ -78,36 +81,36 @@ abstract class HashSetBulkBenchmark {
     }
   }
 
-  @OperationsPerInvocation(10)
+  @OperationsPerInvocation(9)
   @Benchmark def opWithShared(bh: Blackhole): Unit = {
-    var i = 10;
+    var i = 11;
     while (i < 20) {
       operation(bh, shared(i - (10 - sharing / 10)), shared(i))
       i += 1
     }
   }
 
-  @OperationsPerInvocation(10)
+  @OperationsPerInvocation(9)
   @Benchmark def opLargeWithContained(bh: Blackhole): Unit = {
-    var i = 10;
+    var i = 11;
     while (i < 20) {
-      operation(bh, shared(i - (10 - sharing / 10)), baseData(i))
+      operation(bh, overlap(i), baseData(i))
       i += 1
     }
   }
 
-  @OperationsPerInvocation(10)
+  @OperationsPerInvocation(9)
   @Benchmark def opLargeWithEmpty(bh: Blackhole): Unit = {
-    var i = 10;
+    var i = 11;
     while (i < 20) {
       operation(bh, shared(i - (10 - sharing / 10)), HashSet.empty)
       i += 1
     }
   }
 
-  @OperationsPerInvocation(10)
+  @OperationsPerInvocation(9)
   @Benchmark def opContainedWithLarge(bh: Blackhole): Unit = {
-    var i = 10;
+    var i = 11;
     while (i < 20) {
       operation(bh,
         baseData(i),
@@ -117,7 +120,7 @@ abstract class HashSetBulkBenchmark {
   }
 
   @OperationsPerInvocation(10)
-  @Benchmark def opEmptyWithContained(bh: Blackhole): Unit = {
+  @Benchmark def opEmptyWithData(bh: Blackhole): Unit = {
     var i = 10;
     while (i < 20) {
       operation(bh, HashSet.empty, shared(i - (10 - sharing / 10)))
@@ -125,12 +128,28 @@ abstract class HashSetBulkBenchmark {
     }
   }
 
-  def operation(bh: Blackhole, set1: HashSet[String], set2: HashSet[String])
+  def operation(bh: Blackhole, set1: HashSet[String], set2: HashSet[String]):Any
 }
 class HashSetPlusPlusBenchmark extends HashSetBulkBenchmark {
   def operation(bh: Blackhole, set1: HashSet[String], set2: HashSet[String]) = {
-    bh.consume(set1 ++ set2)
+    val r = set1 ++ set2
+    bh.consume(r)
+    r
   }
+  @OperationsPerInvocation(9)
+  @Benchmark override def opLargeWithContained(bh: Blackhole): Unit = {
+    var i = 10;
+    while (i < 20) {
+      val p1 = overlap(i)
+      val p2 = baseData(i)
+      val res = operation(bh, p1, p2)
+      //assert (res.size == res.iterator.toArray.size)
+
+      i += 1
+    }
+  }
+
+
 }
 
 class HashSetUnionBenchmark extends HashSetBulkBenchmark {
@@ -149,22 +168,35 @@ class HashSetIntersectBenchmark extends HashSetBulkBenchmark {
   }
 }
 //for testing, debugging etc
-//object Test extends App {
-//  val bh = new Blackhole("Today's password is swordfish. I understand instantiating Blackholes directly is dangerous.")
-//
-//  val tt = new HashSetPlusPlusBenchmark
-//  for (sharing <- List(0,20,40,60,80,90,100);
-//       size <- List(10,100,1000,10000)) {
-//    println(s"size $size, sharing $sharing")
-//    tt.size = size
-//    tt.sharing = sharing
-//    tt.initKeys()
-//    tt.opWithOverlap(bh)
-//    tt.opWithDistinct(bh)
-//    tt.opContainedWithLarge(bh)
-//    tt.opEmptyWithContained(bh)
-//    tt.opLargeWithContained(bh)
-//    tt.opLargeWithEmpty(bh)
-//    tt.opWithShared(bh)
-//  }
-//}
+object Test extends App {
+
+  val bh = new Blackhole("Today's password is swordfish. I understand instantiating Blackholes directly is dangerous.")
+
+  val tt = new HashSetPlusPlusBenchmark
+
+  for (sharing <- List(0,20,40,60,80,90,100);
+       size <- List(
+         //10,100,1000,
+         10000)) {
+    println(s"size $size, sharing $sharing")
+    tt.size = size
+    tt.sharing = sharing
+    tt.initKeys()
+    while (true) {
+      var j = 0
+      val start = System.nanoTime()
+      while (j < 100) {
+        //      tt.opWithOverlap(bh)
+        //      tt.opWithDistinct(bh)
+        //      tt.opContainedWithLarge(bh)
+        //      tt.opEmptyWithContained(bh)
+        tt.opLargeWithContained(bh)
+        //      tt.opLargeWithEmpty(bh)
+        //      tt.opWithShared(bh)
+        j += 1
+      }
+      val end = System.nanoTime()
+      println((end - start)/1000000)
+    }
+  }
+}
