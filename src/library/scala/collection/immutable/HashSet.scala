@@ -516,13 +516,11 @@ object HashSet extends ImmutableSetFactory[HashSet] {
    * elems: [a,b]
    * children:        ---b----------------a-----------
    */
-  class HashTrieSet[A](private val bitmap: Int, private[collection] val elems: Array[HashSet[A]], private val size0: Int)
+  class HashTrieSet[A](private val bitmap: Int, private[collection] val elems: Array[HashSet[A]], override final val size: Int)
         extends HashSet[A] {
     // assert(Integer.bitCount(bitmap) == elems.length)
     // assertion has to remain disabled until scala/bug#6197 is solved
     // assert(elems.length > 1 || (elems.length == 1 && elems(0).isInstanceOf[HashTrieSet[_]]))
-
-    override def size = size0
 
     override protected def get0(key: A, hash: Int, level: Int): Boolean = {
       val index = (hash >>> level) & 0x1f
@@ -599,8 +597,8 @@ object HashSet extends ImmutableSetFactory[HashSet] {
         val b = that.elems
         var bbm = that.bitmap
         var bi = 0
-        var canBeThis = (abm | bbm) == abm && this.size0 >= that.size0
-        var canBeThat = (abm | bbm) == bbm && this.size0 <= that.size0
+        var canBeThis = (abm | bbm) == abm && this.size >= that.size
+        var canBeThat = (abm | bbm) == bbm && this.size <= that.size
         var resultElems: Array[HashSet[A]] = if (canBeThis || canBeThat) null else new Array[HashSet[A]](Integer.bitCount((abm | bbm)))
 
         var offset = 0
@@ -747,11 +745,11 @@ object HashSet extends ImmutableSetFactory[HashSet] {
         if (rbm == 0) {
           // if the result bitmap is empty, the result is the empty set
           null
-        } else if (rs == size0) {
+        } else if (rs == size) {
           // if the result has the same number of elements as this, it must be identical to this,
           // so we might as well return this
           this
-        } else if (rs == that.size0) {
+        } else if (rs == that.size) {
           // if the result has the same number of elements as that, it must be identical to that,
           // so we might as well return that
           that
@@ -828,7 +826,7 @@ object HashSet extends ImmutableSetFactory[HashSet] {
         }
         if (rbm == 0) {
           null
-        } else if (rs == this.size0) {
+        } else if (rs == this.size) {
           // if the result has the same number of elements as this, it must be identical to this,
           // so we might as well return this
           this
@@ -890,7 +888,7 @@ object HashSet extends ImmutableSetFactory[HashSet] {
     }
 
     override protected def subsetOf0(that: HashSet[A], level: Int): Boolean = if (that eq this) true else that match {
-      case that: HashTrieSet[A] if this.size0 <= that.size0 =>
+      case that: HashTrieSet[A] if this.size <= that.size =>
         // create local mutable copies of members
         var abm = this.bitmap
         val a = this.elems
@@ -956,7 +954,7 @@ object HashSet extends ImmutableSetFactory[HashSet] {
       if (offset == offset0) {
         // empty
         null
-      } else if (rs == size0) {
+      } else if (rs == size) {
         // unchanged
         this
       } else if (offset == offset0 + 1 && !buffer(offset0).isInstanceOf[HashTrieSet[A]]) {
