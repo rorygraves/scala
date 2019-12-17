@@ -590,18 +590,50 @@ object HashSet extends ImmutableSetFactory[HashSet] {
           new HashTrieSet(bitmap1, elems1, size + that.size)
         }
       case that: HashTrieSet[A] =>
-        val a = this.elems
+        var _a = this
+        var a = this.elems
         var abm = this.bitmap
         var ai = 0
 
-        val b = that.elems
+        var b = that.elems
         var bbm = that.bitmap
         var bi = 0
-        var canBeThis = (abm | bbm) == abm && this.size >= that.size
-        var canBeThat = (abm | bbm) == bbm && this.size <= that.size
-        var resultElems: Array[HashSet[A]] = if (canBeThis || canBeThat) null else {
-          val bc = Integer.bitCount((abm | bbm))
-          new Array[HashSet[A]](bc)
+
+        //we try to merge b into a, so to get structural sharing `a` should be a superset
+        // if there isnt a subset/superset relationship it doesnt matter what a/b are
+        var resultElems: Array[HashSet[A]] = {
+          var aSize = -1
+          var bSize = -1
+          if ((abm | bbm) == abm && {
+            aSize = this.size
+            bSize = that.size
+            aSize >= bSize
+          }) null
+          else if ((abm | bbm) == bbm && {
+            if (aSize == -1) {
+              aSize = this.size
+              bSize = that.size
+            }
+            bSize > aSize
+          }) {
+            //swap a and b
+            {
+              val t = a;
+              a = b;
+              b = t
+            }
+            {
+              val t = abm;
+              abm = bbm;
+              bbm = t
+            }
+            _a = that
+            null
+          }
+          else {
+            val bc = Integer.bitCount((abm | bbm))
+            new Array[HashSet[A]](bc)
+          }
         }
 
         var offset = 0
@@ -625,29 +657,15 @@ object HashSet extends ImmutableSetFactory[HashSet] {
 
             result = if (aai eq bbi) aai else aai.union0(bbi, level + 5)
             resultSize = result.size
-            if (canBeThis && (result ne aai)) {
+            if ((resultElems eq null) && (result ne aai)) {
               // assert (result.size > aai.size)
-              canBeThis = false
-              if (!canBeThat) {
-                resultElems = a.clone()
-              }
-            }
-            // we need an extra check for the `b` side as
-            // the union will prefer to return aai and if aai == bbi but a is a subset of b, we would still prefer to return
-            // b than an entirely new object, to promote structural sharing
-            if (canBeThat && (result ne bbi)
-              && (resultSize != bbi.size)) {
-              // assert ((result eq aai) || result.size > bbi.size)
-              canBeThat = false
-              if (!canBeThis) {
-                resultElems = b.clone()
-              }
+              resultElems = a.clone()
             }
             // clear lowest remaining one bit in abm and increase the a index
-            abm &= ~alsb
+            abm ^= alsb
             ai += 1
             // clear lowest remaining one bit in bbm and increase the b index
-            bbm &= ~blsb
+            bbm ^= alsb //or blsb as they are ==
             bi += 1
             // update lsb
             alsb = abm ^ (abm & (abm - 1))
@@ -659,7 +677,7 @@ object HashSet extends ImmutableSetFactory[HashSet] {
             result = a(ai)
             resultSize = result.size
             // clear lowest remaining one bit in abm and increase the a index
-            abm &= ~alsb
+            abm ^= alsb
             ai += 1
             // update lsb
             alsb = abm ^ (abm & (abm - 1))
@@ -669,7 +687,7 @@ object HashSet extends ImmutableSetFactory[HashSet] {
             result = b(bi)
             resultSize = result.size
             // clear lowest remaining one bit in bbm and increase the b index
-            bbm &= ~blsb
+            bbm ^= blsb
             bi += 1
             // update lsb
             blsb = bbm ^ (bbm & (bbm - 1))
@@ -679,15 +697,10 @@ object HashSet extends ImmutableSetFactory[HashSet] {
             resultElems(offset) = result
           offset += 1
         }
-        // assert (canBeThis == (rs == this.size))
-        // assert (canBeThis || (canBeThat == (rs == that.size)))
-        // assert ((canBeThis || canBeThat) == (resultElems == null))
-        if (canBeThis) {
-          // if the result would be identical to this, we might as well return this
-          this
-        } else if (canBeThat) {
-          // if the result would be identical to that, we might as well return that
-          that
+        // assert ((resultElems eq null)  == (rs == _a.size))
+        if (resultElems eq null) {
+          // if the result would be identical to _a, we might as well return this
+          _a
         } else {
           // we don't have to check whether the result is a leaf, since union will only make the set larger
           // and this is not a leaf to begin with.
