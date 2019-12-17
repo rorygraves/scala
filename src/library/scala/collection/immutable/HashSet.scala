@@ -599,23 +599,32 @@ object HashSet extends ImmutableSetFactory[HashSet] {
         var bi = 0
         var canBeThis = (abm | bbm) == abm && this.size >= that.size
         var canBeThat = (abm | bbm) == bbm && this.size <= that.size
-        var resultElems: Array[HashSet[A]] = if (canBeThis || canBeThat) null else new Array[HashSet[A]](Integer.bitCount((abm | bbm)))
+        var resultElems: Array[HashSet[A]] = if (canBeThis || canBeThat) null else {
+          val bc = Integer.bitCount((abm | bbm))
+          new Array[HashSet[A]](bc)
+        }
 
         var offset = 0
         var rs = 0
 
+        // could be alsb = Integer.lowestOneBit(abm)
+        //but is this faster??
+        // keep fastest in step with adjustments in the loop
+        // lowest remaining bit in abm
+        var alsb = abm ^ (abm & (abm - 1))
+        // lowest remaining bit in bbm
+        var blsb = bbm ^ (bbm & (bbm - 1))
+
+        var result: HashSet[A] = null
+        var resultSize = 0
         // loop as long as there are bits left in either abm or bbm
         while ((abm | bbm) != 0) {
-          // lowest remaining bit in abm
-          val alsb = abm ^ (abm & (abm - 1))
-          // lowest remaining bit in bbm
-          val blsb = bbm ^ (bbm & (bbm - 1))
-          var result: HashSet[A] = null
           if (alsb == blsb) {
             val aai = a(ai)
             val bbi = b(bi)
 
             result = if (aai eq bbi) aai else aai.union0(bbi, level + 5)
+            resultSize = result.size
             if (canBeThis && (result ne aai)) {
               // assert (result.size > aai.size)
               canBeThis = false
@@ -626,35 +635,46 @@ object HashSet extends ImmutableSetFactory[HashSet] {
             // we need an extra check for the `b` side as
             // the union will prefer to return aai and if aai == bbi but a is a subset of b, we would still prefer to return
             // b than an entirely new object, to promote structural sharing
-            if (canBeThat && (result ne bbi) && (result.size != bbi.size)) {
+            if (canBeThat && (result ne bbi)
+              && (resultSize != bbi.size)) {
               // assert ((result eq aai) || result.size > bbi.size)
               canBeThat = false
               if (!canBeThis) {
                 resultElems = b.clone()
               }
             }
-              // clear lowest remaining one bit in abm and increase the a index
-              abm &= ~alsb
-              ai += 1
-              // clear lowest remaining one bit in bbm and increase the b index
-              bbm &= ~blsb
-              bi += 1
+            // clear lowest remaining one bit in abm and increase the a index
+            abm &= ~alsb
+            ai += 1
+            // clear lowest remaining one bit in bbm and increase the b index
+            bbm &= ~blsb
+            bi += 1
+            // update lsb
+            alsb = abm ^ (abm & (abm - 1))
+            blsb = bbm ^ (bbm & (bbm - 1))
+
           } else if (unsignedCompare(alsb - 1, blsb - 1)) {
             // alsb is smaller than blsb, or alsb is set and blsb is 0
             // in any case, alsb is guaranteed to be set here!
             result = a(ai)
+            resultSize = result.size
             // clear lowest remaining one bit in abm and increase the a index
             abm &= ~alsb
             ai += 1
+            // update lsb
+            alsb = abm ^ (abm & (abm - 1))
           } else {
             // blsb is smaller than alsb, or blsb is set and alsb is 0
             // in any case, blsb is guaranteed to be set here!
             result = b(bi)
+            resultSize = result.size
             // clear lowest remaining one bit in bbm and increase the b index
             bbm &= ~blsb
             bi += 1
+            // update lsb
+            blsb = bbm ^ (bbm & (bbm - 1))
           }
-          rs += result.size
+          rs += resultSize
           if (resultElems ne null)
             resultElems(offset) = result
           offset += 1
