@@ -599,17 +599,19 @@ object HashSet extends ImmutableSetFactory[HashSet] {
         var bbm = that.bitmap
         var bi = 0
 
+        var allBits = abm | bbm
+
         //we try to merge b into a, so to get structural sharing `a` should be a superset
         // if there isnt a subset/superset relationship it doesnt matter what a/b are
         var resultElems: Array[HashSet[A]] = {
           var aSize = -1
           var bSize = -1
-          if ((abm | bbm) == abm && {
+          if (allBits == abm && {
             aSize = this.size
             bSize = that.size
             aSize >= bSize
           }) null
-          else if ((abm | bbm) == bbm && {
+          else if (allBits == bbm && {
             if (aSize == -1) {
               aSize = this.size
               bSize = that.size
@@ -631,7 +633,7 @@ object HashSet extends ImmutableSetFactory[HashSet] {
             null
           }
           else {
-            val bc = Integer.bitCount((abm | bbm))
+            val bc = Integer.bitCount(allBits)
             new Array[HashSet[A]](bc)
           }
         }
@@ -642,56 +644,46 @@ object HashSet extends ImmutableSetFactory[HashSet] {
         // could be alsb = Integer.lowestOneBit(abm)
         //but is this faster??
         // keep fastest in step with adjustments in the loop
-        // lowest remaining bit in abm
-        var alsb = abm ^ (abm & (abm - 1))
-        // lowest remaining bit in bbm
-        var blsb = bbm ^ (bbm & (bbm - 1))
+        // lowest remaining bit
+        var lsb = allBits ^ (allBits & (allBits - 1))
 
         var result: HashSet[A] = null
         var resultSize = 0
         // loop as long as there are bits left in either abm or bbm
-        while ((abm | bbm) != 0) {
-          if (alsb == blsb) {
+        while (lsb != 0) {
+          if ((lsb & abm) != 0) {
+            if ((lsb & bbm) != 0) {
             val aai = a(ai)
             val bbi = b(bi)
 
             result = if (aai eq bbi) aai else aai.union0(bbi, level + 5)
             resultSize = result.size
             if ((resultElems eq null) && (result ne aai)) {
-              // assert (result.size > aai.size)
+              assert (result.size > aai.size)
               resultElems = a.clone()
             }
             // clear lowest remaining one bit in abm and increase the a index
-            abm ^= alsb
             ai += 1
             // clear lowest remaining one bit in bbm and increase the b index
-            bbm ^= alsb //or blsb as they are ==
             bi += 1
-            // update lsb
-            alsb = abm ^ (abm & (abm - 1))
-            blsb = bbm ^ (bbm & (bbm - 1))
-
-          } else if (unsignedCompare(alsb - 1, blsb - 1)) {
+          } else  {
             // alsb is smaller than blsb, or alsb is set and blsb is 0
             // in any case, alsb is guaranteed to be set here!
             result = a(ai)
             resultSize = result.size
-            // clear lowest remaining one bit in abm and increase the a index
-            abm ^= alsb
             ai += 1
-            // update lsb
-            alsb = abm ^ (abm & (abm - 1))
-          } else {
+          }} else {
             // blsb is smaller than alsb, or blsb is set and alsb is 0
             // in any case, blsb is guaranteed to be set here!
             result = b(bi)
             resultSize = result.size
-            // clear lowest remaining one bit in bbm and increase the b index
-            bbm ^= blsb
             bi += 1
             // update lsb
-            blsb = bbm ^ (bbm & (bbm - 1))
           }
+          // update lsb
+          allBits ^= lsb
+          lsb = allBits ^ (allBits & (allBits - 1))
+
           rs += resultSize
           if (resultElems ne null)
             resultElems(offset) = result
