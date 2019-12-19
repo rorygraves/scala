@@ -546,7 +546,8 @@ object HashSet extends ImmutableSetFactory[HashSet] {
           val elemsNew = new Array[HashSet[A]](elems.length)
           System.arraycopy(elems, 0, elemsNew, 0, elems.length)
           elemsNew(offset) = subNew
-          new HashTrieSet(bitmap, elemsNew, size + (subNew.size - sub.size))
+          assert (subNew.size - sub.size == 1)
+          new HashTrieSet(bitmap, elemsNew, size + 1)
         }
       } else {
         val elemsNew = new Array[HashSet[A]](elems.length + 1)
@@ -894,16 +895,18 @@ object HashSet extends ImmutableSetFactory[HashSet] {
         else if (subNew eq null) {
           val bitmapNew = bitmap ^ mask
           if (bitmapNew != 0) {
-            val elemsNew = new Array[HashSet[A]](elems.length - 1)
-            System.arraycopy(elems, 0, elemsNew, 0, offset)
-            System.arraycopy(elems, offset + 1, elemsNew, offset, elems.length - offset - 1)
-            val sizeNew = size - sub.size
-            // if we have only one child, which is not a HashTrieSet but a self-contained set like
-            // HashSet1 or HashSetCollision1, return the child instead
-            if (elemsNew.length == 1 && !elemsNew(0).isInstanceOf[HashTrieSet[_]])
-              elemsNew(0)
-            else
+            if (elems.length == 2 && elems(offset ^ 1).isInstanceOf[HashTrieSet[_]] ) {
+              // if we have only one child, which is not a HashTrieSet but a self-contained set like
+              // HashSet1 or HashSetCollision1, return the child instead
+              elems(offset ^ 1)
+            } else {
+              val elemsNew = new Array[HashSet[A]](elems.length - 1)
+              System.arraycopy(elems, 0, elemsNew, 0, offset)
+              System.arraycopy(elems, offset + 1, elemsNew, offset, elems.length - offset - 1)
+              assert (sub.size == 1)
+              val sizeNew = size - 1
               new HashTrieSet(bitmapNew, elemsNew, sizeNew)
+            }
           } else
             null
         } else if(elems.length == 1 && !subNew.isInstanceOf[HashTrieSet[_]]) {
@@ -912,7 +915,8 @@ object HashSet extends ImmutableSetFactory[HashSet] {
           val elemsNew = new Array[HashSet[A]](elems.length)
           System.arraycopy(elems, 0, elemsNew, 0, elems.length)
           elemsNew(offset) = subNew
-          val sizeNew = size + (subNew.size - sub.size)
+          assert (subNew.size - sub.size == -1)
+          val sizeNew = size -1
           new HashTrieSet(bitmap, elemsNew, sizeNew)
         }
       } else {
@@ -921,7 +925,9 @@ object HashSet extends ImmutableSetFactory[HashSet] {
     }
 
     override protected def subsetOf0(that: HashSet[A], level: Int): Boolean = if (that eq this) true else that match {
-      case that: HashTrieSet[A] if this.size <= that.size =>
+      case that: HashTrieSet[A]
+        if (this.bitmap & ~that.bitmap) == 0
+          && this.size <= that.size =>
         // create local mutable copies of members
         var abm = this.bitmap
         val a = this.elems
