@@ -573,13 +573,16 @@ object HashSet extends ImmutableSetFactory[HashSet] {
         val offset = Integer.bitCount(bitmap & (mask - 1))
         if ((bitmap & mask) != 0) {
           val sub = elems(offset)
-          val sub1 = sub.union0(that, level + 5)
-          if (sub eq sub1) this
+          if (sub eq that) this
           else {
-            val elems1 = new Array[HashSet[A]](elems.length)
-            System.arraycopy(elems, 0, elems1, 0, elems.length)
-            elems1(offset) = sub1
-            new HashTrieSet(bitmap, elems1, size + (sub1.size - sub.size))
+            val sub1 = sub.union0(that, level + 5)
+            if (sub eq sub1) this
+            else {
+              val elems1 = new Array[HashSet[A]](elems.length)
+              System.arraycopy(elems, 0, elems1, 0, elems.length)
+              elems1(offset) = sub1
+              new HashTrieSet(bitmap, elems1, size + (sub1.size - sub.size))
+            }
           }
         } else {
           val elems1 = new Array[HashSet[A]](elems.length + 1)
@@ -639,6 +642,9 @@ object HashSet extends ImmutableSetFactory[HashSet] {
         }
 
         var offset = 0
+        // the size f the results so far
+        // only calculated if resultElems if created
+        //as calls to size are expensive
         var rs = 0
 
         // could be alsb = Integer.lowestOneBit(abm)
@@ -648,7 +654,6 @@ object HashSet extends ImmutableSetFactory[HashSet] {
         var lsb = allBits ^ (allBits & (allBits - 1))
 
         var result: HashSet[A] = null
-        var resultSize = 0
         // loop as long as there are bits left in either abm or bbm
         while (lsb != 0) {
           if ((lsb & abm) != 0) {
@@ -657,9 +662,13 @@ object HashSet extends ImmutableSetFactory[HashSet] {
             val bbi = b(bi)
 
             result = if (aai eq bbi) aai else aai.union0(bbi, level + 5)
-            resultSize = result.size
             if ((resultElems eq null) && (result ne aai)) {
-              assert (result.size > aai.size)
+              //assert (result.size > aai.size)
+              var catchup = 0
+              while (catchup < ai) {
+                rs += a(catchup).size
+                catchup += 1
+              }
               resultElems = a.clone()
             }
             // clear lowest remaining one bit in abm and increase the a index
@@ -670,13 +679,11 @@ object HashSet extends ImmutableSetFactory[HashSet] {
             // alsb is smaller than blsb, or alsb is set and blsb is 0
             // in any case, alsb is guaranteed to be set here!
             result = a(ai)
-            resultSize = result.size
             ai += 1
           }} else {
             // blsb is smaller than alsb, or blsb is set and alsb is 0
             // in any case, blsb is guaranteed to be set here!
             result = b(bi)
-            resultSize = result.size
             bi += 1
             // update lsb
           }
@@ -684,14 +691,15 @@ object HashSet extends ImmutableSetFactory[HashSet] {
           allBits ^= lsb
           lsb = allBits ^ (allBits & (allBits - 1))
 
-          rs += resultSize
-          if (resultElems ne null)
+          if (resultElems ne null) {
             resultElems(offset) = result
+            rs += result.size
+          }
           offset += 1
         }
         // assert ((resultElems eq null)  == (rs == _a.size))
         if (resultElems eq null) {
-          // if the result would be identical to _a, we might as well return this
+          // happy days - no change
           _a
         } else {
           // we don't have to check whether the result is a leaf, since union will only make the set larger
