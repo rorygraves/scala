@@ -202,6 +202,18 @@ val mimaFilterSettings = Seq {
     ProblemFilters.exclude[DirectMissingMethodProblem]("scala.collection.immutable.HashSet#LeafHashSet.this"),
 
     // Some static forwarder changes detected after a MiMa upgrade.
+    ProblemFilters.exclude[DirectMissingMethodProblem]("scala.collection.immutable.HashSet.elemHashCode"),
+    ProblemFilters.exclude[DirectMissingMethodProblem]("scala.collection.immutable.HashSet.computeHash"),
+    ProblemFilters.exclude[DirectMissingMethodProblem]("scala.collection.immutable.HashSet.improve"),
+    ProblemFilters.exclude[DirectMissingMethodProblem]("scala.collection.immutable.HashSet#HashTrieSet.bitmap"),
+    ProblemFilters.exclude[DirectMissingMethodProblem]("scala.collection.immutable.HashSet#HashTrieSet.bitmap_="),
+    ProblemFilters.exclude[DirectMissingMethodProblem]("scala.collection.immutable.HashSet#HashTrieSet.elems_="),
+    ProblemFilters.exclude[DirectMissingMethodProblem]("scala.collection.immutable.HashSet#HashTrieSet.size0"),
+    ProblemFilters.exclude[DirectMissingMethodProblem]("scala.collection.immutable.HashSet#HashTrieSet.size0_="),
+    ProblemFilters.exclude[MissingClassProblem]("scala.collection.immutable.HashSet$HashSetBuilder"),
+    ProblemFilters.exclude[MissingClassProblem]("scala.collection.immutable.Set$SetBuilderImpl"),
+
+  // Some static forwarder changes detected after a MiMa upgrade.
     // e.g. static method apply(java.lang.Object)java.lang.Object in class scala.Symbol does not have a correspondent in current version
     ProblemFilters.exclude[DirectMissingMethodProblem]("scala.Symbol.apply"),
     ProblemFilters.exclude[DirectMissingMethodProblem]("scala.sys.process.Process.Future"),

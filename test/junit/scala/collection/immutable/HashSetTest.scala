@@ -184,8 +184,6 @@ class HashSetTest extends AllocationTest {
     })
   }
 
-
-
   def generateWithCollisions(start:Int, end:Int): HashSet[Colliding] = {
     (start to end).map { i => new Colliding(i/10, s"key $i") }(scala.collection.breakOut)
   }
