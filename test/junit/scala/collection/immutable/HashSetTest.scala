@@ -6,6 +6,7 @@ import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
 
 import scala.tools.testing.AllocationTest
+import scala.util.Random
 
 @RunWith(classOf[JUnit4])
 class HashSetTest extends AllocationTest {
@@ -213,6 +214,25 @@ class HashSetTest extends AllocationTest {
     assertSame(initial, initial + first)
     assertSame(initial, initial + new Colliding(first.hashCode, first.other))
 
+  }
+
+  @Test
+  def optimizedAppendAllWorks(): Unit = {
+    case class C(i: Int) {
+      override def hashCode: Int = i % 1024
+    }
+    val setReference = collection.mutable.HashSet[C]()
+    val builder0 = collection.immutable.HashSet.newBuilder[C];
+    for (i <- 1 to 16) {
+      val builder1 = collection.immutable.HashSet.newBuilder[C];
+      for (i <- 1 to 8)
+        builder1 += C(scala.util.Random.nextInt());
+      val s1 = builder1.result()
+      builder0 ++= s1
+      setReference ++= s1
+    }
+    val set0 = builder0.result()
+    assertEquals(set0, setReference)
   }
 
 }

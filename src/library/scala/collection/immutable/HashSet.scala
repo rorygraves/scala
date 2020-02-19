@@ -1336,11 +1336,10 @@ object HashSet extends ImmutableSetFactory[HashSet] {
 
         case trie: HashTrieSet[A] =>
           val rawIndex = (improvedHash >>> level) & 0x1f
-          if ((trie.bitmap & (1 << rawIndex)) == 0)
+          val arrayIndex = compressedIndex(trie, rawIndex)
+          if (arrayIndex == -1)
             addOne(makeMutable(trie), elem, improvedHash, level)
           else {
-            val arrayIndex = compressedIndex(trie, rawIndex)
-
             val old = trie.elems(arrayIndex)
             val merged = if (old eq null) new HashSet1(elem, improvedHash)
             else addOne(old, elem, improvedHash, level + 5)
@@ -1356,12 +1355,19 @@ object HashSet extends ImmutableSetFactory[HashSet] {
       }
     }
 
+    /** return the bit index of the rawIndex in the bitmap of the trie, or -1 if the bit is not in the bitmap */
     private def compressedIndex(trie: HashTrieSet[A], rawIndex: Int): Int = {
       if (trie.bitmap == -1) rawIndex
-      else {
+      else if ((trie.bitmap & (1 << rawIndex)) == 0) {
+        //the value is not in this index
+        -1
+      } else {
         Integer.bitCount(((1 << rawIndex) - 1) & trie.bitmap)
       }
     }
+    /** return the array index for the rawIndex, in the trie elem array
+     * The trei may be mutable, or immutable
+     * returns -1 if the trie is compressed and the index in not in the array */
     private def trieIndex(trie: HashTrieSet[A], rawIndex: Int): Int = {
       if (isMutable(trie) || trie.bitmap == -1) rawIndex
       else compressedIndex(trie, rawIndex)
@@ -1381,19 +1387,25 @@ object HashSet extends ImmutableSetFactory[HashSet] {
         case bLeaf: LeafHashSet[A] =>
           val rawIndex = (bLeaf.hash >>> level) & 0x1f
           val arrayIndex = trieIndex(toNode, rawIndex)
-          val old = toNode.elems(arrayIndex)
-          if (old eq toBeAdded) toNode
-          else if (old eq null) {
-            assert (isMutable(toNode))
-            toNode.elems(arrayIndex) = toBeAdded
-            toNode
+          if (arrayIndex == -1) {
+            val newToNode = makeMutable(toNode)
+            newToNode.elems(rawIndex) = result
+            newToNode
           } else {
-            val result = addHashSet(old, toBeAdded, level + 5)
-            if (result eq old) toNode
-            else {
-              val newToNode = makeMutable(toNode)
-              newToNode.elems(rawIndex) = result
-              newToNode
+            val old = toNode.elems(arrayIndex)
+            if (old eq toBeAdded) toNode
+            else if (old eq null) {
+              assert(isMutable(toNode))
+              toNode.elems(arrayIndex) = toBeAdded
+              toNode
+            } else {
+              val result = addHashSet(old, toBeAdded, level + 5)
+              if (result eq old) toNode
+              else {
+                val newToNode = makeMutable(toNode)
+                newToNode.elems(rawIndex) = result
+                newToNode
+              }
             }
           }
         case bTrie: HashTrieSet[A] =>
@@ -1401,18 +1413,24 @@ object HashSet extends ImmutableSetFactory[HashSet] {
           var bBitSet = bTrie.bitmap
           var bArrayIndex = 0
           while (bBitSet != 0) {
-            val rawIndex = Integer.numberOfTrailingZeros(bBitSet)
-            val aValue = result.elems(trieIndex(result, rawIndex))
             val bValue = bTrie.elems(bArrayIndex)
-            if (aValue ne bValue) {
-              if (aValue eq null) {
-                assert (isMutable(result))
-                result.elems(rawIndex) = bValue
-              } else {
-                val resultAtIndex = addHashSet(aValue, bValue, level + 5)
-                if (resultAtIndex ne aValue) {
-                  result = makeMutable(result)
-                  result.elems(rawIndex) = resultAtIndex
+            val rawIndex = Integer.numberOfTrailingZeros(bBitSet)
+            val aArrayIndex = trieIndex(result, rawIndex)
+            if (aArrayIndex == -1) {
+              result = makeMutable(result)
+              result.elems(rawIndex) = bValue
+            } else {
+              val aValue = result.elems(aArrayIndex)
+              if (aValue ne bValue) {
+                if (aValue eq null) {
+                  assert(isMutable(result))
+                  result.elems(rawIndex) = bValue
+                } else {
+                  val resultAtIndex = addHashSet(aValue, bValue, level + 5)
+                  if (resultAtIndex ne aValue) {
+                    result = makeMutable(result)
+                    result.elems(rawIndex) = resultAtIndex
+                  }
                 }
               }
             }
@@ -1433,12 +1451,12 @@ object HashSet extends ImmutableSetFactory[HashSet] {
         case bTrie: HashTrieSet[A] =>
           val rawIndex = (toNode.hash >>> level) & 0x1f
           val arrayIndex = compressedIndex(bTrie, rawIndex)
-          if ((bTrie.bitmap & arrayIndex) == 0) {
+          if (arrayIndex == -1) {
             val result = makeMutable(bTrie)
             result.elems(rawIndex) = toNode
             result
           } else {
-            val newEle = addToLeafHashSet(toNode, bTrie.elems(rawIndex), level + 5)
+            val newEle = addToLeafHashSet(toNode, bTrie.elems(arrayIndex), level + 5)
             if (newEle eq toBeAdded)
               toBeAdded
             else {
