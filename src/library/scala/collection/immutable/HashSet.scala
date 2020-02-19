@@ -38,8 +38,7 @@ sealed class HashSet[A] extends AbstractSet[A]
                     with GenericSetTemplate[A, HashSet]
                     with SetLike[A, HashSet[A]]
                     with CustomParallelizable[A, ParHashSet[A]]
-                    with Serializable
-{
+                    with Serializable {
   import HashSet.{nullToEmpty, bufferSize, computeHash}
 
   override def companion: GenericCompanion[HashSet] = HashSet
@@ -59,7 +58,7 @@ sealed class HashSet[A] extends AbstractSet[A]
   def contains(e: A): Boolean = get0(e, computeHash(e), 0)
 
   override def subsetOf(that: GenSet[A]) = that match {
-    case that:HashSet[A] =>
+    case that: HashSet[A] =>
       // call the specialized implementation with a level of 0 since both this and that are top-level hash sets
       subsetOf0(that, 0)
     case _ =>
@@ -70,7 +69,8 @@ sealed class HashSet[A] extends AbstractSet[A]
   /**
    * A specialized implementation of subsetOf for when both this and that are HashSet[A] and we can take advantage
    * of the tree structure of both operands and the precalculated hashcodes of the HashSet1 instances.
-   * @param that the other set
+   *
+   * @param that  the other set
    * @param level the level of this and that hashset
    *              The purpose of level is to keep track of how deep we are in the tree.
    *              We need this information for when we arrive at a leaf and have to call get0 on that
@@ -82,9 +82,9 @@ sealed class HashSet[A] extends AbstractSet[A]
     true
   }
 
-  override def + (e: A): HashSet[A] = updated0(e, computeHash(e), 0)
+  override def +(e: A): HashSet[A] = updated0(e, computeHash(e), 0)
 
-  override def + (elem1: A, elem2: A, elems: A*): HashSet[A] =
+  override def +(elem1: A, elem2: A, elems: A*): HashSet[A] =
     this + elem1 + elem2 ++ elems
 
   override def union(that: GenSet[A]): HashSet[A] = that match {
@@ -121,7 +121,8 @@ sealed class HashSet[A] extends AbstractSet[A]
 
   /**
    * Union with a HashSet at a given level
-   * @param that a HashSet
+   *
+   * @param that  a HashSet
    * @param level the depth in the tree. We need to keep track of the level to know how deep we are in the tree
    * @return The union of this and that at the given level. Unless level is zero, the result is not a self-contained
    *         HashSet but needs to be stored at the correct depth
@@ -133,8 +134,9 @@ sealed class HashSet[A] extends AbstractSet[A]
 
   /**
    * Intersection with another hash set at a given level
-   * @param level the depth in the tree. We need to keep track of the level to know how deep we are in the tree
-   * @param buffer a temporary buffer that is used for temporarily storing elements when creating new branch nodes
+   *
+   * @param level   the depth in the tree. We need to keep track of the level to know how deep we are in the tree
+   * @param buffer  a temporary buffer that is used for temporarily storing elements when creating new branch nodes
    * @param offset0 the first offset into the buffer in which we are allowed to write
    * @return The intersection of this and that at the given level. Unless level is zero, the result is not a
    *         self-contained HashSet but needs to be stored at the correct depth
@@ -146,8 +148,9 @@ sealed class HashSet[A] extends AbstractSet[A]
 
   /**
    * Diff with another hash set at a given level
-   * @param level the depth in the tree. We need to keep track of the level to know how deep we are in the tree
-   * @param buffer a temporary buffer that is used for temporarily storing elements when creating new branch nodes
+   *
+   * @param level   the depth in the tree. We need to keep track of the level to know how deep we are in the tree
+   * @param buffer  a temporary buffer that is used for temporarily storing elements when creating new branch nodes
    * @param offset0 the first offset into the buffer in which we are allowed to write
    * @return The diff of this and that at the given level. Unless level is zero, the result is not a
    *         self-contained HashSet but needs to be stored at the correct depth
@@ -157,7 +160,7 @@ sealed class HashSet[A] extends AbstractSet[A]
     null
   }
 
-  def - (e: A): HashSet[A] =
+  def -(e: A): HashSet[A] =
     nullToEmpty(removed0(e, computeHash(e), 0))
 
   override def tail: HashSet[A] = this - head
@@ -179,7 +182,6 @@ sealed class HashSet[A] extends AbstractSet[A]
   }
 
 
-
   protected def filter0(p: A => Boolean, negate: Boolean, level: Int, buffer: Array[HashSet[A]], offset0: Int): HashSet[A] = null
 
   protected def get0(key: A, hash: Int, level: Int): Boolean = false
@@ -192,6 +194,61 @@ sealed class HashSet[A] extends AbstractSet[A]
   protected def writeReplace(): AnyRef = new HashSet.SerializationProxy(this)
 
   override def toSet[B >: A]: Set[B] = this.asInstanceOf[HashSet[B]]
+
+  def printDebug(): Unit = {
+    var indent = -1
+    val seen = new java.util.IdentityHashMap[HashSet[_], Object]
+
+    def loop(node: HashSet[_]): Unit = {
+      indent += 1
+      try {
+        seen.put(node, null)
+        (node: HashSet[_]) match {
+          case HashSet.EmptyHashSet =>
+            println(("  " * indent) + " EmptyHashSet")
+          case set: HashSet.LeafHashSet[_] =>
+            println(("  " * indent) + " " + set.getClass.getSimpleName + "@" + System.identityHashCode(set))
+          case set: HashSet.HashTrieSet[_] =>
+            println(("  " * indent) + " HashTrieSet@" + System.identityHashCode(set))
+            for (elem <- set.elems) {
+              if (elem != null && seen.containsKey(elem)) {
+                println(("  " * (indent + 1)) + "!! DUPLICATE NODE DETECTED. " + set.getClass.getSimpleName + "@" + System.identityHashCode(elem))
+                getClass
+              } else loop(elem)
+            }
+          case _ =>
+        }
+      } finally {
+        indent -= 1
+      }
+    }
+
+    loop(this)
+  }
+
+  def selfCheck(): Unit = {
+
+    val seen = new java.util.IdentityHashMap[HashSet[_], Object]
+
+    def loop(node: HashSet[_]): Unit = {
+      seen.put(node, null)
+      (node: HashSet[_]) match {
+        case HashSet.EmptyHashSet =>
+        case set: HashSet.LeafHashSet[_] =>
+        case set: HashSet.HashTrieSet[_] =>
+          for (elem <- set.elems) {
+            if (elem != null && seen.containsKey(elem)) {
+              printDebug()
+              throw new AssertionError("")
+            }
+            else loop(elem)
+          }
+        case _ =>
+      }
+    }
+
+    loop(this)
+  }
 }
 
 /** $factoryInfo
@@ -527,7 +584,7 @@ object HashSet extends ImmutableSetFactory[HashSet] {
   class HashTrieSet[A](private[HashSet] var bitmap: Int, private[collection] var elems: Array[HashSet[A]], private[HashSet] var size0: Int)
         extends HashSet[A] {
     @inline override def size = size0
-    // assert(Integer.bitCount(bitmap) == elems.length)
+     assert(Integer.bitCount(bitmap) == elems.length)
     // assertion has to remain disabled until scala/bug#6197 is solved
     // assert(elems.length > 1 || (elems.length == 1 && elems(0).isInstanceOf[HashTrieSet[_]]))
 
@@ -1390,6 +1447,7 @@ object HashSet extends ImmutableSetFactory[HashSet] {
           if (arrayIndex == -1) {
             val newToNode = makeMutable(toNode)
             newToNode.elems(rawIndex) = result
+            newToNode.selfCheck()
             newToNode
           } else {
             val old = toNode.elems(arrayIndex)
@@ -1397,6 +1455,7 @@ object HashSet extends ImmutableSetFactory[HashSet] {
             else if (old eq null) {
               assert(isMutable(toNode))
               toNode.elems(arrayIndex) = toBeAdded
+              toNode.selfCheck()
               toNode
             } else {
               val result = addHashSet(old, toBeAdded, level + 5)
@@ -1404,6 +1463,7 @@ object HashSet extends ImmutableSetFactory[HashSet] {
               else {
                 val newToNode = makeMutable(toNode)
                 newToNode.elems(rawIndex) = result
+                newToNode.selfCheck()
                 newToNode
               }
             }
@@ -1437,6 +1497,7 @@ object HashSet extends ImmutableSetFactory[HashSet] {
             bBitSet ^= 1 << rawIndex
             bArrayIndex += 1
           }
+          result.selfCheck()
           result
 
         case empty if empty eq EmptyHashSet => toNode
