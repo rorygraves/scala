@@ -1,7 +1,7 @@
 package scala.collection.immutable
 
 import org.junit.Assert._
-import org.junit.Test
+import org.junit.{Assert, Test}
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
 
@@ -218,21 +218,25 @@ class HashSetTest extends AllocationTest {
 
   @Test
   def optimizedAppendAllWorks(): Unit = {
-    case class C(i: Int) {
-      override def hashCode: Int = i % 1024
-    }
+    case class C(i: Int) { override def hashCode: Int = i % 1024 }
     val setReference = collection.mutable.HashSet[C]()
-    val builder0 = collection.immutable.HashSet.newBuilder[C];
-    for (i <- 1 to 16) {
-      val builder1 = collection.immutable.HashSet.newBuilder[C];
-      for (i <- 1 to 8)
-        builder1 += C(scala.util.Random.nextInt());
-      val s1 = builder1.result()
-      builder0 ++= s1
-      setReference ++= s1
+    for (i <- 1 to 10) {
+      println("iteration " + i)
+      val builder0 = collection.immutable.HashSet.newBuilder[C];
+      for (i <- 1 to 16) {
+        val builder1 = collection.immutable.HashSet.newBuilder[C];
+        for (i <- 1 to 8)
+          builder1 += C(scala.util.Random.nextInt());
+        val s1 = builder1.result()
+        builder0 ++= s1
+        setReference ++= s1
+      }
+      val set0 = builder0.result()
+      set0.foreach(_.hashCode)
+      if (set0 != setReference) {
+        set0.printDebug()
+        Assert.fail("not equals")
+      }
     }
-    val set0 = builder0.result()
-    assertEquals(set0, setReference)
   }
-
 }
