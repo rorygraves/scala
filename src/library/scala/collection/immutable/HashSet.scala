@@ -192,6 +192,54 @@ sealed class HashSet[A] extends AbstractSet[A]
   protected def writeReplace(): AnyRef = new HashSet.SerializationProxy(this)
 
   override def toSet[B >: A]: Set[B] = this.asInstanceOf[HashSet[B]]
+
+  def printDebug(): Unit = {
+    var indent = 0
+    val seen = new java.util.IdentityHashMap[HashSet[_], Object]
+    def loop(node: HashSet[_]): Unit = {
+      indent += 1
+      try {
+        seen.put(node, null)
+        (node: HashSet[_]) match {
+          case HashSet.EmptyHashSet =>
+            println(("  " * indent) + " EmptyHashSet")
+          case set: HashSet.LeafHashSet[_] =>
+            println(("  " * indent) + " LeafHashSet")
+          case set: HashSet.HashTrieSet[_] =>
+            println(("  " * indent) + " HashTrieSet@" + System.identityHashCode(set))
+            for (elem <- set.elems) {
+              if (elem != null && seen.containsKey(elem)) println(("  " * (indent + 1)) + "!! LOOP DETECTED. " + System.identityHashCode(elem))
+              else loop(elem)
+            }
+          case _ =>
+        }
+      } finally {
+        indent -= 1
+      }
+    }
+    loop(this)
+  }
+  def selfCheck(): Unit = {
+    val seen = new java.util.IdentityHashMap[HashSet[_], Object]
+    def loop(node: HashSet[_]): Unit = {
+      seen.put(node, null)
+      (node: HashSet[_]) match {
+        case HashSet.EmptyHashSet =>
+        case set: HashSet.LeafHashSet[_] =>
+        case set: HashSet.HashTrieSet[_] =>
+          for (elem <- set.elems) {
+            if (elem != null && seen.containsKey(elem)) {
+              printDebug()
+              throw new AssertionError("")
+            }
+            else loop(elem)
+          }
+        case _ =>
+      }
+    }
+    loop(this)
+  }
+
 }
 
 /** $factoryInfo
@@ -234,13 +282,13 @@ object HashSet extends ImmutableSetFactory[HashSet] {
         elems(0) = elem1
         elems(1) = elem0
       }
-      new HashTrieSet[A](bitmap, elems, newSize)
+      new HashTrieSet[A](bitmap, elems, newSize, level)
     } else {
       val bitmap = (1 << index0)
       val child = makeHashTrieSet(hash0, elem0, hash1, elem1, level + 5, newSize)
       val elems = new Array[HashSet[A]](1)
       elems(0) = child
-      new HashTrieSet[A](bitmap, elems,  newSize)
+      new HashTrieSet[A](bitmap, elems,  newSize, level)
     }
   }
 
@@ -524,9 +572,27 @@ object HashSet extends ImmutableSetFactory[HashSet] {
    * elems: [a,b]
    * children:        ---b----------------a-----------
    */
-  class HashTrieSet[A](private[HashSet] var bitmap: Int, private[collection] var elems: Array[HashSet[A]], private[HashSet] var size0: Int)
+  class HashTrieSet[A](private[HashSet] var bitmap: Int, private[collection] var elems: Array[HashSet[A]], private[HashSet] var size0: Int, level0:Int)
         extends HashSet[A] {
     @inline override def size = size0
+    def level = level0
+//    object elems {
+//      def apply(i: Int) = {
+//        val res = elems0(i)
+//        res
+//      }
+//      def update(i: Int, hs: HashSet[A]): Unit = {
+//        hs match {
+//          case t: HashTrieSet[A] => assert (t.level == level + 5)
+//          case _ =>
+//          }
+//        elems0(i) = hs
+//        }
+//      def length = elems0.length
+//      def foreach(f: HashSet[A] => Unit) : Unit = elems0.foreach(f)
+//      override def clone(): Array[HashSet[A]] = elems0.clone()
+//      }
+//
     // assert(Integer.bitCount(bitmap) == elems.length)
     // assertion has to remain disabled until scala/bug#6197 is solved
     // assert(elems.length > 1 || (elems.length == 1 && elems(0).isInstanceOf[HashTrieSet[_]]))
@@ -556,7 +622,7 @@ object HashSet extends ImmutableSetFactory[HashSet] {
           System.arraycopy(elems, 0, elemsNew, 0, elems.length)
           elemsNew(offset) = subNew
           // assert (subNew.size - sub.size == 1)
-          new HashTrieSet(bitmap, elemsNew, size + 1)
+          new HashTrieSet(bitmap, elemsNew, size + 1, level)
         }
       } else {
         val elemsNew = new Array[HashSet[A]](elems.length + 1)
@@ -564,7 +630,7 @@ object HashSet extends ImmutableSetFactory[HashSet] {
         elemsNew(offset) = new HashSet1(key, hash)
         System.arraycopy(elems, offset, elemsNew, offset + 1, elems.length - offset)
         val bitmapNew = bitmap | mask
-        new HashTrieSet(bitmapNew, elemsNew, size + 1)
+        new HashTrieSet(bitmapNew, elemsNew, size + 1, level)
       }
     }
 
@@ -591,7 +657,7 @@ object HashSet extends ImmutableSetFactory[HashSet] {
               val elems1 = elems.clone()
               // its just a little faster than new Array[HashSet[A]](elems.length); System.arraycopy(elems, 0, elems1, 0, elems.length)
               elems1(offset) = sub1
-              new HashTrieSet(bitmap, elems1, size + (sub1.size - sub.size))
+              new HashTrieSet(bitmap, elems1, size + (sub1.size - sub.size), level)
             }
           }
         } else {
@@ -600,7 +666,7 @@ object HashSet extends ImmutableSetFactory[HashSet] {
           elems1(offset) = that
           System.arraycopy(elems, offset, elems1, offset + 1, elems.length - offset)
           val bitmap1 = bitmap | mask
-          new HashTrieSet(bitmap1, elems1, size + that.size)
+          new HashTrieSet(bitmap1, elems1, size + that.size, level)
         }
       case that: HashTrieSet[A] =>
         def addMaybeSubset(larger: HashTrieSet[A], smaller: HashTrieSet[A]): HashTrieSet[A] = {
@@ -650,7 +716,7 @@ object HashSet extends ImmutableSetFactory[HashSet] {
           // we don't have to check whether the result is a leaf, since union will only make the set larger
           // and this is not a leaf to begin with.
           if (resultElems eq null) larger // happy days - no change
-          else new HashTrieSet(larger.bitmap, resultElems, larger.size + additionalSize)
+          else new HashTrieSet(larger.bitmap, resultElems, larger.size + additionalSize, level)
         }
 
         def addDistinct(that: HashTrieSet[A]): HashTrieSet[A] = {
@@ -688,7 +754,7 @@ object HashSet extends ImmutableSetFactory[HashSet] {
           }
           // we don't have to check whether the result is a leaf, since union will only make the set larger
           // and this is not a leaf to begin with.
-          new HashTrieSet(abm | bbm, resultElems, this.size + that.size)
+          new HashTrieSet(abm | bbm, resultElems, this.size + that.size, level)
         }
 
         def addCommon(that: HashTrieSet[A]): HashTrieSet[A] = {
@@ -746,7 +812,7 @@ object HashSet extends ImmutableSetFactory[HashSet] {
           }
           // we don't have to check whether the result is a leaf, since union will only make the set larger
           // and this is not a leaf to begin with.
-          new HashTrieSet(this.bitmap | that.bitmap, resultElems, rs)
+          new HashTrieSet(this.bitmap | that.bitmap, resultElems, rs, level)
 
         }
 
@@ -854,7 +920,7 @@ object HashSet extends ImmutableSetFactory[HashSet] {
           else {
             val elems = new Array[HashSet[A]](length)
             System.arraycopy(buffer, offset0, elems, 0, length)
-            new HashTrieSet[A](rbm, elems, rs)
+            new HashTrieSet[A](rbm, elems, rs, level)
           }
         }
       case _ => null
@@ -931,7 +997,7 @@ object HashSet extends ImmutableSetFactory[HashSet] {
           else {
             val elems = new Array[HashSet[A]](length)
             System.arraycopy(buffer, offset0, elems, 0, length)
-            new HashTrieSet[A](rbm, elems, rs)
+            new HashTrieSet[A](rbm, elems, rs, level)
           }
         }
       case that: HashSetCollision1[A] =>
@@ -965,7 +1031,7 @@ object HashSet extends ImmutableSetFactory[HashSet] {
               System.arraycopy(elems, offset + 1, elemsNew, offset, elems.length - offset - 1)
               //assert (sub.size == 1)
               val sizeNew = size - 1
-              new HashTrieSet(bitmapNew, elemsNew, sizeNew)
+              new HashTrieSet(bitmapNew, elemsNew, sizeNew, level)
             }
           } else
             null
@@ -977,7 +1043,7 @@ object HashSet extends ImmutableSetFactory[HashSet] {
           elemsNew(offset) = subNew
           //assert (subNew.size - sub.size == -1)
           val sizeNew = size -1
-          new HashTrieSet(bitmap, elemsNew, sizeNew)
+          new HashTrieSet(bitmap, elemsNew, sizeNew, level)
         }
       } else {
         this
@@ -1081,7 +1147,7 @@ object HashSet extends ImmutableSetFactory[HashSet] {
           // calculate new bitmap by keeping just bits in the kept bitmask
           keepBits(bitmap, kept)
         }
-        new HashTrieSet(bitmap1, elems1, rs)
+        new HashTrieSet(bitmap1, elems1, rs, level)
       }
     }
 
@@ -1212,7 +1278,7 @@ object HashSet extends ImmutableSetFactory[HashSet] {
           }
           bit += 1
         }
-        new HashTrieSet[A](-1, elems, -1)
+        new HashTrieSet[A](-1, elems, -1, hs.level)
       }
     }
 
@@ -1238,7 +1304,7 @@ object HashSet extends ImmutableSetFactory[HashSet] {
               trie.elems(Integer.numberOfTrailingZeros(bitmap))
 
             case bc =>
-              val elems = if (bc == 32) trie.elems else {
+              val elems: Array[HashSet[A]] = if (bc == 32) trie.elems else {
                 val elems = new Array[HashSet[A]](bc)
                 var oBit = 0
                 bit = 0
@@ -1273,7 +1339,6 @@ object HashSet extends ImmutableSetFactory[HashSet] {
         rootNode = nullToEmpty(makeImmutable(rootNode))
         rootNode
     }
-
 
     override def +=(elem1: A, elem2: A, elems: A*): HashSetBuilder.this.type = {
       this += elem1
@@ -1313,7 +1378,7 @@ object HashSet extends ImmutableSetFactory[HashSet] {
         elems(aRawIndex) = aLeaf
         elems(bRawIndex) = bLeaf
       }
-      new HashTrieSet[A](-1, elems, -1)
+      new HashTrieSet[A](-1, elems, -1, level)
     }
 
     def makeMutableTrie(leaf: LeafHashSet[A], elem: A, elemImprovedHash: Int, level: Int): HashTrieSet[A] = {
@@ -1328,6 +1393,7 @@ object HashSet extends ImmutableSetFactory[HashSet] {
           else makeMutableTrie(leaf, elem, improvedHash, level)
 
         case trie: HashTrieSet[A] if isMutable((trie)) =>
+          assert (trie.level == level)
           val arrayIndex = (improvedHash >>> level) & 0x1f
           val old = trie.elems(arrayIndex)
           trie.elems(arrayIndex) = if (old eq null) new HashSet1(elem, improvedHash)
@@ -1335,6 +1401,7 @@ object HashSet extends ImmutableSetFactory[HashSet] {
           trie
 
         case trie: HashTrieSet[A] =>
+          assert (trie.level == level)
           val rawIndex = (improvedHash >>> level) & 0x1f
           val arrayIndex = compressedIndex(trie, rawIndex)
           if (arrayIndex == -1)
@@ -1382,6 +1449,7 @@ object HashSet extends ImmutableSetFactory[HashSet] {
     }
 
     private def addToTrieHashSet(toNode: HashTrieSet[A], toBeAdded: HashSet[A], level: Int): HashSet[A] = {
+      assert (toNode.level == level)
       if (toNode eq toBeAdded) toNode
       else toBeAdded match {
         case bLeaf: LeafHashSet[A] =>
@@ -1409,6 +1477,7 @@ object HashSet extends ImmutableSetFactory[HashSet] {
             }
           }
         case bTrie: HashTrieSet[A] =>
+          assert (bTrie.level == level)
           var result = toNode
           var bBitSet = bTrie.bitmap
           var bArrayIndex = 0

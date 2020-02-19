@@ -65,6 +65,7 @@ class HashSetTest extends AllocationTest {
       base ++ base
     })
   }
+
   @Test
   def nonAllocatingUnionEqual(): Unit = {
     val base1 = generate()
@@ -82,6 +83,7 @@ class HashSetTest extends AllocationTest {
       base1 ++ base2
     })
   }
+
   @Test
   def nonAllocatingUnionEmpty(): Unit = {
     val base1 = generate()
@@ -99,6 +101,7 @@ class HashSetTest extends AllocationTest {
       base1 ++ base2
     })
   }
+
   @Test
   def nonAllocatingUnionEmptySet(): Unit = {
     val base1 = generate()
@@ -116,6 +119,7 @@ class HashSetTest extends AllocationTest {
       base1 ++ base2
     })
   }
+
   @Test
   def nonAllocatingUnionSubsetShared(): Unit = {
     val base1 = generate()
@@ -133,6 +137,7 @@ class HashSetTest extends AllocationTest {
       base1 ++ base2
     })
   }
+
   @Test
   def nonAllocatingUnionSubsetUnshared(): Unit = {
     val base1 = generate()
@@ -150,6 +155,7 @@ class HashSetTest extends AllocationTest {
       base1 ++ base2
     })
   }
+
   @Test
   def nonAllocatingUnionSupersetShared(): Unit = {
     val base1 = generate()
@@ -167,6 +173,7 @@ class HashSetTest extends AllocationTest {
       base1 ++ base2
     })
   }
+
   @Test
   def nonAllocatingUnionSupersetUnshared(): Unit = {
     val base1 = generate()
@@ -185,18 +192,19 @@ class HashSetTest extends AllocationTest {
     })
   }
 
-  def generateWithCollisions(start:Int, end:Int): HashSet[Colliding] = {
-    (start to end).map { i => new Colliding(i/10, s"key $i") }(scala.collection.breakOut)
+  def generateWithCollisions(start: Int, end: Int): HashSet[Colliding] = {
+    (start to end).map { i => new Colliding(i / 10, s"key $i") }(scala.collection.breakOut)
   }
 
-  class Colliding(override val hashCode: Int, val other:String) {
+  class Colliding(override val hashCode: Int, val other: String) {
     override def equals(obj: Any): Boolean = obj match {
-      case that:Colliding => this.hashCode == that.hashCode && this.other == that.other
+      case that: Colliding => this.hashCode == that.hashCode && this.other == that.other
       case _ => false
     }
 
     override def toString: String = s"$hashCode-$other"
   }
+
   @Test def collidingAdd: Unit = {
     val initial = generateWithCollisions(1, 1000)
     assertEquals(1000, initial.size)
@@ -221,6 +229,8 @@ class HashSetTest extends AllocationTest {
     case class C(i: Int) {
       override def hashCode: Int = i % 1024
     }
+    for (i <- 1 to 10) {
+      println (".")
     val setReference = collection.mutable.HashSet[C]()
     val builder0 = collection.immutable.HashSet.newBuilder[C];
     for (i <- 1 to 16) {
@@ -231,8 +241,13 @@ class HashSetTest extends AllocationTest {
       builder0 ++= s1
       setReference ++= s1
     }
-    val set0 = builder0.result()
-    assertEquals(set0, setReference)
+      val set0 = builder0.result()
+      set0.foreach(_.hashCode)
+      if (set0 != setReference) {
+        set0.printDebug()
+        fail("not equals")
+      }
+    }
   }
 
 }

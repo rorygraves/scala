@@ -173,7 +173,7 @@ extends scala.collection.parallel.BucketCombiner[T, ParHashSet[T], Any, HashSetC
     if (sz == 0) new ParHashSet[T]
     else if (sz == 1) new ParHashSet[T](root(0))
     else {
-      val trie = new HashSet.HashTrieSet(bitmap, root, sz)
+      val trie = new HashSet.HashTrieSet(bitmap, root, sz, 0)
       new ParHashSet[T](trie)
     }
   }

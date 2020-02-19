@@ -22,7 +22,7 @@ abstract class HashSetBuilderBaseBenchmark {
     "1000",
     "10000"))
   var size: Int = _
-  @Param(Array("true", "false"))
+  @Param(Array("false"))
   var colliding: Boolean = _
 
   @Param(Array("Set+=", "Set++=", "HashSet+=", "HashSet++="))
