@@ -1389,7 +1389,7 @@ object HashSet extends ImmutableSetFactory[HashSet] {
           val arrayIndex = trieIndex(toNode, rawIndex)
           if (arrayIndex == -1) {
             val newToNode = makeMutable(toNode)
-            newToNode.elems(rawIndex) = result
+            newToNode.elems(rawIndex) = toBeAdded
             newToNode
           } else {
             val old = toNode.elems(arrayIndex)
